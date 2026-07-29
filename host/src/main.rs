@@ -1,30 +1,44 @@
 //! wasm-shell — a native app shell that loads sandboxed WASM mini-apps on demand
 //! and renders their UI natively, with zero web stack (no HTML/CSS/JS/webview).
 //!
+//!   cargo run --features gui                        # home screen (the "browser")
+//!   cargo run --features gui -- counter             # open a listed app directly
 //!   cargo run -- <path-or-url.wasm>                 # headless (default)
 //!   cargo run -- <path-or-url.wasm> --script "1:0,2:0" --frames 6
-//!   cargo run --features gui -- <path-or-url.wasm>  # native egui window
+//!   cargo run -- --list                             # what the home screen offers
+//!
+//! With no argument the shell opens its **home screen**: the mini-apps from
+//! `apps.list` as links, plus an address bar. Clicking a link fetches that
+//! `.wasm` and runs it in the same window; "Home" drops it and goes back.
 //!
 //! The mini-app is untrusted code fetched at runtime; it talks to the host only
-//! through the capability table in `host.rs`. Swapping the .wasm argument runs a
+//! through the capability table in `host.rs`. Swapping the .wasm runs a
 //! different mini-app with no host rebuild — the "browser-like" part.
 
 mod host;
+mod registry;
+mod shell;
 mod ui;
 #[cfg(feature = "gui")]
 mod gui;
 
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 
+use crate::shell::Shell;
 use crate::ui::UiCmd;
+
+const USAGE: &str = "usage: host [<path-or-url.wasm> | <listed-app-name>] \
+[--list] [--headless] [--frames N] [--script \"frame:btn,...\"]";
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
 
     let mut source: Option<String> = None;
     let mut headless = false;
+    let mut list = false;
     let mut frames = 8usize;
     let mut script = String::new();
 
@@ -32,6 +46,11 @@ fn main() -> Result<()> {
     while i < args.len() {
         match args[i].as_str() {
             "--headless" => headless = true,
+            "--list" => list = true,
+            "--help" | "-h" => {
+                println!("{USAGE}");
+                return Ok(());
+            }
             "--frames" => {
                 i += 1;
                 frames = args.get(i).and_then(|s| s.parse().ok()).unwrap_or(8);
@@ -46,38 +65,64 @@ fn main() -> Result<()> {
         i += 1;
     }
 
-    let source = source.context(
-        "usage: host <path-or-url.wasm> [--headless] [--frames N] [--script \"frame:btn,...\"]",
-    )?;
+    let apps = registry::load(Path::new(registry::MANIFEST));
 
-    let wasm = load_wasm(&source)?;
-    println!("loaded {} bytes of wasm from {}", wasm.len(), source);
+    if list {
+        print_home(&apps);
+        return Ok(());
+    }
 
     let engine = wasmtime::Engine::default();
+    let mut shell = Shell::new(engine, apps);
+
+    // An argument means "navigate straight there", skipping the home screen. It
+    // may be a listed app's name (a bookmark) or any path/URL.
+    if let Some(input) = &source {
+        let (src, title) = registry::resolve(input, &shell.apps);
+        shell.open(&src, &title);
+    }
 
     #[cfg(feature = "gui")]
     if !headless {
-        return gui::run(engine, wasm, source);
+        // A failed --  open leaves the shell on home with the error shown there,
+        // so the window still comes up. Nothing to do but run.
+        return gui::run(shell);
     }
 
-    // Headless: the default, and the verifiable test harness.
     #[cfg(not(feature = "gui"))]
     let _ = headless; // silence unused warning when gui is disabled
-    run_headless(&engine, &wasm, frames, &script)
+
+    // Headless: the default, and the verifiable test harness.
+    match source {
+        // No target: there is no headless home screen to click, so show what the
+        // home screen *would* offer.
+        None => {
+            print_home(&shell.apps);
+            println!("\n{USAGE}");
+            Ok(())
+        }
+        Some(_) => {
+            if shell.status_is_error {
+                anyhow::bail!("{}", shell.status);
+            }
+            println!("{}", shell.status);
+            run_headless(shell, frames, &script)
+        }
+    }
 }
 
-/// Fetch the mini-app bytes from a URL (http/https) or a local file path.
-fn load_wasm(source: &str) -> Result<Vec<u8>> {
-    if source.starts_with("http://") || source.starts_with("https://") {
-        use std::io::Read;
-        let resp = ureq::get(source)
-            .call()
-            .with_context(|| format!("GET {source}"))?;
-        let mut buf = Vec::new();
-        resp.into_reader().read_to_end(&mut buf)?;
-        Ok(buf)
-    } else {
-        std::fs::read(source).with_context(|| format!("read file {source}"))
+/// Print the registry — the text form of the home screen.
+fn print_home(apps: &[registry::AppEntry]) {
+    println!("wasm-shell — mini-apps ({}):\n", registry::MANIFEST);
+    if apps.is_empty() {
+        println!("  (none listed)");
+        return;
+    }
+    for e in apps {
+        println!("  {:<10} {}", e.name, e.src);
+        if !e.description.is_empty() {
+            println!("  {:<10} {}", "", e.description);
+        }
     }
 }
 
@@ -94,11 +139,10 @@ fn parse_script(s: &str) -> HashMap<usize, HashSet<u32>> {
     m
 }
 
-/// Run the mini-app for N frames, injecting scripted clicks, printing each
-/// frame's UI. No display needed — this is how the boundary is verified.
-fn run_headless(engine: &wasmtime::Engine, wasm: &[u8], frames: usize, script: &str) -> Result<()> {
-    let mut app = host::MiniApp::load(engine, wasm)?;
-    for l in app.take_logs() {
+/// Run the current mini-app for N frames, injecting scripted clicks, printing
+/// each frame's UI. No display needed — this is how the boundary is verified.
+fn run_headless(mut shell: Shell, frames: usize, script: &str) -> Result<()> {
+    for l in shell.take_logs() {
         println!("[wasm log] {l}");
     }
 
@@ -107,7 +151,7 @@ fn run_headless(engine: &wasmtime::Engine, wasm: &[u8], frames: usize, script: &
 
     for frame in 0..frames {
         let clicks = script.get(&frame).cloned().unwrap_or_default();
-        let cmds = app.frame(clicks.clone())?;
+        let cmds = shell.frame(clicks.clone())?;
 
         let mut injected: Vec<u32> = clicks.into_iter().collect();
         injected.sort_unstable();
@@ -119,7 +163,7 @@ fn run_headless(engine: &wasmtime::Engine, wasm: &[u8], frames: usize, script: &
                 UiCmd::Button { index, text } => println!("   button{index} : {text:?}"),
             }
         }
-        for l in app.take_logs() {
+        for l in shell.take_logs() {
             println!("   [wasm log] {l}");
         }
     }

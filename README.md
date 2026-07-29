@@ -40,14 +40,14 @@ rustup target add wasm32-unknown-unknown
 cargo build --release --target wasm32-unknown-unknown \
   --manifest-path mini-apps/counter/Cargo.toml
 
-# 3a. run it HEADLESS (default; builds & runs anywhere, no system GUI libs)
-cargo run -p host -- \
-  mini-apps/counter/target/wasm32-unknown-unknown/release/counter.wasm \
-  --script "1:0,2:0,3:0,5:1" --frames 8
+# 3a. open the SHELL (a native window; starts on the home screen)
+cargo run -p host --features gui
 
-# 3b. run it in a NATIVE WINDOW (needs a display)
-cargo run -p host --features gui -- \
-  mini-apps/counter/target/wasm32-unknown-unknown/release/counter.wasm
+# 3b. or go straight to one app, skipping the home screen
+cargo run -p host --features gui -- counter
+
+# 3c. run HEADLESS (default; builds & runs anywhere, no system GUI libs)
+cargo run -p host -- counter --script "1:0,2:0,3:0,5:1" --frames 8
 ```
 
 The host also loads a mini-app straight from a URL — the "browser-like" part:
@@ -58,6 +58,36 @@ cargo run -p host -- https://example.com/some-mini-app.wasm
 
 Point it at a different `.wasm` (file **or** URL) and a different mini-app runs —
 **with no host rebuild.**
+
+## The home screen
+
+Opened with no argument, the shell behaves like a browser start page: the
+mini-apps listed in `apps.list` as links, plus an address bar for any path or
+URL. Clicking a link fetches that `.wasm`, instantiates it, and runs it in the
+same window; **Home** drops it and goes back.
+
+```
+apps.list           # name | source (path or URL) | description
+counter | mini-apps/counter/target/wasm32-unknown-unknown/release/counter.wasm | A counter…
+hello   | mini-apps/hello/target/wasm32-unknown-unknown/release/hello.wasm     | A second app…
+```
+
+`cargo run -p host -- --list` prints the same list as text (there is no home
+screen to click headlessly). A name from the list works anywhere a path does, so
+`-- counter` and `-- mini-apps/counter/…/counter.wasm` are the same request.
+
+Two properties fall out of the design and are worth stating:
+
+- **Chrome and page are separate.** The home screen, address bar, and Home
+  button are host UI; the guest only ever paints into the page area below them.
+  Navigation is never reachable by untrusted code.
+- **Leaving an app destroys it.** Navigating home drops the `MiniApp`, its
+  Wasmtime `Store`, and the guest's linear memory. Reopening `counter` starts at
+  0 again — the sandbox doing its job, not lost state.
+
+A link that fails to load (missing file, dead URL, invalid module) leaves the
+shell on the home screen with the error shown in red. A bad link cannot take the
+shell down.
 
 ## The ABI (host <-> mini-app boundary)
 
@@ -119,10 +149,13 @@ for complete examples.
 
 ```
 Cargo.toml                 # workspace = [host]; mini-apps are excluded (wasm target)
+apps.list                  # the home screen's links ("bookmarks")
 host/
-  src/main.rs              # CLI, arg parsing, headless loop, load-from-file/URL
+  src/main.rs              # CLI, arg parsing, headless loop
   src/host.rs              # Wasmtime embedding, HostState, capability table, one-frame driver
   src/ui.rs                # UiCmd / FrameInput — the renderer-agnostic UI protocol
+  src/registry.rs          # apps.list parsing; name -> source resolution
+  src/shell.rs             # navigation (Home <-> App), fetch-from-file/URL
   src/gui.rs               # native egui window backend (feature "gui")
 mini-apps/
   counter/                 # sample: a counter; state lives inside the guest
@@ -140,6 +173,9 @@ mini-apps/
   just renders and routes clicks.
 - **M4 — on-demand loading.** The same host binary runs `counter.wasm` or `hello.wasm`
   loaded from a **file path** or an **HTTP URL** — no host rebuild to swap apps.
+- **M5 — the shell is a browser.** A home screen lists the mini-apps; clicking one
+  loads and runs it in the same window, and Home returns. Apps are swapped at
+  runtime **inside a single running process** — no restart, no rebuild.
 
 The `--script "frame:button,…"` flag injects clicks deterministically so the whole
 host↔guest cycle is verifiable headlessly (no display required), e.g. the counter

@@ -1,0 +1,10 @@
+# wasm-shell — the home screen's links ("bookmarks").
+#
+#   name | source (file path or http/https URL) | description
+#
+# The source is exactly what the CLI accepts, so anything listed here can also
+# be opened with `cargo run -p host -- <name>`. Remote entries are the point:
+# a mini-app is fetched and sandboxed at runtime, with no host rebuild.
+
+counter | mini-apps/counter/target/wasm32-unknown-unknown/release/counter.wasm | A counter; the count lives inside the guest.
+hello   | mini-apps/hello/target/wasm32-unknown-unknown/release/hello.wasm     | A second app, to show hot-swap with no host rebuild.
