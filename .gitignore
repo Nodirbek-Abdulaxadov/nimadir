@@ -1,0 +1,8 @@
+# Rust build artifacts
+/target
+/host/target
+/mini-apps/counter/target
+/mini-apps/hello/target
+
+# Built WASM modules are artifacts — build them from source, don't commit them.
+*.wasm

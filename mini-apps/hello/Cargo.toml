@@ -1,0 +1,14 @@
+[package]
+name = "hello"
+version = "0.1.0"
+edition = "2021"
+description = "Second sample WASM mini-app, to prove hot-swapping without a host rebuild"
+
+[lib]
+crate-type = ["cdylib"]
+
+[profile.release]
+opt-level = "s"
+panic = "abort"
+lto = true
+strip = true

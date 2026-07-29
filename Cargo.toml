@@ -1,0 +1,7 @@
+[workspace]
+resolver = "2"
+members = ["host"]
+# Mini-apps compile to `wasm32-unknown-unknown` and import host functions that
+# only exist inside the host at runtime, so they must NOT be built for the
+# native host target. They are standalone crates, excluded from the workspace.
+exclude = ["mini-apps/counter", "mini-apps/hello"]

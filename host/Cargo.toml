@@ -1,0 +1,22 @@
+[package]
+name = "host"
+version = "0.1.0"
+edition = "2021"
+description = "Native app shell that runs sandboxed WASM mini-apps with no web stack"
+
+[[bin]]
+name = "host"
+path = "src/main.rs"
+
+[dependencies]
+wasmtime = "47"
+anyhow = "1"
+ureq = "2"
+eframe = { version = "0.35", optional = true }
+
+[features]
+# Headless is the default so the shell builds and runs ANYWHERE (no system GUI
+# libraries needed) and can be verified in CI. The real native window is the
+# `gui` feature: `cargo run --features gui -- <app.wasm>`.
+default = []
+gui = ["dep:eframe"]

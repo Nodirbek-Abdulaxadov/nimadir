@@ -1,0 +1,14 @@
+[package]
+name = "counter"
+version = "0.1.0"
+edition = "2021"
+description = "Sample WASM mini-app: a counter that talks to the host via the ABI"
+
+[lib]
+crate-type = ["cdylib"]
+
+[profile.release]
+opt-level = "s"
+panic = "abort"
+lto = true
+strip = true
