@@ -1,34 +1,52 @@
-//! The WASM runtime boundary: embeds Wasmtime, defines the host-function table
-//! (the mini-app's "syscalls"), and drives one guest frame at a time.
+//! The WASM Component-Model boundary: embeds Wasmtime, implements the typed host
+//! interface generated from `wit/`, and drives one guest frame at a time.
 //!
-//! Everything a mini-app is allowed to do is exactly the set of functions
-//! registered in `register_host_fns`. That IS the capability model — a mini-app
-//! is sandboxed by Wasmtime and can only reach the host through this table.
+//! The mini-app is now a **component**, and the host<->guest contract is the
+//! `wit/` package — not a hand-rolled `(ptr, len)` ABI. `bindgen!` turns that
+//! WIT into the `Host` trait we implement below (the capability table) and the
+//! `MiniAppWorld` we instantiate. The canonical ABI moves strings/bools across
+//! the boundary, so there is no manual linear-memory reading here any more.
+//!
+//! The public API of `MiniApp` (`load` / `frame` / `take_logs`) is unchanged, so
+//! `main.rs` and `gui.rs` are untouched by this migration — only the internals.
 
 use std::collections::HashSet;
-use wasmtime::*;
+
+use anyhow::Result;
+use wasmtime::component::{Component, HasSelf, Linker};
+use wasmtime::{Engine, Store};
 
 use crate::ui::{FrameInput, UiCmd};
 
-/// Per-instance host state, stored inside the Wasmtime `Store` and reachable
-/// from every host function via `caller.data()/data_mut()`.
+/// Generated bindings for the `mini-app` world, kept in a submodule so the
+/// generated world type (`bindings::MiniApp`) doesn't clash with our own
+/// `MiniApp` wrapper below.
+mod bindings {
+    wasmtime::component::bindgen!({
+        world: "mini-app",
+        path: "../wit",
+    });
+}
+
+use bindings::nimadir::shell::host_api::Host;
+use bindings::MiniApp as MiniAppWorld;
+
+/// Per-instance host state. Reachable from every host-interface method via
+/// `&mut self`, and from the store via `store.data()/data_mut()`.
 pub struct HostState {
-    /// The guest's exported linear memory (set right after instantiation).
-    pub memory: Option<Memory>,
     /// UI commands the guest emitted during the current frame.
     pub ui: Vec<UiCmd>,
     /// Input for the current frame (clicked button indices).
     pub input: FrameInput,
-    /// Running index handed to each `ui_button` call this frame.
+    /// Running index handed to each `ui-button` call this frame.
     pub button_counter: u32,
-    /// Debug lines the guest sent via `host_log`.
+    /// Debug lines the guest sent via `log`.
     pub logs: Vec<String>,
 }
 
 impl HostState {
     fn new() -> Self {
         HostState {
-            memory: None,
             ui: Vec::new(),
             input: FrameInput::default(),
             button_counter: 0,
@@ -37,49 +55,74 @@ impl HostState {
     }
 }
 
-/// A loaded, instantiated mini-app plus its render loop entry point.
+/// The capability table, now expressed as a typed trait instead of a set of
+/// `(ptr, len)` shims. A mini-app can call exactly these functions and nothing
+/// else crosses the sandbox — add a method here to grant a new capability.
+impl Host for HostState {
+    fn log(&mut self, msg: String) {
+        self.logs.push(msg);
+    }
+
+    fn ui_label(&mut self, text: String) {
+        self.ui.push(UiCmd::Label(text));
+    }
+
+    fn ui_button(&mut self, text: String) -> bool {
+        let index = self.button_counter;
+        self.button_counter += 1;
+        let clicked = self.input.clicked.contains(&index);
+        self.ui.push(UiCmd::Button { index, text });
+        clicked
+    }
+
+    fn now_millis(&mut self) -> i64 {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_millis() as i64)
+            .unwrap_or(0)
+    }
+}
+
+/// A loaded, instantiated mini-app component plus its per-frame entry point.
+/// Same public surface as the old core-module version.
 pub struct MiniApp {
     store: Store<HostState>,
-    update: TypedFunc<(), ()>,
+    world: MiniAppWorld,
 }
 
 impl MiniApp {
-    /// Compile + instantiate a `.wasm` mini-app and run its `init()`.
-    pub fn load(engine: &Engine, wasm: &[u8]) -> anyhow::Result<Self> {
-        let module = Module::from_binary(engine, wasm)?;
+    /// Compile + instantiate a `.wasm` **component** mini-app and run its `init`.
+    pub fn load(engine: &Engine, wasm: &[u8]) -> Result<Self> {
+        let component = Component::from_binary(engine, wasm)?;
 
         let mut linker: Linker<HostState> = Linker::new(engine);
-        register_host_fns(&mut linker)?;
+        // `HasSelf<HostState>` says "the host data IS the store data" — the getter
+        // is the identity `|s| s`. (wasmtime 47's typed-linker mechanism.)
+        MiniAppWorld::add_to_linker::<HostState, HasSelf<HostState>>(
+            &mut linker,
+            |s: &mut HostState| s,
+        )?;
 
         let mut store = Store::new(engine, HostState::new());
-        let instance = linker.instantiate(&mut store, &module)?;
+        let world = MiniAppWorld::instantiate(&mut store, &component, &linker)?;
 
-        // Cache the guest's linear memory so host functions can read strings.
-        let memory = instance.get_memory(&mut store, "memory");
-        store.data_mut().memory = memory;
+        // One-time setup hook.
+        world.call_init(&mut store)?;
 
-        // Optional one-time setup hook.
-        if let Ok(init) = instance.get_typed_func::<(), ()>(&mut store, "init") {
-            init.call(&mut store, ())?;
-        }
-
-        let update = instance
-            .get_typed_func::<(), ()>(&mut store, "update")
-            .map_err(|_| anyhow::anyhow!("mini-app has no `update()` export"))?;
-
-        Ok(MiniApp { store, update })
+        Ok(MiniApp { store, world })
     }
 
     /// Run exactly one frame: feed this frame's clicks in, let the guest draw,
     /// return the UI it described. This is the whole host<->guest cycle.
-    pub fn frame(&mut self, clicks: HashSet<u32>) -> anyhow::Result<Vec<UiCmd>> {
+    pub fn frame(&mut self, clicks: HashSet<u32>) -> Result<Vec<UiCmd>> {
         {
             let st = self.store.data_mut();
             st.ui.clear();
             st.button_counter = 0;
             st.input.clicked = clicks;
         }
-        self.update.call(&mut self.store, ())?;
+        self.world.call_update(&mut self.store)?;
         Ok(self.store.data().ui.clone())
     }
 
@@ -87,83 +130,4 @@ impl MiniApp {
     pub fn take_logs(&mut self) -> Vec<String> {
         std::mem::take(&mut self.store.data_mut().logs)
     }
-}
-
-/// Register the complete capability table the guest may import from `"env"`.
-/// Add a capability here and it becomes callable by every mini-app; remove it
-/// and no mini-app can reach it. Nothing else crosses the sandbox boundary.
-fn register_host_fns(linker: &mut Linker<HostState>) -> anyhow::Result<()> {
-    // host_log(ptr, len) — debug logging.
-    linker.func_wrap(
-        "env",
-        "host_log",
-        |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| {
-            let bytes = read_guest_bytes(&caller, ptr, len);
-            let s = String::from_utf8_lossy(&bytes).into_owned();
-            caller.data_mut().logs.push(s);
-        },
-    )?;
-
-    // ui_label(ptr, len) — draw a text label.
-    linker.func_wrap(
-        "env",
-        "ui_label",
-        |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| {
-            let bytes = read_guest_bytes(&caller, ptr, len);
-            let text = String::from_utf8_lossy(&bytes).into_owned();
-            caller.data_mut().ui.push(UiCmd::Label(text));
-        },
-    )?;
-
-    // ui_button(ptr, len) -> i32 — draw a button; 1 if it was clicked this frame.
-    linker.func_wrap(
-        "env",
-        "ui_button",
-        |mut caller: Caller<'_, HostState>, ptr: i32, len: i32| -> i32 {
-            let bytes = read_guest_bytes(&caller, ptr, len);
-            let text = String::from_utf8_lossy(&bytes).into_owned();
-            let st = caller.data_mut();
-            let index = st.button_counter;
-            st.button_counter += 1;
-            let clicked = st.input.clicked.contains(&index);
-            st.ui.push(UiCmd::Button { index, text });
-            if clicked {
-                1
-            } else {
-                0
-            }
-        },
-    )?;
-
-    // host_now_millis() -> i64 — an example capability the host fully controls.
-    linker.func_wrap(
-        "env",
-        "host_now_millis",
-        |_caller: Caller<'_, HostState>| -> i64 {
-            use std::time::{SystemTime, UNIX_EPOCH};
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .map(|d| d.as_millis() as i64)
-                .unwrap_or(0)
-        },
-    )?;
-
-    Ok(())
-}
-
-/// Copy `len` bytes at `ptr` out of the guest's linear memory. Copies eagerly
-/// (returns an owned `Vec`) so the caller can then mutate `HostState` — a later
-/// guest call can grow/move memory, so we must not hold a borrow into it.
-fn read_guest_bytes(caller: &Caller<'_, HostState>, ptr: i32, len: i32) -> Vec<u8> {
-    let mem = match caller.data().memory {
-        Some(m) => m,
-        None => return Vec::new(),
-    };
-    let data = mem.data(caller);
-    let start = ptr as usize;
-    let end = start.saturating_add(len as usize);
-    if len < 0 || end > data.len() {
-        return Vec::new();
-    }
-    data[start..end].to_vec()
 }

@@ -1,0 +1,15 @@
+[package]
+name = "componentize"
+version = "0.1.0"
+edition = "2021"
+description = "Turn a core wasm module (built by wit-bindgen) into a WASM component"
+
+[[bin]]
+name = "componentize"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+wit-component = "0.254.0"
+# wit-component version is filled in by `cargo add` (latest on crates.io), so it
+# stays in step with the Component Model encoding wasmtime expects.

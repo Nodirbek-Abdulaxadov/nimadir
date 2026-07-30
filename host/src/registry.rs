@@ -66,12 +66,12 @@ pub fn builtin() -> Vec<AppEntry> {
     vec![
         AppEntry {
             name: "counter".into(),
-            src: "mini-apps/counter/target/wasm32-unknown-unknown/release/counter.wasm".into(),
+            src: "mini-apps/counter/counter.component.wasm".into(),
             description: "A counter; the count lives inside the guest.".into(),
         },
         AppEntry {
             name: "hello".into(),
-            src: "mini-apps/hello/target/wasm32-unknown-unknown/release/hello.wasm".into(),
+            src: "mini-apps/hello/hello.component.wasm".into(),
             description: "A second app, to show hot-swap with no host rebuild.".into(),
         },
     ]

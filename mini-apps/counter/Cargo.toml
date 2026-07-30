@@ -2,10 +2,14 @@
 name = "counter"
 version = "0.1.0"
 edition = "2021"
-description = "Sample WASM mini-app: a counter that talks to the host via the ABI"
+description = "Sample WASM mini-app (Component Model): a counter that owns its state"
 
 [lib]
 crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = "0.60.0"
+# wit-bindgen version is filled in by `cargo add` (latest on crates.io).
 
 [profile.release]
 opt-level = "s"

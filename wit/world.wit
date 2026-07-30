@@ -1,0 +1,31 @@
+package nimadir:shell@0.1.0;
+
+/// The complete host <-> mini-app contract, defined ONCE and shared by both
+/// sides. `wit-bindgen` generates the guest bindings from this file; wasmtime's
+/// `bindgen!` generates the host bindings from the very same file. There is no
+/// hand-written `(ptr, len)` ABI on either side any more — the Component Model's
+/// canonical ABI moves the strings and bools across the boundary for us.
+interface host-api {
+    /// Debug log line, printed by the host.
+    log: func(msg: string);
+
+    /// Draw a text label in the current frame.
+    ui-label: func(text: string);
+
+    /// Draw a button in the current frame; returns true if it was clicked.
+    ui-button: func(text: string) -> bool;
+
+    /// Example host-owned capability: wall-clock time in milliseconds.
+    now-millis: func() -> s64;
+}
+
+/// A mini-app. It may import (call) everything in `host-api` — that interface IS
+/// its capability set, the only thing it can reach outside its own sandbox — and
+/// it must export `init` (one-time setup) and `update` (called once per frame to
+/// describe its immediate-mode UI).
+world mini-app {
+    import host-api;
+
+    export init: func();
+    export update: func();
+}

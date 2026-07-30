@@ -2,14 +2,15 @@
 name = "host"
 version = "0.1.0"
 edition = "2021"
-description = "Native app shell that runs sandboxed WASM mini-apps with no web stack"
+description = "Native app shell that runs sandboxed WASM component mini-apps, no web stack"
 
 [[bin]]
 name = "host"
 path = "src/main.rs"
 
 [dependencies]
-wasmtime = "47"
+# `component-model` enables `wasmtime::component` (bindgen!, Component, Linker).
+wasmtime = { version = "47", features = ["component-model"] }
 anyhow = "1"
 ureq = "2"
 eframe = { version = "0.35", optional = true }

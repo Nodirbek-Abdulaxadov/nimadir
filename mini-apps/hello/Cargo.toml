@@ -2,10 +2,14 @@
 name = "hello"
 version = "0.1.0"
 edition = "2021"
-description = "Second sample WASM mini-app, to prove hot-swapping without a host rebuild"
+description = "Second sample WASM mini-app (Component Model), to prove hot-swapping"
 
 [lib]
 crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = "0.60.0"
+# wit-bindgen version is filled in by `cargo add` (latest on crates.io).
 
 [profile.release]
 opt-level = "s"
