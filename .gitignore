@@ -4,5 +4,9 @@
 /mini-apps/counter/target
 /mini-apps/hello/target
 
+# .NET build artifacts (C# mini-app)
+/mini-apps/counter-cs/bin
+/mini-apps/counter-cs/obj
+
 # Built WASM modules are artifacts — build them from source, don't commit them.
 *.wasm

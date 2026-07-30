@@ -6,5 +6,6 @@
 # be opened with `cargo run -p host -- <name>`. Remote entries are the point:
 # a mini-app is fetched and sandboxed at runtime, with no host rebuild.
 
-counter | mini-apps/counter/counter.component.wasm | A counter; the count lives inside the guest.
-hello   | mini-apps/hello/hello.component.wasm     | A second app, to show hot-swap with no host rebuild.
+counter    | mini-apps/counter/counter.component.wasm       | A counter; the count lives inside the guest.
+hello      | mini-apps/hello/hello.component.wasm            | A second app, to show hot-swap with no host rebuild.
+counter-cs | mini-apps/counter-cs/counter-cs.component.wasm  | The counter written in C# (.NET NativeAOT) — same WIT, no host change.

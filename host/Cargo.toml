@@ -14,6 +14,7 @@ wasmtime = { version = "47", features = ["component-model"] }
 anyhow = "1"
 ureq = "2"
 eframe = { version = "0.35", optional = true }
+wasmtime-wasi = "47"
 
 [features]
 # Headless is the default so the shell builds and runs ANYWHERE (no system GUI

@@ -74,6 +74,11 @@ pub fn builtin() -> Vec<AppEntry> {
             src: "mini-apps/hello/hello.component.wasm".into(),
             description: "A second app, to show hot-swap with no host rebuild.".into(),
         },
+        AppEntry {
+            name: "counter-cs".into(),
+            src: "mini-apps/counter-cs/counter-cs.component.wasm".into(),
+            description: "The counter written in C# (.NET NativeAOT) — same WIT, no host change.".into(),
+        },
     ]
 }
 

@@ -26,6 +26,19 @@ for app in "${APPS[@]}"; do
   ./target/release/componentize "$core" "$out"
 done
 
+# The C# mini-app is built by the .NET SDK (componentize-dotnet), not cargo. It is
+# optional: skipped cleanly when `dotnet` isn't on PATH, so the Rust apps still
+# build everywhere. Needs the .NET 10 SDK; its toolchain (NativeAOT-LLVM + the
+# WASI SDK) is downloaded and cached on the first build (a few minutes once).
+if command -v dotnet >/dev/null 2>&1; then
+  echo "==> building mini-app: counter-cs (C#, componentize-dotnet)"
+  dotnet build -c Release mini-apps/counter-cs/counter-cs.csproj
+  cp mini-apps/counter-cs/bin/Release/net10.0/wasi-wasm/publish/counter_cs.wasm \
+     mini-apps/counter-cs/counter-cs.component.wasm
+else
+  echo "==> skipping counter-cs (C#): 'dotnet' not found on PATH"
+fi
+
 echo
 echo "components ready:"
 ls -la mini-apps/*/*.component.wasm

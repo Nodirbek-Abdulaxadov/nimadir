@@ -13,8 +13,9 @@
 use std::collections::HashSet;
 
 use anyhow::Result;
-use wasmtime::component::{Component, HasSelf, Linker};
+use wasmtime::component::{Component, HasSelf, Linker, ResourceTable};
 use wasmtime::{Engine, Store};
+use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
 use crate::ui::{FrameInput, UiCmd};
 
@@ -42,6 +43,14 @@ pub struct HostState {
     pub button_counter: u32,
     /// Debug lines the guest sent via `log`.
     pub logs: Vec<String>,
+    /// WASI state. Mini-apps written in languages with a runtime (C#/.NET, Go,
+    /// …) import the `wasi:*` interfaces even for a headless reactor, so the
+    /// host must provide them; the Rust mini-apps import none, so this stays
+    /// dormant for them. The context is deliberately minimal — no filesystem or
+    /// network preopens — a sandboxed default (only stderr is inherited, for
+    /// runtime diagnostics).
+    wasi: WasiCtx,
+    table: ResourceTable,
 }
 
 impl HostState {
@@ -51,6 +60,17 @@ impl HostState {
             input: FrameInput::default(),
             button_counter: 0,
             logs: Vec::new(),
+            wasi: WasiCtxBuilder::new().inherit_stderr().build(),
+            table: ResourceTable::new(),
+        }
+    }
+}
+
+impl WasiView for HostState {
+    fn ctx(&mut self) -> WasiCtxView<'_> {
+        WasiCtxView {
+            ctx: &mut self.wasi,
+            table: &mut self.table,
         }
     }
 }
@@ -103,6 +123,11 @@ impl MiniApp {
             &mut linker,
             |s: &mut HostState| s,
         )?;
+
+        // WASI 0.2, so components from runtime-bearing languages (C#/.NET, Go)
+        // resolve their `wasi:*` imports (poll, clocks, random, …). Additive —
+        // the Rust mini-apps import none of it.
+        wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
 
         let mut store = Store::new(engine, HostState::new());
         let world = MiniAppWorld::instantiate(&mut store, &component, &linker)?;

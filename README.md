@@ -11,8 +11,10 @@ a small, typed, capability-scoped **WIT interface**. The host is a generic
 renderer + capability provider; each mini-app owns its logic and state inside a
 Wasmtime sandbox.
 
-Everything is Rust: the host embeds **Wasmtime** (WASM runtime, Component Model)
-and, for the window, **egui** (pure-Rust, GPU-rendered, no DOM).
+The host is Rust: it embeds **Wasmtime** (WASM runtime, Component Model) and, for
+the window, **egui** (pure-Rust, GPU-rendered, no DOM). Mini-apps can be written
+in **any language that compiles to a component** — this repo ships samples in
+both **Rust** and **C# (.NET)**, run by the same host with no changes.
 
 ```
 ┌───────────────────────────────────────────────────────────────┐
@@ -46,8 +48,9 @@ This version moves the boundary to the **WASM Component Model + WIT**:
 - The Component Model's **canonical ABI** moves `string`/`bool`/… across the
   boundary. No `(ptr, len)`, no `guest_alloc`, no manual memory reads on the host.
 - Because the interface is language-neutral, a mini-app can be written in **any
-  language that targets components** (Rust today; C#/.NET via `componentize-dotnet`,
-  Go via TinyGo, … next) with **no host change**.
+  language that targets components** — this repo has both **Rust** and **C#/.NET**
+  mini-apps (see *Polyglot*, below), Go via TinyGo next — all talking to the
+  **same host, unchanged**.
 
 That typed, shared, language-neutral interface is the "native DOM" the web gives
 you through the browser — but here it is native, and free of JS/HTML/CSS.
@@ -58,8 +61,8 @@ you through the browser — but here it is native, and free of JS/HTML/CSS.
 # 1. one-time: the WASM target used to build mini-apps
 rustup target add wasm32-unknown-unknown
 
-# 2. build the mini-apps into COMPONENTS
-#    (cargo build -> core module, then our `componentize` tool -> component)
+# 2. build the mini-apps into COMPONENTS (Rust via cargo + componentize; the C#
+#    app too, if the .NET 10 SDK is installed — otherwise it is skipped cleanly)
 ./build-mini-apps.sh
 
 # 3a. open the SHELL — a native window that starts on the home screen
@@ -175,6 +178,54 @@ Then add a line to `apps.list` so it shows on the home screen. See
 `mini-apps/counter` (guest-owned state) and `mini-apps/hello` (a second app) for
 complete examples.
 
+## Polyglot: the same counter in C#
+
+The payoff of a typed, language-neutral WIT interface is that the host doesn't
+care what language a mini-app is written in. `mini-apps/counter-cs` is the
+`counter`, rewritten in **C#** and compiled to a WASM component with
+[`componentize-dotnet`](https://github.com/bytecodealliance/componentize-dotnet)
+(NativeAOT-LLVM). The **host is not changed** to run it — the C# side generates
+its bindings from the very same `wit/world.wit`:
+
+```csharp
+using MiniAppWorld;
+using static MiniAppWorld.wit.Imports.nimadir.shell.v0_1_0.IHostApiImports;
+
+public class MiniAppWorldExportsImpl : IMiniAppWorldExports
+{
+    private static int _count;
+    public static void Init()   => Log($"counter-cs: init at host-time {NowMillis()}");
+    public static void Update()
+    {
+        UiLabel($"Count (C#): {_count}");
+        if (UiButton("Increment")) _count++;
+        if (UiButton("Reset"))     _count = 0;
+    }
+}
+```
+
+Two things are worth knowing:
+
+- **The host provides WASI.** A language with a runtime (C#, Go, …) imports the
+  `wasi:*` interfaces (clocks, random, `io/poll`, …) even for a headless reactor,
+  so the host adds WASI 0.2 to the component linker (`wasmtime-wasi`). The Rust
+  mini-apps import none of it, so this is invisible to them — it's purely
+  additive. The WASI context is minimal: no filesystem or network preopens.
+- **Size is the trade-off.** The Rust `counter` component is ~17 KB; the C# one is
+  ~2.2 MB — a trimmed, AOT-compiled managed runtime travels inside it. That is the
+  cost of a runtime language, and the reason to **mix**: tiny Rust widgets next to
+  heavier C# apps, all in one shell.
+
+Build it with the **.NET 10 SDK** (`build-mini-apps.sh` does this automatically
+when `dotnet` is on PATH; the NativeAOT-LLVM + WASI SDK toolchain is downloaded
+and cached on the first build):
+
+```bash
+dotnet build -c Release mini-apps/counter-cs/counter-cs.csproj
+# -> mini-apps/counter-cs/bin/Release/net10.0/wasi-wasm/publish/counter_cs.wasm
+cargo run -p host -- counter-cs --script "1:0,2:0,3:0,5:1" --frames 8
+```
+
 ## Layout
 
 ```
@@ -183,16 +234,17 @@ Cargo.toml                 # workspace = [host, tools/componentize]
 apps.list                  # the home screen's links ("bookmarks")
 host/
   src/main.rs              # CLI, arg parsing, headless loop, --list
-  src/host.rs              # Wasmtime component embedding + generated host-interface impl
+  src/host.rs              # Wasmtime component embedding, host-interface impl, WASI (wasmtime-wasi)
   src/ui.rs                # UiCmd / FrameInput — the renderer-agnostic UI protocol
   src/registry.rs          # apps.list parsing; name -> source resolution
   src/shell.rs             # navigation (Home <-> App), fetch-from-file/URL
   src/gui.rs               # native egui window backend (feature "gui")
 tools/componentize/        # core-module -> WASM component encoder (wraps `wit-component`)
 mini-apps/
-  counter/                 # sample: a counter; state lives inside the guest
-  hello/                   # sample: a second app, to show hot-swap without rebuild
-build-mini-apps.sh         # build + componentize every mini-app
+  counter/                 # sample (Rust): a counter; state lives inside the guest
+  hello/                   # sample (Rust): a second app, to show hot-swap without rebuild
+  counter-cs/              # sample (C#):   the counter via componentize-dotnet — same WIT
+build-mini-apps.sh         # build + componentize every mini-app (Rust + optional C#)
 ```
 
 Why a `componentize` tool? `wit-bindgen` emits a core module with the world's
@@ -217,6 +269,10 @@ the same in ~15 lines using the `wit-component` library.
 - **M5 — the shell is a browser.** A home screen lists the mini-apps; clicking one
   loads and runs it in the same window, and Home returns. Apps are swapped at
   runtime **inside a single running process** — no restart, no rebuild.
+- **M6 — polyglot.** The same host runs a mini-app written in **C# (.NET)**
+  (`counter-cs`), compiled to a component with `componentize-dotnet` and loaded
+  with **no host change** — proof that the WIT interface, not the language, is the
+  contract. (The host provides WASI 0.2 for the managed runtime; see *Polyglot*.)
 
 The `--script "frame:button,…"` flag injects clicks deterministically so the whole
 host↔guest cycle is verifiable headlessly (no display required), e.g. the counter
@@ -240,8 +296,8 @@ Because the renderer is isolated behind the `UiCmd` protocol (`ui.rs`) and the
 - **A retained "native DOM"**: replace immediate-mode with a UI *tree* in WIT
   (nodes, attributes, `append-child`, patch, events). Matches the DOM mental
   model and cuts boundary traffic (send diffs, not the whole UI each frame).
-- **Polyglot mini-apps**: a C#/.NET mini-app compiled to a component with
-  `componentize-dotnet`, a Go one with TinyGo — same `wit/`, no host change.
+- **More languages**: a Go mini-app with TinyGo, and others — same `wit/`, no host
+  change. (A **C#/.NET** mini-app is already built — see *Polyglot*, above.)
 - **Per-mini-app capability policy** (which apps may call which host functions),
   plus fuel/memory limits and timeouts.
 - **Zero-copy bulk data** (shared linear-memory buffers for pixels/geometry)
