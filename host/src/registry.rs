@@ -1,28 +1,89 @@
-//! The shell's "bookmarks" — the list of mini-apps the home screen offers.
+//! The shell's "bookmarks" — the list of mini-apps it knows about.
 //!
 //! A browser ships with a start page of links; this is the same idea. Entries
 //! are plain data (name, source, description) and the source is exactly what the
 //! `--` argument accepts: a local path **or** an http(s) URL. Nothing here knows
 //! anything about WASM — it is just an address book.
+//!
+//! Two formats, in precedence order: `apps.json`, then `apps.list`. JSON is
+//! what a registry *server* would serve, so the same parser handles a local
+//! catalogue and a remote one; the pipe-delimited `apps.list` stays because it
+//! is pleasant to hand-edit and was here first. A registry can also be a URL,
+//! which is the whole of "remote registry" — the catalogue moves off disk and
+//! nothing else changes.
 
 use std::path::Path;
 
+use serde::Deserialize;
+
 /// One entry on the home screen.
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct AppEntry {
     pub name: String,
     /// File path or http(s) URL of the `.wasm`.
+    #[serde(alias = "source")]
     pub src: String,
+    #[serde(default)]
     pub description: String,
 }
 
-/// The manifest filename looked up next to the working directory.
+/// The JSON catalogue, looked up first.
+pub const MANIFEST_JSON: &str = "apps.json";
+/// The original pipe-delimited manifest, still supported.
 pub const MANIFEST: &str = "apps.list";
 
-/// Read `apps.list` if present, else fall back to the built-in sample entries.
-/// A missing or unreadable manifest is not an error — the shell still opens.
-pub fn load(path: &Path) -> Vec<AppEntry> {
-    match std::fs::read_to_string(path) {
+/// Load the registry from a URL (`http(s)://…`, always JSON) or a local file
+/// (`.json` by extension, else the pipe format).
+///
+/// Every failure falls back rather than propagating: a shell that will not open
+/// because its bookmarks file is malformed is worse than one that opens with
+/// the built-in list and says so.
+/// Returns the entries and a label for where they *actually* came from —
+/// which is not always the source asked for, since every failure falls back.
+/// Saying "read from <url>" after failing to reach it would be a lie the user
+/// then has to debug around.
+pub fn load_from(source: &str) -> (Vec<AppEntry>, String) {
+    let text = if source.starts_with("http://") || source.starts_with("https://") {
+        fetch(source)
+    } else {
+        std::fs::read_to_string(source).ok()
+    };
+
+    let entries = text
+        .map(|t| {
+            if source.ends_with(".json") {
+                parse_json(&t)
+            } else {
+                parse(&t)
+            }
+        })
+        .unwrap_or_default();
+
+    if entries.is_empty() {
+        (builtin(), format!("built-in — {source} was unusable"))
+    } else {
+        (entries, source.to_string())
+    }
+}
+
+fn fetch(url: &str) -> Option<String> {
+    ureq::get(url).call().ok()?.into_string().ok()
+}
+
+/// Read the default manifests: `apps.json`, then `apps.list`, then the built-in
+/// entries. A missing manifest is not an error — the shell still opens.
+pub fn load(dir: &Path) -> Vec<AppEntry> {
+    let json = dir.join(MANIFEST_JSON);
+    if json.is_file() {
+        let entries = std::fs::read_to_string(&json)
+            .ok()
+            .map(|t| parse_json(&t))
+            .unwrap_or_default();
+        if !entries.is_empty() {
+            return entries;
+        }
+    }
+    match std::fs::read_to_string(dir.join(MANIFEST)) {
         Ok(text) => {
             let entries = parse(&text);
             if entries.is_empty() {
@@ -32,6 +93,37 @@ pub fn load(path: &Path) -> Vec<AppEntry> {
             }
         }
         Err(_) => builtin(),
+    }
+}
+
+/// Name whichever default manifest is actually present, for messages that
+/// would otherwise claim to have read a file they did not.
+pub fn describe_default() -> String {
+    if Path::new(MANIFEST_JSON).is_file() {
+        MANIFEST_JSON.to_string()
+    } else if Path::new(MANIFEST).is_file() {
+        MANIFEST.to_string()
+    } else {
+        "built-in".to_string()
+    }
+}
+
+/// Parse the JSON catalogue: either a bare array of entries, or an object with
+/// an `apps` array, since a real registry server tends to wrap its payload.
+pub fn parse_json(text: &str) -> Vec<AppEntry> {
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum Catalogue {
+        Bare(Vec<AppEntry>),
+        Wrapped { apps: Vec<AppEntry> },
+    }
+
+    match serde_json::from_str::<Catalogue>(text) {
+        Ok(Catalogue::Bare(apps)) | Ok(Catalogue::Wrapped { apps }) => apps
+            .into_iter()
+            .filter(|e| !e.name.is_empty() && !e.src.is_empty())
+            .collect(),
+        Err(_) => Vec::new(),
     }
 }
 

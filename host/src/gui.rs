@@ -18,14 +18,14 @@
 //! switch to Makepad later, implement the same loop against `Shell`; nothing
 //! else changes.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use anyhow::Result;
 use eframe::egui;
 
 use crate::registry;
 use crate::shell::{Shell, View};
-use crate::ui::UiCmd;
+use crate::ui::{FrameInput, UiCmd};
 
 /// Where a home-screen interaction wants to navigate.
 enum Nav {
@@ -35,7 +35,14 @@ enum Nav {
     Typed(String),
 }
 
-pub fn run(shell: Shell) -> Result<()> {
+pub fn run(mut shell: Shell) -> Result<()> {
+    // The window's start page is the store mini-app, not the shell's built-in
+    // list — `go_home` decides which, and falls back if the store is missing.
+    // Only when the CLI did not already navigate somewhere.
+    if shell.is_home() {
+        shell.go_home();
+    }
+
     // Must happen on this thread, before any webview is created. A failure is
     // deliberately *not* fatal: mini-apps do not need a webview, so letting
     // module 1 refuse to initialise and taking the whole shell with it would be
@@ -66,6 +73,9 @@ struct ShellApp {
     shell: Shell,
     /// Buttons clicked during the previous egui frame, fed to the guest next.
     pending_clicks: HashSet<u32>,
+    /// Live contents of the guest's text fields, by index. The host owns these
+    /// buffers; the guest is told what is in them one frame later.
+    field_values: HashMap<u32, String>,
     /// Address bar contents.
     address: String,
     /// The address the bar was last synced to, so navigation can refresh it
@@ -93,6 +103,7 @@ impl ShellApp {
         ShellApp {
             shell,
             pending_clicks: HashSet::new(),
+            field_values: HashMap::new(),
             address: String::new(),
             synced_src: String::new(),
             last_title: String::new(),
@@ -245,8 +256,9 @@ impl ShellApp {
         }
 
         if go_home {
-            // Drop any clicks aimed at the app we just left.
+            // Drop any input aimed at the app we just left.
             self.pending_clicks.clear();
+            self.field_values.clear();
             self.shell.go_home();
         }
         if let Some(n) = nav {
@@ -257,6 +269,7 @@ impl ShellApp {
     /// Perform a navigation requested by the chrome or a home-screen link.
     fn navigate(&mut self, nav: Nav) {
         self.pending_clicks.clear();
+        self.field_values.clear();
         let (src, title) = match nav {
             Nav::Listed { src, title } => (src, title),
             // Typed text only becomes an address here, so the address bar and
@@ -405,15 +418,26 @@ impl ShellApp {
 
     /// The page area: purely whatever the guest described this frame.
     fn page(&mut self, ui: &mut egui::Ui) {
-        let clicks = std::mem::take(&mut self.pending_clicks);
+        let input = FrameInput {
+            clicked: std::mem::take(&mut self.pending_clicks),
+            edits: self.field_values.clone(),
+        };
 
-        let cmds = match self.shell.frame(clicks) {
+        let cmds = match self.shell.frame(input) {
             Ok(c) => c,
             Err(e) => {
                 ui.colored_label(egui::Color32::RED, format!("guest error: {e}"));
                 return;
             }
         };
+
+        // A guest that asked to open another app has already been replaced by
+        // it. Its widget state belongs to an instance that no longer exists.
+        if self.shell.took_navigation() {
+            self.pending_clicks.clear();
+            self.field_values.clear();
+            return;
+        }
 
         // Translate the guest's UI commands into native egui widgets.
         for c in &cmds {
@@ -424,6 +448,28 @@ impl ShellApp {
                 UiCmd::Button { index, text } => {
                     if ui.button(text).clicked() {
                         self.pending_clicks.insert(*index);
+                    }
+                }
+                UiCmd::TextEdit { index, text } => {
+                    // The live buffer is the host's; the guest is told what is
+                    // in it on the next frame, the same one-frame handshake
+                    // clicks already use.
+                    //
+                    // The id is pinned to the guest's field index rather than
+                    // left to egui's draw-order counter. egui keys focus and
+                    // cursor position by widget id, and a guest's widget list
+                    // changes shape constantly — the store's own search filters
+                    // the rows below this very field — so a position-derived id
+                    // would move out from under the field being typed into and
+                    // drop focus on the first keystroke.
+                    let mut value = text.clone();
+                    let resp = ui.add(
+                        egui::TextEdit::singleline(&mut value)
+                            .id(egui::Id::new(("guest-field", *index)))
+                            .desired_width(320.0),
+                    );
+                    if resp.changed() {
+                        self.field_values.insert(*index, value);
                     }
                 }
             }

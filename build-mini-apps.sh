@@ -16,7 +16,7 @@ rustup target add wasm32-unknown-unknown >/dev/null 2>&1 || true
 # Build the componentizer once (native binary).
 cargo build --release -p componentize
 
-APPS=(counter hello)
+APPS=(counter hello store)
 for app in "${APPS[@]}"; do
   echo "==> building mini-app: $app"
   cargo build --release --target wasm32-unknown-unknown \

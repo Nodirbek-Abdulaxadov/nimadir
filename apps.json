@@ -1,0 +1,24 @@
+{
+  "apps": [
+    {
+      "name": "store",
+      "source": "mini-apps/store/store.component.wasm",
+      "description": "The start page: browse and search everything below."
+    },
+    {
+      "name": "counter",
+      "source": "mini-apps/counter/counter.component.wasm",
+      "description": "A counter; the count lives inside the guest."
+    },
+    {
+      "name": "hello",
+      "source": "mini-apps/hello/hello.component.wasm",
+      "description": "A second app, to show hot-swap with no host rebuild."
+    },
+    {
+      "name": "counter-cs",
+      "source": "mini-apps/counter-cs/counter-cs.component.wasm",
+      "description": "The counter written in C# (.NET NativeAOT) - same WIT, no host change."
+    }
+  ]
+}

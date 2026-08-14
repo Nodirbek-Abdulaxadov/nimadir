@@ -6,7 +6,7 @@
 //! backend is active (headless text, or the egui window). This is the seam that
 //! lets the SAME mini-app render on any backend — swap the renderer, not the app.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 /// One immediate-mode UI element emitted by the guest during a frame.
 #[derive(Clone, Debug)]
@@ -16,10 +16,22 @@ pub enum UiCmd {
     /// A clickable button. `index` is assigned by the host in call order, so
     /// the backend can report "button N was clicked" back to the guest.
     Button { index: u32, text: String },
+    /// A single-line text field. `text` is the value to display — already the
+    /// edited one, since the host answers the guest with last frame's edits.
+    TextEdit { index: u32, text: String },
 }
 
-/// Input handed to the guest for a frame: which button indices were clicked.
+/// Input handed to the guest for a frame.
+///
+/// Both fields describe what the user did to the *previous* frame's widgets.
+/// That one-frame lag is inherent to the design, not an oversight: the guest
+/// asks for a widget and gets its result in the same call, so the only result
+/// the host can possibly have is the one from the last time it was drawn.
 #[derive(Default, Clone)]
 pub struct FrameInput {
+    /// Button indices clicked.
     pub clicked: HashSet<u32>,
+    /// Current contents of each text field, by index. Absent means untouched,
+    /// in which case the guest's own value is handed straight back.
+    pub edits: HashMap<u32, String>,
 }

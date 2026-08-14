@@ -6,6 +6,14 @@ package nimadir:shell@0.1.0;
 /// hand-written `(ptr, len)` ABI on either side any more — the Component Model's
 /// canonical ABI moves the strings and bools across the boundary for us.
 interface host-api {
+    /// One app the shell knows about — the same shape the home screen lists.
+    record app-entry {
+        name: string,
+        /// File path or URL. Whatever `open-app` accepts.
+        source: string,
+        description: string,
+    }
+
     /// Debug log line, printed by the host.
     log: func(msg: string);
 
@@ -15,8 +23,24 @@ interface host-api {
     /// Draw a button in the current frame; returns true if it was clicked.
     ui-button: func(text: string) -> bool;
 
+    /// Draw a single-line text field. Pass the value the guest is holding; the
+    /// host returns the value after the user's edits, which the guest stores
+    /// and passes back next frame. Immediate mode, exactly like `ui-button`:
+    /// the guest owns the state, the host owns the widget.
+    ui-text-edit: func(text: string) -> string;
+
     /// Example host-owned capability: wall-clock time in milliseconds.
     now-millis: func() -> s64;
+
+    /// The shell's app registry. A mini-app cannot reach the network or the
+    /// disk, so this is how the store learns what there is to list.
+    list-apps: func() -> list<app-entry>;
+
+    /// Ask the shell to open another app. It is a *request*, honoured once the
+    /// current frame returns: a guest cannot be torn down in the middle of its
+    /// own `update`, so navigation always happens between frames, not during
+    /// one. The caller keeps running until then.
+    open-app: func(source: string);
 }
 
 /// A mini-app. It may import (call) everything in `host-api` — that interface IS
