@@ -102,6 +102,29 @@ screen to click headlessly). A name from the list works anywhere a path does, so
 `-- counter` and `-- mini-apps/counter/counter.component.wasm` are the same
 request.
 
+### The address bar routes
+
+The address bar is permanent chrome — it sits above the page in every view, so a
+new address can be typed without going home first. What you type is not assumed
+to be a mini-app: `resolve.rs` classifies it, and the shell dispatches on the
+answer.
+
+```
+local path        -> by extension (.wasm / .html), no network at all
+URL ending .wasm  -> a component; the address already said so
+any other URL     -> fetched once, classified by Content-Type
+```
+
+`text/html` routes to a web page; `application/wasm` routes to the sandbox. The
+classification fetch *is* the load — a component is never downloaded twice, which
+is why there is no separate `HEAD` probe. Servers that mislabel `.wasm` as
+`application/octet-stream` are still handled: the bytes are already in hand, and
+the WASM magic number settles it. Anything that is neither is an error you can
+read, on the screen you were already on.
+
+Web pages are recognised but not yet rendered — they are the webview's job, and
+the webview is the next piece of work. Until then that view says so.
+
 Two properties fall out of the design and are worth stating:
 
 - **Chrome and page are separate.** The home screen, address bar, and Home
@@ -237,7 +260,8 @@ host/
   src/host.rs              # Wasmtime component embedding, host-interface impl, WASI (wasmtime-wasi)
   src/ui.rs                # UiCmd / FrameInput — the renderer-agnostic UI protocol
   src/registry.rs          # apps.list parsing; name -> source resolution
-  src/shell.rs             # navigation (Home <-> App), fetch-from-file/URL
+  src/resolve.rs           # address classification (component vs web page) + fetch
+  src/shell.rs             # navigation (Home <-> App <-> WebPage)
   src/gui.rs               # native egui window backend (feature "gui")
 tools/componentize/        # core-module -> WASM component encoder (wraps `wit-component`)
 mini-apps/

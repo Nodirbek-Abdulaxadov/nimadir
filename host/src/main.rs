@@ -11,12 +11,18 @@
 //! `apps.list` as links, plus an address bar. Clicking a link fetches that
 //! `.wasm` and runs it in the same window; "Home" drops it and goes back.
 //!
+//! The address bar takes any address, not only components: `resolve.rs`
+//! classifies what is there and the shell routes to the matching module. Web
+//! pages route to a placeholder for now — the webview that renders them is the
+//! next stage of work.
+//!
 //! The mini-app is untrusted code fetched at runtime; it talks to the host only
 //! through the capability table in `host.rs`. Swapping the .wasm runs a
 //! different mini-app with no host rebuild — the "browser-like" part.
 
 mod host;
 mod registry;
+mod resolve;
 mod shell;
 mod ui;
 #[cfg(feature = "gui")]
@@ -30,8 +36,9 @@ use anyhow::Result;
 use crate::shell::Shell;
 use crate::ui::UiCmd;
 
-const USAGE: &str = "usage: host [<path-or-url.wasm> | <listed-app-name>] \
-[--list] [--headless] [--frames N] [--script \"frame:btn,...\"]";
+const USAGE: &str = "usage: host [<address> | <listed-app-name>] \
+[--list] [--headless] [--frames N] [--script \"frame:btn,...\"]\n\
+       an address is a .wasm component (path or URL) or a web page URL";
 
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().collect();
@@ -106,6 +113,13 @@ fn main() -> Result<()> {
                 anyhow::bail!("{}", shell.status);
             }
             println!("{}", shell.status);
+            // A web page has no guest to step: there are no frames to run, and
+            // the webview it belongs to is a window backend concern. Routing is
+            // still what this verifies — the address was classified, and the
+            // shell went somewhere other than a mini-app.
+            if shell.is_web_page() {
+                return Ok(());
+            }
             run_headless(shell, frames, &script)
         }
     }

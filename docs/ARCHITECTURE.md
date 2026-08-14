@@ -10,29 +10,46 @@ explains *how the code is laid out*.
 
 ---
 
-## 1. Verified baseline
+## 1. Verified behaviour
 
-Everything below was run on this tree before any change was made, so later work
-has a known-good starting point.
+What has actually been run against this tree, rather than what it ought to do.
+
+**The core, unchanged since the MVP:**
 
 | Check | Command | Result |
 |---|---|---|
 | Mini-apps build | `./build-mini-apps.sh` | OK — `counter` 17 643 B, `hello` 11 380 B |
-| Headless host + guest cycle | `cargo run -p host -- counter --script "1:0,2:0,3:0,5:1" --frames 8` | OK — count 0→1→2→3, reset to 0 |
-| Second app, no host rebuild | `cargo run -p host -- hello --frames 2` | OK |
-| Registry listing | `cargo run -p host -- --list` | OK — 3 entries |
-| GUI backend compiles | `cargo build -p host --features gui` | OK (eframe 0.35 / egui 0.35 / winit 0.30 / wgpu 29) |
-| Bad path is survivable | `cargo run -p host -- ./nope.wasm` | Clean error, no panic |
-| Non-wasm input is survivable | `cargo run -p host -- README.md` | `failed to parse WebAssembly module`, no panic |
+| Host + guest cycle | `-- counter --script "1:0,2:0,3:0,5:1" --frames 8` | count 0→1→2→3, reset to 0 |
+| Second app, no host rebuild | `-- hello --frames 2` | OK |
+| Registry listing | `-- --list` | 3 entries |
+| Both feature sets compile | `cargo build -p host [--features gui]` | OK, no warnings |
 
-Two environment facts that shape what can be verified here:
+**Address classification** (`resolve.rs`), against a local HTTP server:
+
+| Address | Served as | Routes to |
+|---|---|---|
+| `…/counter.component.wasm` | `application/wasm` | component — 17 643 B, guest ran |
+| `…/mystery` (no extension) | `application/octet-stream` | component — magic number settled it |
+| `…/page.html` | `text/html` | web page |
+| `…/notes.txt` | `text/plain` | error naming the type, exit 1 |
+| `mini-apps/hello/hello.component.wasm` | local path | component |
+| `…/page.html` (on disk) | local path | web page |
+| `README.md` | local path | error, no network request |
+| `example.com` | — | error asking for the scheme |
+
+**The window**, run under Xvfb with Mesa's software Vulkan, screenshotted in
+each of its three states: home (bookmark list), app (`counter` running under the
+chrome), web page (placeholder), plus a failed navigation showing its error in
+red while staying on home.
+
+Three things worth carrying forward:
 
 - **`counter-cs` is skipped** — `dotnet` is not on PATH. The build script skips
   it cleanly by design; the Rust apps still build. Nothing is broken.
-- **No display, no GTK.** `DISPLAY`/`WAYLAND_DISPLAY` are unset and
-  `gtk+-3.0` / `webkit2gtk-4.1` are not installed (X11 headers are). So the GUI
-  can be *compiled* but not *run* in this container. This matters for the
-  webview work — see §4.
+- **No GTK.** `gtk+-3.0` and `webkit2gtk-4.1` are not installed. The egui window
+  needs neither (winit talks to X11 directly), but the webview will — see §4.2.
+- The CLI panics with exit 101 if its stdout pipe closes early (`| head -n`).
+  Pre-existing, unrelated to routing; noted so it is not misread as a fault.
 
 ---
 
@@ -100,19 +117,35 @@ egui, on stdout, or on a future backend. Any new widget type starts here.
 WASI is linked in for runtime-bearing guest languages (C#, Go); the Rust
 mini-apps import none of it, so it is purely additive.
 
-### `host/src/shell.rs` — navigation (134 lines)
+### `host/src/resolve.rs` — the router
+Decides what an address *is*, before the shell tries to go there.
+
+- `enum Target` — `WasmApp(Vec<u8>)` (bytes included) or `WebPage`.
+- `classify` — local paths by extension, `.wasm` URLs by name, everything else
+  by a single `GET` whose `Content-Type` answers the question.
+- The fetch is deliberate: the request a `HEAD` probe would save is the one the
+  component path has to make anyway, so the body rides along with the answer and
+  nothing is downloaded twice.
+- `application/octet-stream` and missing types fall back to the WASM magic
+  number, because plenty of static hosts mislabel `.wasm`.
+
+### `host/src/shell.rs` — navigation
 The browser-shaped layer above a single mini-app. Knows nothing about drawing.
 
-- `enum View` (:28) — `Home` or `App { title, src, app }`.
+- `enum View` (:28) — `Home`, `App { title, src, app }`, or
+  `WebPage { title, url }`. The third is where the webview will render; today
+  the backend draws a placeholder in it.
 - `struct Shell` (:39) — owns `engine`, `apps` (the registry), `view`, and a
   `status` / `status_is_error` pair used as a status bar.
-- `Shell::open` (:70) — the single navigation entry point. Failure leaves the
-  previous view intact and records the error in `status`; a bad link must not
-  take the shell down.
+- `Shell::open` (:70) — the single navigation entry point: classify with
+  `resolve`, then dispatch on the answer. Failure leaves the previous view
+  intact and records the error in `status`; a bad link must not take the shell
+  down. The view is only replaced once the destination is known good.
 - `Shell::go_home` (:96) — replaces `view`, which **drops the `MiniApp`, its
   Wasmtime `Store`, and the guest's linear memory**. Reopening an app starts it
   from scratch. That is the sandbox working, not lost state.
-- `load_wasm` (:122) — fetch from `http(s)://` via `ureq`, else read a file.
+- Fetching itself now lives in `resolve.rs`, since classification and loading
+  are the same request.
 
 ### `host/src/registry.rs` — the bookmarks (111 lines)
 - `struct AppEntry` (:12) — `name`, `src`, `description`. Knows nothing about
@@ -120,6 +153,7 @@ The browser-shaped layer above a single mini-app. Knows nothing about drawing.
 - `parse` (:40) — `name | src | description`, `#` comments and blank lines
   skipped.
 - `builtin` (:65) — fallback entries so a fresh clone has a working home screen.
+  Note these are still *sources*, not classified targets; `resolve` runs after.
 - `normalize` (:90) — strips surrounding quotes (Windows "Copy as path" pastes).
 - `resolve` (:105) — `input -> (source, title)`. A bare registry name wins;
   anything else passes through unchanged. **Both the CLI and the address bar go
@@ -128,9 +162,16 @@ The browser-shaped layer above a single mini-app. Knows nothing about drawing.
 ### `host/src/gui.rs` — the egui backend (251 lines, feature `gui`)
 Splits the window into two zones, and keeping them apart is the security story:
 
-- **Chrome** — `chrome` (:103) draws the Home button and title; `home` (:134)
-  draws the registry links, the address bar, and the status line. Host UI. The
-  guest cannot draw it, reach it, or know it exists.
+- **Chrome** — `chrome` draws the Home button, the **permanent address bar**,
+  the title and the status line; `home` draws the registry links. Host UI. The
+  guest cannot draw it, reach it, or know it exists. The address bar lives in
+  the chrome rather than on the home screen because it is the entry point for
+  both modules — you must be able to retype an address from inside an app.
+- `navigate` is the one place a `Nav` becomes a `Shell::open` call, shared by
+  the address bar and the home-screen links, so both accept the same input.
+- `Body::of` picks the renderer for the area below the chrome. It reads the
+  discriminant into a local first: the arms take `&mut self`, so the match
+  cannot hold a borrow of `shell.view` across them.
 - **Page** — `page` (:222) translates the guest's `Vec<UiCmd>` into egui
   widgets and records clicks into `pending_clicks` for the *next* frame.
 
@@ -169,19 +210,12 @@ Notes gathered while reading the tree against the SuperBrowser build plan
 (address bar routing → webview module → WASM app store). Recorded here because
 they are properties of *this code*, not of the plan.
 
-### 4.1 Content-type routing
-`registry::resolve` (:105) has no notion of a scheme: anything that is not a
-listed name becomes a path. A router needs to classify *before* that fallback —
-otherwise typed input like `example.com` becomes a filename and fails with a
-file-read error.
-
-`shell::load_wasm` (:122) already performs a full `GET`. Classifying by response
-`Content-Type` is therefore free on the request that is already happening — a
-separate `HEAD` would double the round trips for the WASM path, which is the
-common one.
-
-`Shell::open` (:70) is the single navigation entry point, so a `Target` decision
-belongs immediately in front of it and nowhere else.
+### 4.1 Content-type routing — built
+`resolve.rs` and `View::WebPage` are this note, implemented. One thing it did
+*not* solve, deliberately: `registry::resolve` (:105) still has no notion of a
+scheme, so a bare `example.com` is treated as a path and reports that a web
+address needs its `https://`. Guessing a scheme is address-bar smartness and
+belongs with the rest of it, not smuggled in here.
 
 ### 4.2 Webview: eframe does not have to be replaced
 The build plan flags "eframe hides its event loop" as the project's largest

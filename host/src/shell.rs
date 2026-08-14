@@ -10,14 +10,19 @@
 //! the guest's linear memory with it. So a mini-app keeps no state across a
 //! visit: going home and reopening `counter` starts again at 0. That is the
 //! sandbox doing its job, not a bug.
+//!
+//! An address is not assumed to be a mini-app any more: `resolve` classifies it
+//! first, and the shell dispatches on the answer. That is the seam where the
+//! second kind of destination — an old web page — enters the design.
 
 use std::collections::HashSet;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use wasmtime::Engine;
 
 use crate::host::MiniApp;
 use crate::registry::AppEntry;
+use crate::resolve::{self, Target};
 use crate::ui::UiCmd;
 
 /// Which "page" the shell is on.
@@ -34,6 +39,9 @@ pub enum View {
         src: String,
         app: Box<MiniApp>,
     },
+    /// An old-style web page. Routing reaches this view today and the backend
+    /// draws a placeholder; the webview renders into it in the next stage.
+    WebPage { title: String, url: String },
 }
 
 pub struct Shell {
@@ -64,13 +72,17 @@ impl Shell {
         matches!(self.view, View::Home)
     }
 
-    /// Navigate to a mini-app: fetch the bytes, instantiate it, and make it the
-    /// current view. A failure leaves you where you were with the error in
-    /// `status` — a bad link must not take the shell down.
+    pub fn is_web_page(&self) -> bool {
+        matches!(self.view, View::WebPage { .. })
+    }
+
+    /// Navigate to an address: classify it, then go wherever it turned out to
+    /// lead. A failure leaves you where you were with the error in `status` — a
+    /// bad link must not take the shell down.
     pub fn open(&mut self, src: &str, title: &str) {
         match self.try_open(src, title) {
-            Ok(n) => {
-                self.status = format!("loaded {n} bytes of wasm from {src}");
+            Ok(status) => {
+                self.status = status;
                 self.status_is_error = false;
             }
             Err(e) => {
@@ -80,16 +92,29 @@ impl Shell {
         }
     }
 
-    fn try_open(&mut self, src: &str, title: &str) -> Result<usize> {
-        let wasm = load_wasm(src)?;
-        let app = MiniApp::load(&self.engine, &wasm)?;
-        let n = wasm.len();
-        self.view = View::App {
-            title: title.to_string(),
-            src: src.to_string(),
-            app: Box::new(app),
-        };
-        Ok(n)
+    /// Returns the status line to show on success. The view is only replaced
+    /// once the destination is known good, so a failed navigation cannot leave
+    /// the shell pointing at a half-loaded page.
+    fn try_open(&mut self, src: &str, title: &str) -> Result<String> {
+        match resolve::classify(src)? {
+            Target::WasmApp(wasm) => {
+                let app = MiniApp::load(&self.engine, &wasm)?;
+                let n = wasm.len();
+                self.view = View::App {
+                    title: title.to_string(),
+                    src: src.to_string(),
+                    app: Box::new(app),
+                };
+                Ok(format!("loaded {n} bytes of wasm from {src}"))
+            }
+            Target::WebPage => {
+                self.view = View::WebPage {
+                    title: title.to_string(),
+                    url: src.to_string(),
+                };
+                Ok(format!("{src} is a web page — the webview module is not built yet"))
+            }
+        }
     }
 
     /// Back to the start page. Drops the running instance (see module docs).
@@ -104,7 +129,7 @@ impl Shell {
     pub fn frame(&mut self, clicks: HashSet<u32>) -> Result<Vec<UiCmd>> {
         match &mut self.view {
             View::App { app, .. } => app.frame(clicks),
-            View::Home => Ok(Vec::new()),
+            View::Home | View::WebPage { .. } => Ok(Vec::new()),
         }
     }
 
@@ -112,23 +137,7 @@ impl Shell {
     pub fn take_logs(&mut self) -> Vec<String> {
         match &mut self.view {
             View::App { app, .. } => app.take_logs(),
-            View::Home => Vec::new(),
+            View::Home | View::WebPage { .. } => Vec::new(),
         }
-    }
-}
-
-/// Fetch mini-app bytes from a URL (http/https) or a local file path. This is
-/// the "browser-like" fetch: remote code, retrieved at runtime, run sandboxed.
-pub fn load_wasm(source: &str) -> Result<Vec<u8>> {
-    if source.starts_with("http://") || source.starts_with("https://") {
-        use std::io::Read;
-        let resp = ureq::get(source)
-            .call()
-            .with_context(|| format!("GET {source}"))?;
-        let mut buf = Vec::new();
-        resp.into_reader().read_to_end(&mut buf)?;
-        Ok(buf)
-    } else {
-        std::fs::read(source).with_context(|| format!("read file {source}"))
     }
 }

@@ -52,6 +52,9 @@ struct ShellApp {
     pending_clicks: HashSet<u32>,
     /// Address bar contents.
     address: String,
+    /// The address the bar was last synced to, so navigation can refresh it
+    /// without overwriting what the user is in the middle of typing.
+    synced_src: String,
     /// Last title pushed to the OS window, so we only send it on change.
     last_title: String,
 }
@@ -62,6 +65,7 @@ impl ShellApp {
             shell,
             pending_clicks: HashSet::new(),
             address: String::new(),
+            synced_src: String::new(),
             last_title: String::new(),
         }
     }
@@ -74,14 +78,33 @@ impl eframe::App for ShellApp {
         self.chrome(ui);
         ui.separator();
 
-        if self.shell.is_home() {
-            self.home(ui);
-        } else {
-            self.page(ui);
+        // Read the discriminant first: the arms take `&mut self`, so the match
+        // cannot hold a borrow of `self.shell.view` across them.
+        match Body::of(&self.shell) {
+            Body::Home => self.home(ui),
+            Body::App => self.page(ui),
+            Body::WebPage => self.web_page(ui),
         }
 
         // Immediate-mode: keep redrawing so button clicks are picked up promptly.
         ui.ctx().request_repaint();
+    }
+}
+
+/// Which renderer the area below the chrome needs this frame.
+enum Body {
+    Home,
+    App,
+    WebPage,
+}
+
+impl Body {
+    fn of(shell: &Shell) -> Self {
+        match &shell.view {
+            View::Home => Body::Home,
+            View::App { .. } => Body::App,
+            View::WebPage { .. } => Body::WebPage,
+        }
     }
 }
 
@@ -90,7 +113,9 @@ impl ShellApp {
     fn sync_window_title(&mut self, ui: &egui::Ui) {
         let want = match &self.shell.view {
             View::Home => "wasm-shell".to_string(),
-            View::App { title, .. } => format!("wasm-shell — {title}"),
+            View::App { title, .. } | View::WebPage { title, .. } => {
+                format!("wasm-shell — {title}")
+            }
         };
         if want != self.last_title {
             ui.ctx()
@@ -99,15 +124,32 @@ impl ShellApp {
         }
     }
 
-    /// The bar above the page: Home button, current title, current address.
+    /// The bar above the page: Home button, address bar, current title, status.
+    ///
+    /// The address bar lives here rather than on the home screen because it is
+    /// now the entry point for *both* modules — you must be able to type a new
+    /// address without first going home, exactly like a browser.
     fn chrome(&mut self, ui: &mut egui::Ui) {
-        let mut go_home = false;
         let (title, src) = match &self.shell.view {
             View::Home => ("wasm-shell".to_string(), String::new()),
             View::App { title, src, .. } => (title.clone(), src.clone()),
+            View::WebPage { title, url } => (title.clone(), url.clone()),
         };
         let at_home = self.shell.is_home();
 
+        // Follow navigation, like a browser's bar does: whatever you arrived at
+        // is what it shows. Only on an actual change, so typing is never eaten.
+        if src != self.synced_src {
+            self.address = src.clone();
+            self.synced_src = src.clone();
+        }
+
+        let mut go_home = false;
+        let mut nav: Option<Nav> = None;
+        // Submitted with nothing typed — needs to say so, or the button looks dead.
+        let mut submitted_empty = false;
+
+        let mut addr = std::mem::take(&mut self.address);
         ui.horizontal(|ui| {
             if !at_home {
                 if ui.button("Home").clicked() {
@@ -115,22 +157,71 @@ impl ShellApp {
                 }
                 ui.separator();
             }
-            ui.strong(title.as_str());
-            // Opened straight from the address bar, the title *is* the address;
-            // showing it twice reads as a rendering bug.
-            if !src.is_empty() && src != title {
-                ui.weak(src.as_str());
+            let resp = ui.add(
+                egui::TextEdit::singleline(&mut addr)
+                    .desired_width(520.0)
+                    .hint_text("counter   |   path/to/app.wasm   |   https://example.com"),
+            );
+            let entered =
+                resp.lost_focus() && ui.ctx().input(|i| i.key_pressed(egui::Key::Enter));
+            if ui.button("Open").clicked() || entered {
+                if addr.trim().is_empty() {
+                    submitted_empty = true;
+                } else {
+                    nav = Some(Nav::Typed(addr.clone()));
+                }
             }
         });
+        self.address = addr;
+
+        // Opened straight from the address bar, the title *is* the address, and
+        // the bar above is already showing it.
+        if !at_home && title != src {
+            ui.horizontal(|ui| {
+                ui.strong(title.as_str());
+            });
+        }
+
+        if submitted_empty {
+            self.shell.status =
+                "type a .wasm path, a URL, or the name of a listed app".to_string();
+            self.shell.status_is_error = true;
+        }
+
+        // Drawn in the chrome so a failed navigation is visible from inside a
+        // mini-app too, not only on the home screen.
+        if !self.shell.status.is_empty() {
+            if self.shell.status_is_error {
+                ui.colored_label(egui::Color32::RED, self.shell.status.as_str());
+            } else {
+                ui.weak(self.shell.status.as_str());
+            }
+        }
 
         if go_home {
             // Drop any clicks aimed at the app we just left.
             self.pending_clicks.clear();
             self.shell.go_home();
         }
+        if let Some(n) = nav {
+            self.navigate(n);
+        }
     }
 
-    /// The start page: the registry as links, plus an address bar.
+    /// Perform a navigation requested by the chrome or a home-screen link.
+    fn navigate(&mut self, nav: Nav) {
+        self.pending_clicks.clear();
+        let (src, title) = match nav {
+            Nav::Listed { src, title } => (src, title),
+            // Typed text only becomes an address here, so the address bar and
+            // the CLI accept exactly the same things.
+            Nav::Typed(input) => registry::resolve(&input, &self.shell.apps),
+        };
+        self.shell.open(&src, &title);
+    }
+
+    /// The start page: the registry as links. The address bar that used to live
+    /// here is permanent chrome now, so this is purely the bookmark list.
     fn home(&mut self, ui: &mut egui::Ui) {
         // Where this frame wants to navigate, if anywhere.
         let mut nav: Option<Nav> = None;
@@ -166,56 +257,27 @@ impl ShellApp {
             ui.add_space(6.0);
         }
 
-        ui.separator();
-        ui.label("Or open a .wasm by path, URL, or the name of one listed above:");
-
-        // Submitted with nothing typed — needs to say so, or the button looks dead.
-        let mut submitted_empty = false;
-
-        let mut addr = std::mem::take(&mut self.address);
-        ui.horizontal(|ui| {
-            let resp = ui.add(
-                egui::TextEdit::singleline(&mut addr)
-                    .desired_width(520.0)
-                    .hint_text("counter   |   path\\to\\app.wasm   |   https://…/app.wasm"),
-            );
-            let entered =
-                resp.lost_focus() && ui.ctx().input(|i| i.key_pressed(egui::Key::Enter));
-            if ui.button("Open").clicked() || entered {
-                if addr.trim().is_empty() {
-                    submitted_empty = true;
-                } else {
-                    nav = Some(Nav::Typed(addr.clone()));
-                }
-            }
-        });
-        self.address = addr;
-
-        if submitted_empty {
-            self.shell.status =
-                "type a .wasm path, a URL, or the name of a listed app".to_string();
-            self.shell.status_is_error = true;
-        }
-
-        if !self.shell.status.is_empty() {
-            ui.add_space(8.0);
-            if self.shell.status_is_error {
-                ui.colored_label(egui::Color32::RED, self.shell.status.as_str());
-            } else {
-                ui.weak(self.shell.status.as_str());
-            }
-        }
-
         if let Some(n) = nav {
-            self.pending_clicks.clear();
-            let (src, title) = match n {
-                Nav::Listed { src, title } => (src, title),
-                // Typed text only becomes an address here, so the address bar
-                // and the CLI accept exactly the same things.
-                Nav::Typed(input) => registry::resolve(&input, &self.shell.apps),
-            };
-            self.shell.open(&src, &title);
+            self.navigate(n);
         }
+    }
+
+    /// An old-style web page. Routing reaches this view today and says so; the
+    /// webview that actually renders the page replaces this body in stage 2.
+    fn web_page(&mut self, ui: &mut egui::Ui) {
+        let View::WebPage { url, .. } = &self.shell.view else {
+            return;
+        };
+
+        ui.add_space(8.0);
+        ui.strong("Web page");
+        ui.add_space(4.0);
+        ui.label(url.as_str());
+        ui.add_space(10.0);
+        ui.weak("This address was classified as a web page, not a WASM component,");
+        ui.weak("so the shell routed it away from the mini-app path.");
+        ui.add_space(6.0);
+        ui.weak("The webview module that renders it is the next stage of work.");
     }
 
     /// The page area: purely whatever the guest described this frame.
