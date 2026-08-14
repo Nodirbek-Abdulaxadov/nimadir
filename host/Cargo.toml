@@ -15,6 +15,15 @@ anyhow = "1"
 ureq = "2"
 eframe = { version = "0.35", optional = true }
 wasmtime-wasi = "47"
+# The webview (module 1). Only `wry` — NOT Tauri: Tauri brings its own
+# application framework, which would fight the host loop nimadir already owns.
+wry = { version = "0.56", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+# On Linux wry is WebKitGTK, which lives in GTK's event loop; the host has to
+# initialise and pump it (see webview.rs). Pinned to the version wry itself
+# uses, so both sides mean the same GTK.
+gtk = { version = "0.18", optional = true }
 
 [features]
 # Headless is the default so the shell builds and runs ANYWHERE (no system GUI
@@ -22,3 +31,8 @@ wasmtime-wasi = "47"
 # `gui` feature: `cargo run --features gui -- <app.wasm>`.
 default = []
 gui = ["dep:eframe"]
+# Kept separate from `gui` because it needs system libraries that `gui` does
+# not: WebKitGTK on Linux (libwebkit2gtk-4.1-dev), WebView2 on Windows. Folding
+# it into `gui` would make the windowed build stop working on machines that
+# have no webview runtime, to add a module they may never open.
+webview = ["gui", "dep:wry", "dep:gtk"]

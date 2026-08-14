@@ -36,11 +36,27 @@ enum Nav {
 }
 
 pub fn run(shell: Shell) -> Result<()> {
+    // Must happen on this thread, before any webview is created. A failure is
+    // deliberately *not* fatal: mini-apps do not need a webview, so letting
+    // module 1 refuse to initialise and taking the whole shell with it would be
+    // the tail wagging the dog. The reason is carried instead, and a page that
+    // cannot be rendered says why in its own view.
+    #[cfg(feature = "webview")]
+    let web_unavailable = crate::webview::init().err().map(|e| e.to_string());
+
     let native_options = eframe::NativeOptions::default();
     eframe::run_native(
         "wasm-shell",
         native_options,
-        Box::new(|_cc| Ok(Box::new(ShellApp::new(shell)) as Box<dyn eframe::App>)),
+        Box::new(move |_cc| {
+            #[allow(unused_mut)]
+            let mut app = ShellApp::new(shell);
+            #[cfg(feature = "webview")]
+            {
+                app.web_unavailable = web_unavailable;
+            }
+            Ok(Box::new(app) as Box<dyn eframe::App>)
+        }),
     )
     .map_err(|e| anyhow::anyhow!("eframe error: {e}"))?;
     Ok(())
@@ -57,6 +73,19 @@ struct ShellApp {
     synced_src: String,
     /// Last title pushed to the OS window, so we only send it on change.
     last_title: String,
+    /// The live webview, when a page is open. `None` at every other moment —
+    /// leaving a page destroys it (see `webview::WebPane`).
+    #[cfg(feature = "webview")]
+    web: Option<crate::webview::WebPane>,
+    /// Why this platform has no webview at all, if it has none. Set once at
+    /// startup and never cleared — retrying cannot change the answer.
+    #[cfg(feature = "webview")]
+    web_unavailable: Option<String>,
+    /// Why *this* page's webview could not be created, if it could not.
+    /// Remembered so the failure is reported once rather than retried sixty
+    /// times a second, and cleared on navigation so the next page may differ.
+    #[cfg(feature = "webview")]
+    web_error: Option<String>,
 }
 
 impl ShellApp {
@@ -67,13 +96,24 @@ impl ShellApp {
             address: String::new(),
             synced_src: String::new(),
             last_title: String::new(),
+            #[cfg(feature = "webview")]
+            web: None,
+            #[cfg(feature = "webview")]
+            web_unavailable: None,
+            #[cfg(feature = "webview")]
+            web_error: None,
         }
     }
 }
 
 impl eframe::App for ShellApp {
     // eframe 0.35 hands us a `&mut Ui` directly (no need to open a CentralPanel).
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
+        // On Linux the webview lives in GTK's loop, not this one; without this
+        // a page loads and then freezes. No-op on the other platforms.
+        #[cfg(feature = "webview")]
+        crate::webview::pump();
+
         self.sync_window_title(ui);
         self.chrome(ui);
         ui.separator();
@@ -81,9 +121,15 @@ impl eframe::App for ShellApp {
         // Read the discriminant first: the arms take `&mut self`, so the match
         // cannot hold a borrow of `self.shell.view` across them.
         match Body::of(&self.shell) {
-            Body::Home => self.home(ui),
-            Body::App => self.page(ui),
-            Body::WebPage => self.web_page(ui),
+            Body::Home => {
+                self.close_web();
+                self.home(ui);
+            }
+            Body::App => {
+                self.close_web();
+                self.page(ui);
+            }
+            Body::WebPage => self.web_page(ui, frame),
         }
 
         // Immediate-mode: keep redrawing so button clicks are picked up promptly.
@@ -262,12 +308,30 @@ impl ShellApp {
         }
     }
 
-    /// An old-style web page. Routing reaches this view today and says so; the
-    /// webview that actually renders the page replaces this body in stage 2.
-    fn web_page(&mut self, ui: &mut egui::Ui) {
+    /// An old-style web page: module 1.
+    ///
+    /// With the `webview` feature the page is rendered by a native child
+    /// webview covering exactly this area, and egui draws nothing here. Without
+    /// it — or if the webview could not be created — this falls back to text
+    /// that says where you are and why there is no page under it.
+    fn web_page(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let View::WebPage { url, .. } = &self.shell.view else {
             return;
         };
+        let url = url.clone();
+
+        #[cfg(feature = "webview")]
+        match self.show_web(frame, &url, ui) {
+            // The webview owns this area now; anything egui painted into it
+            // would be hidden behind a native surface anyway.
+            Ok(()) => return,
+            Err(e) => {
+                ui.add_space(8.0);
+                ui.colored_label(egui::Color32::RED, format!("no webview: {e}"));
+            }
+        }
+        #[cfg(not(feature = "webview"))]
+        let _ = frame;
 
         ui.add_space(8.0);
         ui.strong("Web page");
@@ -276,9 +340,68 @@ impl ShellApp {
         ui.add_space(10.0);
         ui.weak("This address was classified as a web page, not a WASM component,");
         ui.weak("so the shell routed it away from the mini-app path.");
-        ui.add_space(6.0);
-        ui.weak("The webview module that renders it is the next stage of work.");
+        #[cfg(not(feature = "webview"))]
+        {
+            ui.add_space(6.0);
+            ui.weak("Rebuild with `--features webview` to render it here.");
+        }
     }
+
+    /// Put the webview over the page area, creating it on first use.
+    ///
+    /// The bounds are recomputed every frame from the space egui has left, so
+    /// the page follows a window resize without any resize plumbing of its own.
+    #[cfg(feature = "webview")]
+    fn show_web(
+        &mut self,
+        frame: &eframe::Frame,
+        url: &str,
+        ui: &egui::Ui,
+    ) -> anyhow::Result<()> {
+        // A webview that cannot exist here will not start existing on the next
+        // frame; report the reason instead of thrashing.
+        if let Some(reason) = self.web_unavailable.as_ref().or(self.web_error.as_ref()) {
+            anyhow::bail!("{reason}");
+        }
+
+        let rect = ui.available_rect_before_wrap();
+        let ppp = ui.ctx().pixels_per_point();
+        // egui works in points; the child surface is placed in physical pixels,
+        // and the two only coincide when the user has not zoomed.
+        let px = |v: f32| (v * ppp).round();
+        let bounds = crate::webview::Bounds {
+            x: px(rect.min.x) as i32,
+            y: px(rect.min.y) as i32,
+            w: px(rect.width()).max(1.0) as u32,
+            h: px(rect.height()).max(1.0) as u32,
+        };
+
+        match &mut self.web {
+            Some(pane) => pane.update(url, bounds),
+            None => match crate::webview::WebPane::new(frame, url, bounds) {
+                Ok(pane) => {
+                    self.web = Some(pane);
+                    Ok(())
+                }
+                Err(e) => {
+                    self.web_error = Some(e.to_string());
+                    Err(e)
+                }
+            },
+        }
+    }
+
+    /// Leave the web page. Dropping the pane destroys the native surface, so a
+    /// page you navigated away from stops running — the same rule mini-apps
+    /// follow when the shell drops their `Store`.
+    #[cfg(feature = "webview")]
+    fn close_web(&mut self) {
+        self.web = None;
+        self.web_error = None;
+    }
+
+    #[cfg(not(feature = "webview"))]
+    fn close_web(&mut self) {}
 
     /// The page area: purely whatever the guest described this frame.
     fn page(&mut self, ui: &mut egui::Ui) {

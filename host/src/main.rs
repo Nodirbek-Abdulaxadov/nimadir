@@ -27,6 +27,8 @@ mod shell;
 mod ui;
 #[cfg(feature = "gui")]
 mod gui;
+#[cfg(feature = "webview")]
+mod webview;
 
 use std::collections::{HashMap, HashSet};
 use std::path::Path;

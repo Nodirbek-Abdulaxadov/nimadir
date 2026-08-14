@@ -112,7 +112,15 @@ impl Shell {
                     title: title.to_string(),
                     url: src.to_string(),
                 };
-                Ok(format!("{src} is a web page — the webview module is not built yet"))
+                // Honest in both builds: without the webview feature there is
+                // nothing to render the page with, and saying so beats a status
+                // line that claims success over a blank area.
+                #[cfg(feature = "webview")]
+                let status = format!("web page: {src}");
+                #[cfg(not(feature = "webview"))]
+                let status =
+                    format!("{src} is a web page — build with --features webview to render it");
+                Ok(status)
             }
         }
     }

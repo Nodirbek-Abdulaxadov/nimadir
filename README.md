@@ -122,8 +122,43 @@ is why there is no separate `HEAD` probe. Servers that mislabel `.wasm` as
 the WASM magic number settles it. Anything that is neither is an error you can
 read, on the screen you were already on.
 
-Web pages are recognised but not yet rendered — they are the webview's job, and
-the webview is the next piece of work. Until then that view says so.
+### Two modules, one window
+
+A web page is rendered by the platform's own webview (`wry` — **not** Tauri,
+which would bring an application framework that fights the host loop nimadir
+already owns). It is built as a **child** of the eframe window covering exactly
+the page area, so the chrome above stays egui's and keeps working while a page
+is open.
+
+```bash
+cargo run -p host --features webview -- https://example.com
+```
+
+The webview is a separate feature from `gui` because it needs system libraries
+`gui` does not — WebKitGTK on Linux (`libwebkit2gtk-4.1-dev`), WebView2 on
+Windows. The default build stays buildable anywhere, which is what keeps the
+headless path honest.
+
+The rules that fall out of this are worth stating, because they are the reason
+the "no web stack" goal survives having a webview at all:
+
+- **Module 1 is quarantined.** HTML, CSS and JavaScript exist in `webview.rs`
+  and nowhere else. Mini-apps are unaffected: they are WASM components that
+  describe native widgets, and nothing about them changes because this file
+  exists. A page is a *different kind of destination*, not a new way to write
+  an app.
+- **One module at a time in the page area.** The webview is a native surface
+  the OS stacks over that region; egui cannot draw into it, and it cannot draw
+  outside it. That is why the chrome lives above the page area rather than in it.
+- **Leaving a page destroys it.** The webview is dropped on navigation, exactly
+  as a mini-app's `Store` is. A hidden-but-alive webview would keep running
+  scripts, timers and audio behind a screen that says you left.
+
+On Linux `wry` is WebKitGTK, which lives in **GTK's** event loop rather than
+winit's, so the host initialises GTK once and pumps it each frame; without that
+a page loads and then freezes. Child webviews there are also X11-only — a
+Wayland session is rejected with a message saying so, rather than being handed
+to wry, which would panic on it.
 
 Two properties fall out of the design and are worth stating:
 
@@ -263,6 +298,7 @@ host/
   src/resolve.rs           # address classification (component vs web page) + fetch
   src/shell.rs             # navigation (Home <-> App <-> WebPage)
   src/gui.rs               # native egui window backend (feature "gui")
+  src/webview.rs           # module 1: the old web via wry (feature "webview")
 tools/componentize/        # core-module -> WASM component encoder (wraps `wit-component`)
 mini-apps/
   counter/                 # sample (Rust): a counter; state lives inside the guest

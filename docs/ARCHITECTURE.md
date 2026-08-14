@@ -37,17 +37,23 @@ What has actually been run against this tree, rather than what it ought to do.
 | `README.md` | local path | error, no network request |
 | `example.com` | — | error asking for the scheme |
 
-**The window**, run under Xvfb with Mesa's software Vulkan, screenshotted in
-each of its three states: home (bookmark list), app (`counter` running under the
-chrome), web page (placeholder), plus a failed navigation showing its error in
-red while staying on home.
+**The window**, run under Xvfb with Mesa's software Vulkan and openbox, driven
+with `xdotool` and screenshotted at each step:
 
-Three things worth carrying forward:
+| Step | Result |
+|---|---|
+| Home | bookmark list, address bar above it |
+| Open `counter` | guest UI under the chrome, address bar showing the resolved path |
+| Open a page URL | HTML+CSS rendered by WebKitGTK inside the window, chrome intact above it |
+| Click inside the page | JavaScript ran — input reaches the webview, the GTK pump is working |
+| Home, from a page | webview destroyed, clean home screen, no leftover surface |
+| App → type a URL → Enter | round trip back into the webview, title and status following |
+| A failed navigation | error in red in the chrome, shell stays where it was |
+
+Two things worth carrying forward:
 
 - **`counter-cs` is skipped** — `dotnet` is not on PATH. The build script skips
   it cleanly by design; the Rust apps still build. Nothing is broken.
-- **No GTK.** `gtk+-3.0` and `webkit2gtk-4.1` are not installed. The egui window
-  needs neither (winit talks to X11 directly), but the webview will — see §4.2.
 - The CLI panics with exit 101 if its stdout pipe closes early (`| head -n`).
   Pre-existing, unrelated to routing; noted so it is not misread as a fault.
 
@@ -180,7 +186,23 @@ note eframe 0.35 hands `fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut Frame)`
 directly, with no `CentralPanel` to open; `sync_window_title` (:90) mirrors the
 view into the OS title bar like a browser tab.
 
-### `host/src/main.rs` — CLI and headless harness (172 lines)
+### `host/src/webview.rs` — module 1 (feature `webview`)
+The only file in the repo where HTML, CSS and JavaScript exist, quarantined on
+purpose.
+
+- `WebPane` — a child webview built into the eframe window via
+  `build_as_child`, occupying exactly the page area. `update` reconciles URL and
+  bounds each frame, reloading or resizing only on an actual change, so a still
+  frame costs nothing and a window resize needs no resize plumbing.
+- `init` / `pump` — GTK's loop on Linux, no-ops elsewhere. Without the pump a
+  page loads and then freezes. The pump is budgeted at 64 iterations so a busy
+  page cannot starve the egui frame it is drawn inside.
+- `check_parent` — rejects a Wayland surface with a readable error instead of
+  letting wry panic on it.
+- Dropping the pane destroys the native surface, which is what the shell does on
+  navigation. See invariant 3.
+
+### `host/src/main.rs` — CLI and headless harness
 - `main` (:36) — hand-rolled arg parsing (`--list`, `--headless`, `--frames`,
   `--script`, plus one positional source). A positional argument means "navigate
   straight there", skipping the home screen (:80).
@@ -217,20 +239,21 @@ scheme, so a bare `example.com` is treated as a path and reports that a web
 address needs its `https://`. Guessing a scheme is address-bar smartness and
 belongs with the rest of it, not smuggled in here.
 
-### 4.2 Webview: eframe does not have to be replaced
-The build plan flags "eframe hides its event loop" as the project's largest
-risk, with a full `winit` + `wgpu` rewrite as the fallback. Reading both crates
-says the fallback is probably unnecessary:
+### 4.2 Webview: eframe did not have to be replaced — confirmed
+The build plan flagged "eframe hides its event loop" as the project's largest
+risk, with a full `winit` + `wgpu` rewrite as the fallback. That rewrite was not
+needed, and the reason is three lines of API:
 
 - `eframe-0.35.0/src/epi.rs:101` — `impl HasWindowHandle for CreationContext<'_>`
 - `eframe-0.35.0/src/epi.rs:695` — `impl HasWindowHandle for Frame`
 - `wry-0.56.1/src/lib.rs:1571` — `pub fn build_as_child<W: HasWindowHandle>(self, window: &'a W) -> Result<WebView>`
 
 `Frame` is handed to `App::ui` every frame, so the handle wry needs is already
-in reach. `WebView` also exposes `load_url` (`lib.rs:2213`) plus `set_bounds`,
-`set_visible` and `focus` (`lib.rs:2263`–`2273`) — enough to keep the address bar drawn in egui at
-the top and park the webview in the region below it, toggling visibility on mode
-switch, rather than swapping whole windows.
+in reach, and `load_url` / `set_bounds` do the rest. This turned out **better**
+than the plan hoped for: the plan expected whole-window mode switching, with
+egui hidden while a page was open. Because the child webview can be given
+arbitrary bounds, only the *page area* switches — the address bar and Home
+button stay drawn by egui and keep working over a live page.
 
 The real cost is **Linux**, and wry documents it on `build_as_child` itself:
 
@@ -243,14 +266,25 @@ So the plan's "both live in one winit event loop" is accurate on Windows and
 macOS, where the webview is an OS-level child surface; on Linux there is a
 second (GTK) loop that must be pumped by hand. Practical consequences:
 
-1. The webview needs its own **optional cargo feature**, exactly like `gui`.
-   `libwebkit2gtk-4.1-dev` is a system package (not installed here; apt
-   candidate 2.50.4), and making it mandatory would break the default headless
-   build that CI depends on.
-2. A Wayland session needs a decision — force winit's X11 backend, or fall back
-   to a separate top-level window via `build()` instead of `build_as_child()`.
-3. None of it can be *runtime*-verified in this container: no display, no GTK.
-   Compile-checking is possible after installing the system package.
+1. The webview is its own **optional cargo feature**, exactly like `gui`.
+   `libwebkit2gtk-4.1-dev` is a system package, and making it mandatory would
+   break the default headless build.
+2. Wayland is rejected up front. `webview::check_parent` inspects the raw handle
+   and returns an error naming XWayland as the way out, because handing a
+   Wayland surface to `build_as_child` is a documented *panic*, and a shell that
+   dies because of the display server it happens to run under is not a shell.
+3. The failure is remembered (`ShellApp::web_error`), so a webview that cannot
+   exist is reported once instead of retried sixty times a second.
+
+**A known environment failure, recorded so it is not re-diagnosed.** Under Xvfb
+with Mesa's software stack (no DRI3), WebKitGTK's GL compositing emits
+`GLXBadWindow`. Xlib reports errors asynchronously, so it surfaces at the next
+sync point — which is `winit`'s `set_title`, and winit `.expect()`s there, so
+the process aborts on the *next window-title change after a page is open*. It is
+not nimadir's code: setting `WEBKIT_DISABLE_COMPOSITING_MODE=1` makes it go away
+entirely, and it needs a GL stack broken enough to fail in the first place.
+Worth knowing because the crash points at a title change and the cause is a
+webview, several frames earlier.
 
 ### 4.3 A guest cannot navigate synchronously
 `MiniApp::frame` (`host.rs:143`) calls `world.call_update(&mut self.store)`,
