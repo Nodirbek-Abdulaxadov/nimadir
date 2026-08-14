@@ -83,6 +83,9 @@ cargo run -p host --features gui -- counter
 
 # 3c. run HEADLESS (default; builds & runs anywhere, no system GUI libs)
 cargo run -p host -- counter --script "1:0,2:0,3:0,5:1" --frames 8
+
+# 4. run the tests
+./run-tests.sh
 ```
 
 The host also loads a mini-app straight from a URL — the "browser-like" part:
@@ -119,10 +122,24 @@ to be a mini-app: `resolve.rs` classifies it, and the shell dispatches on the
 answer.
 
 ```
+a registry name   -> that entry's source            ("counter")
+already a URL     -> untouched                      ("https://…/app.wasm")
+an existing file  -> untouched                      ("mini-apps/…/app.wasm")
+host-shaped       -> https:// in front of it        ("example.com")
+```
+
+then, on whatever that produced:
+
+```
 local path        -> by extension (.wasm / .html), no network at all
 URL ending .wasm  -> a component; the address already said so
 any other URL     -> fetched once, classified by Content-Type
 ```
+
+Guessing a scheme is the *last* of those steps on purpose: a registry name and a
+real file both beat it, so a guess can never shadow something that exists. It
+looks only at the authority — the part before the first `/` — so `app.wasm` stays
+a filename that happens to contain a dot, rather than becoming a DNS failure.
 
 `text/html` routes to a web page; `application/wasm` routes to the sandbox. The
 classification fetch *is* the load — a component is never downloaded twice, which
@@ -401,10 +418,26 @@ the same in ~15 lines using the `wit-component` library.
   from inside the sandbox and asks the host to navigate. The host no longer owns
   a home screen; it owns a fallback.
 
-The `--script "frame:button,…"` and `--input "frame:field=text"` flags inject
-clicks and typing deterministically, so the whole host↔guest cycle is verifiable
-headlessly (no display required) — the counter going 0→1→2→3 then reset, or the
-store filtering to one result and opening it.
+## Tests
+
+```bash
+./run-tests.sh          # everything
+./run-tests.sh -v       # with each command's full output
+```
+
+There is no `cargo test` here, deliberately. What needs proving is the
+host↔guest boundary and the shell's routing, and both are exercised end to end
+through the real binary — no display required, because `--script
+"frame:button,…"` and `--input "frame:field=text"` inject clicks and typing
+deterministically. The suite covers the counter going 0→1→2→3 then reset, the
+store filtering to one result and opening it through `open-app`, every branch of
+address classification, the scheme guess, a served registry, and all three
+feature sets building.
+
+Network cases use a throwaway `python3 -m http.server`; without python3, or if
+its port is taken, they are **skipped** rather than failed — a suite that reports
+failures for something it never ran sends people hunting for bugs that are not
+there.
 
 ## A note on the GUI: egui, not Makepad (yet)
 

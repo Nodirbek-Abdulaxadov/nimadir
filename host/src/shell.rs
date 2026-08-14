@@ -165,11 +165,23 @@ impl Shell {
     /// run, so this is empty.
     pub fn frame(&mut self, input: FrameInput) -> Result<Vec<UiCmd>> {
         let (cmds, requested) = match &mut self.view {
-            View::App { app, .. } => {
-                let cmds = app.frame(input)?;
+            View::App { app, .. } => match app.frame(input) {
                 // Taken after the call, never during it: see `open-app`.
-                (cmds, app.take_pending_open())
-            }
+                Ok(cmds) => (cmds, app.take_pending_open()),
+                Err(e) => {
+                    // A trapped guest traps again on the next frame, and the
+                    // one after that. Drop it rather than rendering the same
+                    // error sixty times a second forever.
+                    //
+                    // Deliberately the built-in list and not `go_home`: if the
+                    // guest that just trapped *was* the store, going home would
+                    // reload it and trap again.
+                    self.view = View::Home;
+                    self.status = format!("the app stopped: {e}");
+                    self.status_is_error = true;
+                    return Err(e);
+                }
+            },
             View::Home | View::WebPage { .. } => (Vec::new(), None),
         };
 

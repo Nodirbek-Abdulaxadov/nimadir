@@ -38,6 +38,10 @@ What has actually been run against this tree, rather than what it ought to do.
 | `README.md` | local path | error, no network request |
 | `example.com` | — | error asking for the scheme |
 
+All of the headless cases below are `./run-tests.sh` — 30 assertions, exit
+non-zero on failure, repeatable, cleaning up after itself. It is the suite; the
+tables are what it covers.
+
 **The store** (`store.component.wasm`, 48 KB), headless:
 
 | Command | Result |
@@ -62,6 +66,7 @@ with `xdotool` and screenshotted at each step:
 | App → type a URL → Enter | round trip back into the webview, title and status following |
 | A registry whose store will not load | built-in list, red error naming the reason, shell alive |
 | A failed navigation | error in red in the chrome, shell stays where it was |
+| store → app → Home → web page → Home | every transition clean, no leftover surface, shell alive |
 
 Two things worth carrying forward:
 
@@ -251,6 +256,17 @@ purpose.
 `run_headless` is the project's test suite. There is no `#[test]` anywhere; the
 `--script` flag *is* how the boundary is verified, and it needs no display.
 
+### `run-tests.sh` — the suite
+30 assertions driven through the real binary: the guest cycle, the registry, the
+store, every branch of address classification, the scheme guess, served
+registries, and all three feature sets building. No `cargo test`, because what
+needs proving is the boundary and the routing, and `--script` / `--input` make
+both verifiable without a display.
+
+Network cases use a throwaway `python3 -m http.server` and are **skipped**, never
+failed, when it cannot start — a suite that reports failures for something it
+never ran sends people hunting for bugs that are not there.
+
 ### `tools/componentize/` — core module → component
 Wraps `wit_component::ComponentEncoder`. Does what `wasm-tools component new`
 does, so the repo needs no external CLI on PATH.
@@ -273,17 +289,18 @@ native host target.
 
 ## 4. Findings, and what became of them
 
-Four things the code turned out to require that reading the plan alone would not
+Five things the code turned out to require that reading the plan alone would not
 have told you. Each is kept with its outcome, because the reasoning is what
 transfers — the next widget, the next capability, the next platform backend will
 hit the same walls.
 
 ### 4.1 Content-type routing — built
-`resolve.rs` and `View::WebPage` are this note, implemented. One thing it did
-*not* solve, deliberately: `registry::resolve` still has no notion of a
-scheme, so a bare `example.com` is treated as a path and reports that a web
-address needs its `https://`. Guessing a scheme is address-bar smartness and
-belongs with the rest of it, not smuggled in here.
+`resolve.rs` and `View::WebPage` are this note, implemented, and
+`registry::resolve` now makes the scheme guess that was deliberately deferred
+out of it. The guess is the **last** step, after a registry-name lookup and an
+existence check, so it can never shadow something real; and `looks_like_host`
+inspects only the authority, so `app.wasm` stays a filename that happens to
+contain a dot rather than becoming a DNS failure.
 
 ### 4.2 Webview: eframe did not have to be replaced — confirmed
 The build plan flagged "eframe hides its event loop" as the project's largest
@@ -368,6 +385,17 @@ later needs the same treatment: **guest-assigned index, not host draw order.**
 Icons were considered and dropped: `gui.rs` already documents that egui's
 bundled fonts have no arrow or bullet glyphs and render missing ones as tofu
 boxes, so an emoji column would have been a column of boxes.
+
+---
+
+### 4.5 A trapped guest used to trap forever
+`Shell::frame` returned the guest's error and left the app loaded, so the next
+frame ran it again — sixty identical errors a second, with no way out but
+closing the window. It now drops the app and falls back.
+
+Deliberately to `View::Home`, the built-in list, and **not** through `go_home`:
+if the guest that just trapped *was* the store, going home would reload it and
+trap again. Recovery paths must not route through the thing that failed.
 
 ---
 

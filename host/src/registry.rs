@@ -189,15 +189,61 @@ pub fn normalize(input: &str) -> &str {
     s.trim()
 }
 
-/// Resolve what the user typed to `(source, title)`. A bare registry name (the
-/// "bookmark" case) wins; anything else is passed through as a path/URL.
+/// Resolve what the user typed to `(source, title)`.
 ///
 /// Both the CLI and the address bar go through here, so typing `counter` means
-/// the same thing in either place.
+/// the same thing in either place. In order:
+///
+///   1. a registry name    -> that entry's source (the "bookmark" case)
+///   2. already a URL      -> untouched
+///   3. an existing file   -> untouched
+///   4. host-shaped        -> `https://` in front of it
+///   5. anything else      -> untouched, and `resolve.rs` will say why
+///
+/// Step 4 is the only guess, and it is deliberately the *last* one: a name and
+/// a real file both beat it, so guessing can never shadow something that
+/// actually exists.
 pub fn resolve(input: &str, apps: &[AppEntry]) -> (String, String) {
     let cleaned = normalize(input);
-    match apps.iter().find(|e| e.name == cleaned) {
-        Some(e) => (e.src.clone(), e.name.clone()),
-        None => (cleaned.to_string(), cleaned.to_string()),
+
+    if let Some(e) = apps.iter().find(|e| e.name == cleaned) {
+        return (e.src.clone(), e.name.clone());
     }
+    if looks_like_host(cleaned) {
+        return (format!("https://{cleaned}"), cleaned.to_string());
+    }
+    (cleaned.to_string(), cleaned.to_string())
+}
+
+/// Whether typed text is most likely a web address missing its scheme.
+///
+/// Nobody types `https://` any more, so `example.com` has to work; but
+/// `app.wasm` is a filename that also contains a dot, and guessing wrong there
+/// would turn a missing-file message into a DNS failure. The rule looks only at
+/// the authority — the part before the first `/`, `?` or `#` — so a path may
+/// contain whatever it likes.
+fn looks_like_host(s: &str) -> bool {
+    if s.is_empty()
+        || s.contains("://")
+        || s.starts_with('/')
+        || s.starts_with('.')
+        || s.contains('\\')
+        || Path::new(s).exists()
+    {
+        return false;
+    }
+
+    let authority = s.split(['/', '?', '#']).next().unwrap_or(s);
+
+    // `app.wasm`, `page.html`: a filename, not a host, whatever the dot says.
+    let lower = authority.to_ascii_lowercase();
+    if [".wasm", ".html", ".htm", ".json"]
+        .iter()
+        .any(|ext| lower.ends_with(ext))
+    {
+        return false;
+    }
+
+    let host = authority.split(':').next().unwrap_or(authority);
+    host == "localhost" || (host.contains('.') && !host.ends_with('.'))
 }
