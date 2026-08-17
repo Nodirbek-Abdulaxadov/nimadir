@@ -21,12 +21,15 @@ red()   { printf '\033[31m%s\033[0m' "$1"; }
 green() { printf '\033[32m%s\033[0m' "$1"; }
 dim()   { printf '\033[2m%s\033[0m'  "$1"; }
 
-# check <name> <expected substring> <command...>
+# check <name> <expected substring> <command...> — must exit zero AND match.
+#
+# The status matters as much as the text: with an empty `want` (the build
+# checks) a substring test alone matches anything, so a failing build passed.
 check() {
   local name="$1" want="$2"; shift 2
   local got status
   got=$("$@" 2>&1); status=$?
-  if [[ "$got" == *"$want"* ]]; then
+  if [[ $status -eq 0 && "$got" == *"$want"* ]]; then
     green "  PASS"; echo "  $name"
     PASS=$((PASS + 1))
   else
@@ -37,6 +40,25 @@ check() {
     FAIL=$((FAIL + 1))
   fi
   [[ -n "$VERBOSE" ]] && echo "$got" | sed 's/^/         | /'
+  return 0
+}
+
+# check_absent <name> <substring that must NOT appear> <command...> — must also
+# exit zero, or "it isn't there" would be satisfied by the thing never running.
+check_absent() {
+  local name="$1" bad="$2"; shift 2
+  local got status
+  got=$("$@" 2>&1); status=$?
+  if [[ $status -eq 0 && "$got" != *"$bad"* ]]; then
+    green "  PASS"; echo "  $name"
+    PASS=$((PASS + 1))
+  else
+    red "  FAIL"; echo "  $name"
+    echo "         did not want: $bad"
+    echo "         exit:         $status"
+    echo "$got" | sed 's/^/         > /' | head -12
+    FAIL=$((FAIL + 1))
+  fi
   return 0
 }
 
@@ -74,6 +96,13 @@ if [[ ! -f mini-apps/store/store.component.wasm ]]; then
   ./build-mini-apps.sh >/dev/null || { red "mini-app build failed"; echo; exit 1; }
 fi
 
+# The size of the component as just built, not a number typed in here: a
+# different rustc emits a different-sized component, and a hardcoded byte count
+# turns a routine toolchain bump into four red lines about nothing. What these
+# assertions are for is "the bytes that arrived are the component that was
+# built" — so ask the file.
+COUNTER_BYTES=$(wc -c < mini-apps/counter/counter.component.wasm | tr -d ' ')
+
 echo
 echo "==> the host<->guest cycle"
 # The count lives in the guest: clicks in, redrawn labels out.
@@ -85,6 +114,18 @@ check "a second component runs on the same host" "Hello from a *different* mini-
   $HOST hello --frames 1
 check "logs cross the boundary" "[wasm log]" \
   $HOST counter --frames 1
+# Polyglot, on the host that was never told which language it is running.
+# Skipped rather than failed when the optional toolchain is absent — the same
+# treatment `build-mini-apps.sh` gives it.
+if [[ -f mini-apps/counter-py/counter-py.component.wasm ]]; then
+  check "a Python guest counts on the same host" '"2"' \
+    $HOST counter-py --script "1:0,2:0" --frames 4
+  # CPython's own standard library, running inside the sandbox.
+  check "Python's stdlib runs in the sandbox" "host clock via Python datetime" \
+    $HOST counter-py --frames 1
+else
+  skip "counter-py (Python): component not built"
+fi
 
 echo
 echo "==> the registry"
@@ -99,11 +140,17 @@ echo
 echo "==> the store (start page as a mini-app)"
 check "lists the registry through list-apps" '"4 apps"' \
   $HOST store --frames 1
-check "draws a search field" "field0" \
+# 5 entries in apps.json, 4 offered: a start page that lists itself is a card
+# that takes you where you already are.
+check_absent "the start page is not one of its own tiles" ': "store"' \
+  $HOST store --frames 1
+check "draws a search field" "search0" \
+  $HOST store --frames 1
+check "the start page leads with a hero heading" 'heading1 : "nimadir"' \
   $HOST store --frames 1
 check "filters as you type" '1 of 4 apps matching' \
   $HOST store --input "1:0=hell" --frames 2
-check "renumbers buttons when the list shrinks" '"Open hello"' \
+check "renumbers tiles when the list shrinks" 'tile0 : "hello"' \
   $HOST store --input "1:0=hell" --frames 2
 check "open-app navigates after the frame returns" "[nav] loaded" \
   $HOST store --input "1:0=hell" --script "2:0" --frames 4
@@ -111,10 +158,16 @@ check "the app it asked for actually runs" "Hello from a *different* mini-app!" 
   $HOST store --input "1:0=hell" --script "2:0" --frames 4
 check "a search matching nothing says so" "Nothing matches" \
   $HOST store --input "1:0=zzzz" --frames 2
+# The start page has no address bar over it, so its own field has to take an
+# address too — offered as a tile, never acted on while you are still typing.
+check "a typed address is offered as a tile" 'tile0 : "Open address"' \
+  $HOST store --input "1:0=example.com" --frames 2
+check "and clicking that tile navigates" "[nav]" \
+  $HOST store --input "1:0=example.com" --script "2:0" --frames 3
 
 echo
 echo "==> address classification"
-check "a local .wasm is a component" "loaded 17643 bytes" \
+check "a local .wasm is a component" "loaded $COUNTER_BYTES bytes" \
   $HOST mini-apps/counter/counter.component.wasm --frames 1
 check_fails "a local file that is neither is refused, without a network call" \
   "expected a .wasm component or an .html page" $HOST README.md
@@ -130,7 +183,10 @@ echo "==> address bar guessing"
 # The guess is last: a registry name and a real file both beat it.
 check "a registry name wins over any guess" "mini-apps/counter/counter.component.wasm" \
   $HOST counter --frames 1
-check_fails "host-shaped text gets https://" "https://example.com" \
+# Succeeds now that a web page is a real destination: before the webview module
+# landed there was nowhere for this address to go, so the guess could only be
+# observed through the error it produced.
+check "host-shaped text gets https://" "https://example.com" \
   $HOST example.com
 check_fails "a filename is never guessed as a host" "read file app.wasm" \
   $HOST app.wasm
@@ -172,9 +228,9 @@ JSON
     skip "could not start a server on 127.0.0.1:$PORT (port in use?)"
   else
     B="http://127.0.0.1:$PORT"
-    check "application/wasm is a component" "loaded 17643 bytes" \
+    check "application/wasm is a component" "loaded $COUNTER_BYTES bytes" \
       $HOST "$B/counter.component.wasm" --frames 1
-    check "octet-stream with no extension: the magic number settles it" "loaded 17643 bytes" \
+    check "octet-stream with no extension: the magic number settles it" "loaded $COUNTER_BYTES bytes" \
       $HOST "$B/mystery" --frames 1
     check "text/html routes to the web page module" "is a web page" \
       $HOST "$B/page.html"

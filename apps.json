@@ -19,6 +19,11 @@
       "name": "counter-cs",
       "source": "mini-apps/counter-cs/counter-cs.component.wasm",
       "description": "The counter written in C# (.NET NativeAOT) - same WIT, no host change."
+    },
+    {
+      "name": "counter-py",
+      "source": "mini-apps/counter-py/counter-py.component.wasm",
+      "description": "The counter in Python - a whole CPython inside the sandbox."
     }
   ]
 }
