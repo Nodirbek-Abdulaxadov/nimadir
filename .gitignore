@@ -10,3 +10,4 @@
 
 # Built WASM modules are artifacts — build them from source, don't commit them.
 *.wasm
+/mini-apps/store/target

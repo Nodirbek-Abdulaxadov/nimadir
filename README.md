@@ -2,14 +2,20 @@
 
 An MVP of a "super-app / application-OS" idea: a **native** desktop shell that
 loads **WebAssembly mini-apps on demand** and renders their UI natively, with
-**zero web stack** — no HTML, no CSS, no JavaScript, no webview.
+**zero web stack** in the app path — no HTML, no CSS, no JavaScript, no DOM.
 
-It behaves *like* a browser (a home screen of links, an address bar, fetch remote
-code, run it sandboxed, expose capabilities) **without being one**. Third-party
-mini-apps are WASM **components** fetched at runtime that talk to the host through
-a small, typed, capability-scoped **WIT interface**. The host is a generic
-renderer + capability provider; each mini-app owns its logic and state inside a
-Wasmtime sandbox.
+It behaves *like* a browser (a start page, an address bar, fetch remote code, run
+it sandboxed, expose capabilities) **without being one**. Third-party mini-apps
+are WASM **components** fetched at runtime that talk to the host through a small,
+typed, capability-scoped **WIT interface**. The host is a generic renderer +
+capability provider; each mini-app owns its logic and state inside a Wasmtime
+sandbox. Even the start page is one of these apps.
+
+There is now a second, optional module for **the old web**: a page you point the
+address bar at opens in the platform's own webview. That is a compatibility
+shim, not a retreat — it is a separate cargo feature, confined to one file, and
+mini-apps cannot reach it. The claim is unchanged where it counts: **writing an
+app for nimadir involves no web stack at all.**
 
 The host is Rust: it embeds **Wasmtime** (WASM runtime, Component Model) and, for
 the window, **egui** (pure-Rust, GPU-rendered, no DOM). Mini-apps can be written
@@ -25,7 +31,8 @@ both **Rust** and **C# (.NET)**, run by the same host with no changes.
 │    │  mini-app.wasm  — a WASM *component* (untrusted)       │   │
 │    │  exports:  init(), update()                           │   │
 │    │  imports:  nimadir:shell/host-api                      │   │
-│    │            (log, ui-label, ui-button, now-millis)      │   │
+│    │            (log, ui-label, ui-button, ui-text-edit,    │   │
+│    │             now-millis, list-apps, open-app)           │   │
 │    └────────────────────────────────────────────────────────┘  │
 │           ▲   typed boundary — WIT + canonical ABI   ▲         │
 │           │   (NO JavaScript, NO DOM, NO ptr/len)     │         │
@@ -65,14 +72,20 @@ rustup target add wasm32-unknown-unknown
 #    app too, if the .NET 10 SDK is installed — otherwise it is skipped cleanly)
 ./build-mini-apps.sh
 
-# 3a. open the SHELL — a native window that starts on the home screen
+# 3a. open the SHELL — a native window that starts on the store
 cargo run -p host --features gui
 
-# 3b. or open a listed app directly, skipping the home screen
+#     with the webview module too, so web pages open in-window
+cargo run -p host --features webview
+
+# 3b. or open a listed app directly, skipping the store
 cargo run -p host --features gui -- counter
 
 # 3c. run HEADLESS (default; builds & runs anywhere, no system GUI libs)
 cargo run -p host -- counter --script "1:0,2:0,3:0,5:1" --frames 8
+
+# 4. run the tests
+./run-tests.sh
 ```
 
 The host also loads a mini-app straight from a URL — the "browser-like" part:
@@ -84,36 +97,108 @@ cargo run -p host -- https://example.com/some-mini-app.component.wasm
 Point it at a different component (a listed name, a file, **or** a URL) and a
 different mini-app runs — **with no host rebuild.**
 
-## The home screen
+## The start page
 
-Opened with no argument, the shell behaves like a browser start page: the
-mini-apps listed in `apps.list` as links, plus an address bar for any path or
-URL. Clicking a link fetches that component, instantiates it, and runs it in the
-same window; **Home** drops it and goes back.
+Opened with no argument, the window comes up on the **store** — a mini-app that
+lists the registry and filters it as you type. Picking an app fetches that
+component, instantiates it, and runs it in the same window; **Home** drops it and
+returns to the store.
 
 ```
-apps.list           # name | source (path or URL) | description
-counter | mini-apps/counter/counter.component.wasm | A counter…
-hello   | mini-apps/hello/hello.component.wasm     | A second app…
+apps.json           # the catalogue: name, source (path or URL), description
+apps.list           # the same, pipe-delimited; used when apps.json is absent
 ```
 
-`cargo run -p host -- --list` prints the same list as text (there is no home
-screen to click headlessly). A name from the list works anywhere a path does, so
+`cargo run -p host -- --list` prints the registry as text (there is no start page
+to click headlessly). A name from the registry works anywhere a path does, so
 `-- counter` and `-- mini-apps/counter/counter.component.wasm` are the same
 request.
 
+### The address bar routes
+
+The address bar is permanent chrome — it sits above the page in every view, so a
+new address can be typed without going home first. What you type is not assumed
+to be a mini-app: `resolve.rs` classifies it, and the shell dispatches on the
+answer.
+
+```
+a registry name   -> that entry's source            ("counter")
+already a URL     -> untouched                      ("https://…/app.wasm")
+an existing file  -> untouched                      ("mini-apps/…/app.wasm")
+host-shaped       -> https:// in front of it        ("example.com")
+```
+
+then, on whatever that produced:
+
+```
+local path        -> by extension (.wasm / .html), no network at all
+URL ending .wasm  -> a component; the address already said so
+any other URL     -> fetched once, classified by Content-Type
+```
+
+Guessing a scheme is the *last* of those steps on purpose: a registry name and a
+real file both beat it, so a guess can never shadow something that exists. It
+looks only at the authority — the part before the first `/` — so `app.wasm` stays
+a filename that happens to contain a dot, rather than becoming a DNS failure.
+
+`text/html` routes to a web page; `application/wasm` routes to the sandbox. The
+classification fetch *is* the load — a component is never downloaded twice, which
+is why there is no separate `HEAD` probe. Servers that mislabel `.wasm` as
+`application/octet-stream` are still handled: the bytes are already in hand, and
+the WASM magic number settles it. Anything that is neither is an error you can
+read, on the screen you were already on.
+
+### Two modules, one window
+
+A web page is rendered by the platform's own webview (`wry` — **not** Tauri,
+which would bring an application framework that fights the host loop nimadir
+already owns). It is built as a **child** of the eframe window covering exactly
+the page area, so the chrome above stays egui's and keeps working while a page
+is open.
+
+```bash
+cargo run -p host --features webview -- https://example.com
+```
+
+The webview is a separate feature from `gui` because it needs system libraries
+`gui` does not — WebKitGTK on Linux (`libwebkit2gtk-4.1-dev`), WebView2 on
+Windows. The default build stays buildable anywhere, which is what keeps the
+headless path honest.
+
+The rules that fall out of this are worth stating, because they are the reason
+the "no web stack" goal survives having a webview at all:
+
+- **Module 1 is quarantined.** HTML, CSS and JavaScript exist in `webview.rs`
+  and nowhere else. Mini-apps are unaffected: they are WASM components that
+  describe native widgets, and nothing about them changes because this file
+  exists. A page is a *different kind of destination*, not a new way to write
+  an app.
+- **One module at a time in the page area.** The webview is a native surface
+  the OS stacks over that region; egui cannot draw into it, and it cannot draw
+  outside it. That is why the chrome lives above the page area rather than in it.
+- **Leaving a page destroys it.** The webview is dropped on navigation, exactly
+  as a mini-app's `Store` is. A hidden-but-alive webview would keep running
+  scripts, timers and audio behind a screen that says you left.
+
+On Linux `wry` is WebKitGTK, which lives in **GTK's** event loop rather than
+winit's, so the host initialises GTK once and pumps it each frame; without that
+a page loads and then freezes. Child webviews there are also X11-only — a
+Wayland session is rejected with a message saying so, rather than being handed
+to wry, which would panic on it.
+
 Two properties fall out of the design and are worth stating:
 
-- **Chrome and page are separate.** The home screen, address bar, and Home
-  button are host UI; the guest only ever paints into the page area below them.
-  Navigation is never reachable by untrusted code.
+- **Chrome and page are separate.** The address bar and Home button are host UI;
+  a guest only ever paints into the page area below them. Navigation is never
+  reachable by untrusted code — the store asks for it through `open-app` and the
+  host decides, rather than performing it itself.
 - **Leaving an app destroys it.** Navigating home drops the `MiniApp`, its
   Wasmtime `Store`, and the guest's linear memory. Reopening `counter` starts at
   0 again — the sandbox doing its job, not lost state.
 
-A link that fails to load (missing file, dead URL, invalid module) leaves the
-shell on the home screen with the error shown in red. A bad link cannot take the
-shell down.
+An address that fails to load (missing file, dead URL, invalid module, a page
+that is neither) leaves the shell where it was with the error shown in red. A bad
+link cannot take the shell down.
 
 ## The interface (host <-> mini-app boundary)
 
@@ -123,10 +208,15 @@ This is the entire contract, and it is one file — [`wit/world.wit`](wit/world.
 package nimadir:shell@0.1.0;
 
 interface host-api {
-    log:        func(msg: string);          // debug log to the host
-    ui-label:   func(text: string);         // draw a label this frame
-    ui-button:  func(text: string) -> bool; // draw a button; true if clicked
-    now-millis: func() -> s64;              // example host-owned capability
+    record app-entry { name: string, source: string, description: string }
+
+    log:          func(msg: string);            // debug log to the host
+    ui-label:     func(text: string);           // draw a label this frame
+    ui-button:    func(text: string) -> bool;   // draw a button; true if clicked
+    ui-text-edit: func(text: string) -> string; // draw a field; edited value back
+    now-millis:   func() -> s64;                // example host-owned capability
+    list-apps:    func() -> list<app-entry>;    // the registry, for the store
+    open-app:     func(source: string);         // ask the shell to navigate
 }
 
 world mini-app {
@@ -141,8 +231,50 @@ world mini-app {
   `host/src/host.rs` (`impl Host for HostState`).
 - **`init` / `update`** are what the host calls on the guest. The UI is
   **immediate mode**: every frame the host calls `update()`, the guest calls
-  `ui-label`/`ui-button` to describe what to show, and the host feeds click
-  results back through `ui-button`'s return value.
+  `ui-label`/`ui-button`/`ui-text-edit` to describe what to show, and the host
+  feeds results back through those calls' return values. State lives in the
+  guest; the host owns only the live widget buffers for one frame.
+- **`list-apps` / `open-app`** are what make the start page an app rather than
+  host code. A guest can reach neither disk nor network, so the registry is
+  handed to it; and it cannot navigate synchronously, because the host cannot
+  tear a guest down in the middle of its own `update`. `open-app` is therefore a
+  *request*, honoured once the frame returns.
+
+## The store is a mini-app
+
+The window opens on `mini-apps/store` — a catalogue that lists the registry,
+filters it as you type, and asks the shell to open whatever you pick. **Home**
+returns to it.
+
+It is an ordinary guest. Same sandbox, same `wit/world.wit`, no privileges the
+counter lacks; it is 48 KB of WASM the host fetches like any other. The host
+stopped owning the start page and now just runs whichever app is pointed at it —
+one of which happens to be the catalogue. Replacing the start page means
+shipping a different component, not patching the shell.
+
+If the store is missing or fails to load, the shell falls back to its built-in
+link list and says why. A start page that can be swapped is also a start page
+that can be broken, so it cannot be the only way home.
+
+```bash
+cargo run -p host -- store --frames 1                       # what it lists
+cargo run -p host -- store --input "1:0=hell" --script "2:0" --frames 4
+#   frame 1 types "hell" into field 0, frame 2 clicks the one result: hello opens
+```
+
+### Where the registry comes from
+
+`apps.json` if present, else `apps.list`, else built-in entries. JSON is what a
+registry *server* would serve, so the same parser reads a local catalogue and a
+remote one:
+
+```bash
+cargo run -p host -- --registry https://example.com/catalogue.json --list
+```
+
+A registry that will not load falls back rather than aborting — a shell that
+refuses to open because its bookmarks are malformed is worse than one that opens
+with the built-in list.
 
 ## How to write your own mini-app
 
@@ -174,7 +306,7 @@ cargo run --release -p componentize -- \
   mini-apps/<app>/<app>.component.wasm
 ```
 
-Then add a line to `apps.list` so it shows on the home screen. See
+Then add an entry to `apps.json` so the store lists it. See
 `mini-apps/counter` (guest-owned state) and `mini-apps/hello` (a second app) for
 complete examples.
 
@@ -231,16 +363,19 @@ cargo run -p host -- counter-cs --script "1:0,2:0,3:0,5:1" --frames 8
 ```
 wit/world.wit              # THE contract — one shared source of truth for both sides
 Cargo.toml                 # workspace = [host, tools/componentize]
-apps.list                  # the home screen's links ("bookmarks")
+apps.json / apps.list      # the app registry ("bookmarks")
 host/
   src/main.rs              # CLI, arg parsing, headless loop, --list
   src/host.rs              # Wasmtime component embedding, host-interface impl, WASI (wasmtime-wasi)
   src/ui.rs                # UiCmd / FrameInput — the renderer-agnostic UI protocol
   src/registry.rs          # apps.list parsing; name -> source resolution
-  src/shell.rs             # navigation (Home <-> App), fetch-from-file/URL
+  src/resolve.rs           # address classification (component vs web page) + fetch
+  src/shell.rs             # navigation (Home <-> App <-> WebPage)
   src/gui.rs               # native egui window backend (feature "gui")
+  src/webview.rs           # module 1: the old web via wry (feature "webview")
 tools/componentize/        # core-module -> WASM component encoder (wraps `wit-component`)
 mini-apps/
+  store/                   # the start page: the app catalogue, itself a mini-app
   counter/                 # sample (Rust): a counter; state lives inside the guest
   hello/                   # sample (Rust): a second app, to show hot-swap without rebuild
   counter-cs/              # sample (C#):   the counter via componentize-dotnet — same WIT
@@ -266,7 +401,7 @@ the same in ~15 lines using the `wit-component` library.
 - **M4 — on-demand loading.** The same host binary runs `counter.component.wasm` or
   `hello.component.wasm` loaded from a **file path** or an **HTTP URL** — no host
   rebuild to swap apps.
-- **M5 — the shell is a browser.** A home screen lists the mini-apps; clicking one
+- **M5 — the shell is a browser.** A start page lists the mini-apps; picking one
   loads and runs it in the same window, and Home returns. Apps are swapped at
   runtime **inside a single running process** — no restart, no rebuild.
 - **M6 — polyglot.** The same host runs a mini-app written in **C# (.NET)**
@@ -274,9 +409,35 @@ the same in ~15 lines using the `wit-component` library.
   with **no host change** — proof that the WIT interface, not the language, is the
   contract. (The host provides WASI 0.2 for the managed runtime; see *Polyglot*.)
 
-The `--script "frame:button,…"` flag injects clicks deterministically so the whole
-host↔guest cycle is verifiable headlessly (no display required), e.g. the counter
-going 0→1→2→3 then reset to 0.
+- **M7 — the address bar routes.** What you type is classified before the shell
+  navigates: a component goes to the sandbox, a web page to the webview, and
+  anything else is a readable error rather than a failed load.
+- **M8 — two modules, one window.** Web pages render in a native child webview
+  under the same chrome, quarantined to one file and one cargo feature.
+- **M9 — the start page is an app.** The store lists and searches the registry
+  from inside the sandbox and asks the host to navigate. The host no longer owns
+  a home screen; it owns a fallback.
+
+## Tests
+
+```bash
+./run-tests.sh          # everything
+./run-tests.sh -v       # with each command's full output
+```
+
+There is no `cargo test` here, deliberately. What needs proving is the
+host↔guest boundary and the shell's routing, and both are exercised end to end
+through the real binary — no display required, because `--script
+"frame:button,…"` and `--input "frame:field=text"` inject clicks and typing
+deterministically. The suite covers the counter going 0→1→2→3 then reset, the
+store filtering to one result and opening it through `open-app`, every branch of
+address classification, the scheme guess, a served registry, and all three
+feature sets building.
+
+Network cases use a throwaway `python3 -m http.server`; without python3, or if
+its port is taken, they are **skipped** rather than failed — a suite that reports
+failures for something it never ran sends people hunting for bugs that are not
+there.
 
 ## A note on the GUI: egui, not Makepad (yet)
 
