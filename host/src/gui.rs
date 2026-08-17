@@ -55,7 +55,8 @@ pub fn run(mut shell: Shell) -> Result<()> {
     eframe::run_native(
         "wasm-shell",
         native_options,
-        Box::new(move |_cc| {
+        Box::new(move |cc| {
+            install_theme(&cc.egui_ctx);
             #[allow(unused_mut)]
             let mut app = ShellApp::new(shell);
             #[cfg(feature = "webview")]
@@ -68,6 +69,134 @@ pub fn run(mut shell: Shell) -> Result<()> {
     .map_err(|e| anyhow::anyhow!("eframe error: {e}"))?;
     Ok(())
 }
+
+/// The palette: a browser's, not a terminal's. White surfaces, one blue
+/// accent, grey borders, text dark enough to read on all of it.
+mod palette {
+    use eframe::egui::Color32;
+
+    pub const SURFACE: Color32 = Color32::from_rgb(0xff, 0xff, 0xff);
+    /// Cards and unpressed controls — the faint grey Chrome uses for chips.
+    pub const CARD: Color32 = Color32::from_rgb(0xf1, 0xf3, 0xf4);
+    pub const BORDER: Color32 = Color32::from_rgb(0xda, 0xdc, 0xe0);
+    pub const TEXT: Color32 = Color32::from_rgb(0x20, 0x21, 0x24);
+    pub const MUTED: Color32 = Color32::from_rgb(0x5f, 0x63, 0x68);
+    pub const ACCENT: Color32 = Color32::from_rgb(0x1a, 0x73, 0xe8);
+    /// The blue wash under a hovered control.
+    pub const ACCENT_WASH: Color32 = Color32::from_rgb(0xe8, 0xf0, 0xfe);
+    pub const DANGER: Color32 = Color32::from_rgb(0xd9, 0x30, 0x25);
+
+    /// One per app icon. Colour is decoration, but it is also the fastest way
+    /// to tell two cards apart before you have read either of them.
+    const BADGES: [Color32; 8] = [
+        Color32::from_rgb(0x1a, 0x73, 0xe8), // blue
+        Color32::from_rgb(0xea, 0x43, 0x35), // red
+        Color32::from_rgb(0x34, 0xa8, 0x53), // green
+        Color32::from_rgb(0xf9, 0xab, 0x00), // yellow
+        Color32::from_rgb(0xa1, 0x42, 0xf4), // purple
+        Color32::from_rgb(0x12, 0xb5, 0xcb), // teal
+        Color32::from_rgb(0xfa, 0x7b, 0x17), // orange
+        Color32::from_rgb(0xe5, 0x25, 0x92), // pink
+    ];
+
+    /// Stable per-title, so an app keeps its colour across frames, restarts and
+    /// filtering — a badge that changed colour as you typed would be noise.
+    pub fn badge(title: &str) -> Color32 {
+        let hash = title
+            .bytes()
+            .fold(0u32, |a, b| a.wrapping_mul(31).wrapping_add(b as u32));
+        BADGES[hash as usize % BADGES.len()]
+    }
+}
+
+/// The window's visual defaults: a light, browser-shaped palette, rounder
+/// widgets, more air between them. Applied once at startup — egui re-reads the
+/// style every frame, so no other code has to know this happened.
+///
+/// It is deliberately *style* and not layout. Layout stays a per-widget
+/// decision in `page`, because that is the part a different backend would have
+/// to reimplement, and a theme it can simply ignore.
+///
+/// The theme is **pinned to light**, and both stored styles get the same
+/// visuals, so an OS that says "dark" cannot hand back the near-black default
+/// this replaced.
+fn install_theme(ctx: &egui::Context) {
+    use palette::*;
+
+    ctx.set_theme(egui::ThemePreference::Light);
+
+    let mut v = egui::Visuals::light();
+    v.panel_fill = SURFACE;
+    v.window_fill = SURFACE;
+    v.faint_bg_color = CARD;
+    v.extreme_bg_color = SURFACE;
+    v.hyperlink_color = ACCENT;
+    v.error_fg_color = DANGER;
+    v.warn_fg_color = DANGER;
+    v.window_stroke = egui::Stroke::new(1.0, BORDER);
+    v.selection.bg_fill = ACCENT_WASH;
+    v.selection.stroke = egui::Stroke::new(1.0, ACCENT);
+
+    let w = &mut v.widgets;
+    w.noninteractive.bg_fill = SURFACE;
+    w.noninteractive.weak_bg_fill = SURFACE;
+    w.noninteractive.bg_stroke = egui::Stroke::new(1.0, BORDER);
+    w.noninteractive.fg_stroke = egui::Stroke::new(1.0, TEXT);
+
+    w.inactive.bg_fill = CARD;
+    w.inactive.weak_bg_fill = CARD;
+    w.inactive.bg_stroke = egui::Stroke::new(1.0, BORDER);
+    w.inactive.fg_stroke = egui::Stroke::new(1.0, TEXT);
+
+    w.hovered.bg_fill = ACCENT_WASH;
+    w.hovered.weak_bg_fill = ACCENT_WASH;
+    w.hovered.bg_stroke = egui::Stroke::new(1.0, ACCENT);
+    w.hovered.fg_stroke = egui::Stroke::new(1.0, ACCENT);
+
+    // `active` is also where `strong_text_color()` comes from, so its
+    // foreground has to stay legible on a light background — a solid blue
+    // button with white text here would turn every bold label white on white.
+    w.active.bg_fill = ACCENT_WASH;
+    w.active.weak_bg_fill = ACCENT_WASH;
+    w.active.bg_stroke = egui::Stroke::new(1.0, ACCENT);
+    w.active.fg_stroke = egui::Stroke::new(1.0, TEXT);
+
+    w.open.bg_fill = CARD;
+    w.open.weak_bg_fill = CARD;
+    w.open.bg_stroke = egui::Stroke::new(1.0, BORDER);
+    w.open.fg_stroke = egui::Stroke::new(1.0, TEXT);
+
+    ctx.set_visuals_of(egui::Theme::Light, v.clone());
+    ctx.set_visuals_of(egui::Theme::Dark, v);
+
+    ctx.all_styles_mut(|style| {
+        let radius = egui::CornerRadius::same(8);
+        let w = &mut style.visuals.widgets;
+        for v in [
+            &mut w.noninteractive,
+            &mut w.inactive,
+            &mut w.hovered,
+            &mut w.active,
+            &mut w.open,
+        ] {
+            v.corner_radius = radius;
+        }
+
+        style.spacing.item_spacing = egui::vec2(8.0, 8.0);
+        style.spacing.button_padding = egui::vec2(12.0, 6.0);
+        style.visuals.selection.stroke.width = 1.0;
+
+        // egui makes every label selectable by default, which puts a text
+        // caret over all of a mini-app's UI and makes ordinary labels feel
+        // like a document. An app's text is not a document — it is a
+        // rendering of a guest's `ui-label` — so the pointer stays a pointer.
+        style.interaction.selectable_labels = false;
+    });
+}
+
+/// A tile's footprint. Fixed rather than content-sized: a grid of cards that
+/// are all different widths reads as a mistake, not as a layout.
+const TILE: egui::Vec2 = egui::vec2(196.0, 104.0);
 
 struct ShellApp {
     shell: Shell,
@@ -118,6 +247,15 @@ impl ShellApp {
 }
 
 impl eframe::App for ShellApp {
+    /// What the window is cleared to before egui draws anything.
+    ///
+    /// eframe's default ignores the visuals entirely and returns a hardcoded
+    /// near-black, so a light theme still came up on a black window. It is the
+    /// one colour the palette cannot reach from `install_theme`.
+    fn clear_color(&self, visuals: &egui::Visuals) -> [f32; 4] {
+        visuals.panel_fill.to_normalized_gamma_f32()
+    }
+
     // eframe 0.35 hands us a `&mut Ui` directly (no need to open a CentralPanel).
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         // On Linux the webview lives in GTK's loop, not this one; without this
@@ -125,9 +263,18 @@ impl eframe::App for ShellApp {
         #[cfg(feature = "webview")]
         crate::webview::pump();
 
+        // Has anything we asked for arrived? Cheap, and does nothing when
+        // nothing is in flight.
+        self.shell.poll();
+
         self.sync_window_title(ui);
-        self.chrome(ui);
-        ui.separator();
+        // A separator under nothing is just a line across the top of the page,
+        // so the start page — which draws no chrome — gets none.
+        let drew = self.chrome(ui);
+        let loading = self.loading_bar(ui);
+        if drew || loading {
+            ui.separator();
+        }
 
         // Read the discriminant first: the arms take `&mut self`, so the match
         // cannot hold a borrow of `self.shell.view` across them.
@@ -182,11 +329,34 @@ impl ShellApp {
     }
 
     /// The bar above the page: Home button, address bar, current title, status.
+    /// Returns whether anything was drawn.
     ///
     /// The address bar lives here rather than on the home screen because it is
-    /// now the entry point for *both* modules — you must be able to type a new
+    /// the entry point for *both* modules — you must be able to type a new
     /// address without first going home, exactly like a browser.
-    fn chrome(&mut self, ui: &mut egui::Ui) {
+    ///
+    /// With one exception, and it is the browser's own: **the start page has no
+    /// chrome.** A bar reading `mini-apps/store/store.component.wasm` above the
+    /// start page was chrome describing its own furniture, and next to the
+    /// store's search box it read as a second, contradictory text field. The
+    /// store's field is the only place to type there, and it forwards an
+    /// address through `open-app` — so navigation is still the host's to
+    /// perform, it just is not the host's to *draw* on that one page.
+    ///
+    /// Note this keys on the store being loaded, not on `View::Home`: the
+    /// built-in fallback list is host UI and keeps its address bar, or a failed
+    /// store would leave the shell with nowhere to type at all.
+    fn chrome(&mut self, ui: &mut egui::Ui) -> bool {
+        if self.shell.is_start_page() {
+            // An error still has to surface somewhere, and on this page there
+            // is nowhere else.
+            if self.shell.status_is_error && !self.shell.status.is_empty() {
+                ui.colored_label(egui::Color32::RED, self.shell.status.as_str());
+                return true;
+            }
+            return false;
+        }
+
         let (title, src) = match &self.shell.view {
             View::Home => ("wasm-shell".to_string(), String::new()),
             View::App { title, src, .. } => (title.clone(), src.clone()),
@@ -264,6 +434,25 @@ impl ShellApp {
         if let Some(n) = nav {
             self.navigate(n);
         }
+        true
+    }
+
+    /// A browser's tab spinner: the page you are on keeps drawing while the
+    /// next one is fetched, and this is the only sign that anything is
+    /// happening. Returns whether it drew.
+    ///
+    /// It sits outside `chrome` deliberately — the start page has no chrome,
+    /// and "your click did something" is exactly the feedback a page with no
+    /// chrome would otherwise be missing.
+    fn loading_bar(&mut self, ui: &mut egui::Ui) -> bool {
+        let Some(src) = self.shell.loading().map(str::to_string) else {
+            return false;
+        };
+        ui.horizontal(|ui| {
+            ui.add(egui::Spinner::new().size(14.0).color(palette::ACCENT));
+            ui.label(egui::RichText::new(format!("Loading {src}")).color(palette::MUTED));
+        });
+        true
     }
 
     /// Perform a navigation requested by the chrome or a home-screen link.
@@ -276,12 +465,25 @@ impl ShellApp {
             // the CLI accept exactly the same things.
             Nav::Typed(input) => registry::resolve(&input, &self.shell.apps),
         };
-        self.shell.open(&src, &title);
+        // Started, not waited on — the window has frames to draw meanwhile,
+        // and one of them is the spinner.
+        self.shell.start(&src, &title);
     }
 
     /// The start page: the registry as links. The address bar that used to live
     /// here is permanent chrome now, so this is purely the bookmark list.
     fn home(&mut self, ui: &mut egui::Ui) {
+        // On the way to the start page this list is not the destination, it is
+        // what happens if the store fails. Showing it while the store is still
+        // loading advertises a failure that has not happened.
+        if self.shell.loading().is_some() {
+            ui.add_space(48.0);
+            ui.vertical_centered(|ui| {
+                ui.add(egui::Spinner::new().size(28.0).color(palette::ACCENT));
+            });
+            return;
+        }
+
         // Where this frame wants to navigate, if anywhere.
         let mut nav: Option<Nav> = None;
 
@@ -439,44 +641,211 @@ impl ShellApp {
             return;
         }
 
-        // Translate the guest's UI commands into native egui widgets.
-        for c in &cmds {
-            match c {
-                UiCmd::Label(t) => {
-                    ui.label(t);
-                }
-                UiCmd::Button { index, text } => {
-                    if ui.button(text).clicked() {
-                        self.pending_clicks.insert(*index);
-                    }
-                }
-                UiCmd::TextEdit { index, text } => {
-                    // The live buffer is the host's; the guest is told what is
-                    // in it on the next frame, the same one-frame handshake
-                    // clicks already use.
-                    //
-                    // The id is pinned to the guest's field index rather than
-                    // left to egui's draw-order counter. egui keys focus and
-                    // cursor position by widget id, and a guest's widget list
-                    // changes shape constantly — the store's own search filters
-                    // the rows below this very field — so a position-derived id
-                    // would move out from under the field being typed into and
-                    // drop focus on the first keystroke.
-                    let mut value = text.clone();
-                    let resp = ui.add(
-                        egui::TextEdit::singleline(&mut value)
-                            .id(egui::Id::new(("guest-field", *index)))
-                            .desired_width(320.0),
-                    );
-                    if resp.changed() {
-                        self.field_values.insert(*index, value);
-                    }
-                }
+        // Translate the guest's UI commands into native egui widgets. A run of
+        // consecutive tiles is taken as one unit: the grid is a property of the
+        // run, not of any tile in it, and no tile knows where it sits.
+        let mut i = 0;
+        while i < cmds.len() {
+            if matches!(cmds[i], UiCmd::Tile { .. }) {
+                let end = cmds[i..]
+                    .iter()
+                    .position(|c| !matches!(c, UiCmd::Tile { .. }))
+                    .map_or(cmds.len(), |n| i + n);
+                self.tile_grid(ui, &cmds[i..end]);
+                i = end;
+                continue;
             }
+            self.widget(ui, &cmds[i]);
+            i += 1;
         }
 
         for l in self.shell.take_logs() {
             eprintln!("[wasm log] {l}");
         }
     }
+
+    /// One non-tile command.
+    fn widget(&mut self, ui: &mut egui::Ui, cmd: &UiCmd) {
+        match cmd {
+            UiCmd::Label(t) => {
+                ui.label(t);
+            }
+            UiCmd::Button { index, text } => {
+                if ui.button(text).clicked() {
+                    self.pending_clicks.insert(*index);
+                }
+            }
+            // A run of one still goes through the grid, so a lone tile is a
+            // card and not a special case.
+            UiCmd::Tile { .. } => self.tile_grid(ui, std::slice::from_ref(cmd)),
+            UiCmd::Heading { text, level } => {
+                let (size, air) = match level {
+                    1 => (44.0, 22.0),
+                    2 => (24.0, 12.0),
+                    _ => (14.0, 6.0),
+                };
+                ui.add_space(air);
+                ui.vertical_centered(|ui| {
+                    let t = egui::RichText::new(text).size(size);
+                    ui.label(match level {
+                        1 => t.strong().color(palette::TEXT),
+                        3 => t.color(palette::MUTED),
+                        _ => t.color(palette::TEXT),
+                    });
+                });
+                ui.add_space(air * 0.5);
+            }
+            UiCmd::Search {
+                index,
+                text,
+                placeholder,
+            } => {
+                // Wide, centred, and capped: a search box that grows with the
+                // window stops looking like one somewhere around half a screen.
+                let width = ui.available_width().min(560.0);
+                let mut value = text.clone();
+                let mut edited = false;
+                ui.vertical_centered(|ui| {
+                    let resp = ui.add_sized(
+                        [width, 32.0],
+                        egui::TextEdit::singleline(&mut value)
+                            // Same reason as the plain field below: the id is
+                            // the guest's index, never egui's draw order.
+                            .id(egui::Id::new(("guest-field", *index)))
+                            .hint_text(placeholder.as_str())
+                            .vertical_align(egui::Align::Center),
+                    );
+                    edited = resp.changed();
+                });
+                if edited {
+                    self.field_values.insert(*index, value);
+                }
+                ui.add_space(10.0);
+            }
+            UiCmd::TextEdit { index, text } => {
+                // The live buffer is the host's; the guest is told what is
+                // in it on the next frame, the same one-frame handshake
+                // clicks already use.
+                //
+                // The id is pinned to the guest's field index rather than
+                // left to egui's draw-order counter. egui keys focus and
+                // cursor position by widget id, and a guest's widget list
+                // changes shape constantly — the store's own search filters
+                // the rows below this very field — so a position-derived id
+                // would move out from under the field being typed into and
+                // drop focus on the first keystroke.
+                let mut value = text.clone();
+                let resp = ui.add(
+                    egui::TextEdit::singleline(&mut value)
+                        .id(egui::Id::new(("guest-field", *index)))
+                        .desired_width(320.0),
+                );
+                if resp.changed() {
+                    self.field_values.insert(*index, value);
+                }
+            }
+        }
+    }
+
+    /// A run of tiles, as a centred wrapping grid of cards.
+    ///
+    /// Rows are chunked by hand rather than left to `horizontal_wrapped`
+    /// because each row is centred individually — including a short last row,
+    /// which is exactly the row a wrapping layout would leave hanging.
+    fn tile_grid(&mut self, ui: &mut egui::Ui, run: &[UiCmd]) {
+        let gap = ui.spacing().item_spacing.x;
+        let avail = ui.available_width();
+        let per_row = (((avail + gap) / (TILE.x + gap)).floor() as usize).max(1);
+
+        for row in run.chunks(per_row) {
+            let width = row.len() as f32 * TILE.x + (row.len() - 1) as f32 * gap;
+            let pad = ((avail - width) / 2.0).max(0.0);
+            ui.horizontal(|ui| {
+                ui.add_space(pad);
+                for cmd in row {
+                    let UiCmd::Tile {
+                        index,
+                        title,
+                        subtitle,
+                    } = cmd
+                    else {
+                        continue;
+                    };
+                    if tile(ui, title, subtitle) {
+                        self.pending_clicks.insert(*index);
+                    }
+                }
+            });
+        }
+        ui.add_space(4.0);
+    }
+}
+
+/// One card. Painted rather than composed out of a button, because a button
+/// with two lines of text in it is not what egui's button is for — and the
+/// whole card has to be the click target, not the label inside it.
+fn tile(ui: &mut egui::Ui, title: &str, subtitle: &str) -> bool {
+    let (rect, resp) = ui.allocate_exact_size(TILE, egui::Sense::click());
+    // The whole card is the link, so it gets the cursor a link gets.
+    let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
+
+    let (fill, stroke) = if resp.hovered() {
+        (palette::ACCENT_WASH, egui::Stroke::new(1.0, palette::ACCENT))
+    } else {
+        (palette::CARD, egui::Stroke::new(1.0, palette::BORDER))
+    };
+    let painter = ui.painter();
+    painter.rect(
+        rect,
+        egui::CornerRadius::same(10),
+        fill,
+        stroke,
+        egui::StrokeKind::Inside,
+    );
+
+    // The coloured initial a browser draws for a site with no favicon. There
+    // are no icons to fetch here and no glyphs in egui's bundled fonts worth
+    // using, so the letter is the icon.
+    let inner = rect.shrink(12.0);
+    let radius = 16.0;
+    let centre = egui::pos2(inner.min.x + radius, inner.min.y + radius);
+    painter.circle_filled(centre, radius, palette::badge(title));
+    painter.text(
+        centre,
+        egui::Align2::CENTER_CENTER,
+        title
+            .chars()
+            .next()
+            .map(|c| c.to_uppercase().to_string())
+            .unwrap_or_default(),
+        egui::FontId::proportional(17.0),
+        egui::Color32::WHITE,
+    );
+
+    let text_area = egui::Rect::from_min_max(
+        egui::pos2(inner.min.x + radius * 2.0 + 10.0, inner.min.y),
+        inner.max,
+    );
+    let mut card = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(text_area)
+            .layout(egui::Layout::top_down(egui::Align::Min)),
+    );
+    // A long description must not paint over the card below it; clipping is
+    // cheaper and more honest than measuring the text.
+    card.set_clip_rect(text_area);
+    card.label(
+        egui::RichText::new(title)
+            .size(15.0)
+            .strong()
+            .color(palette::TEXT),
+    );
+    card.add_space(2.0);
+    card.label(
+        egui::RichText::new(subtitle)
+            .size(11.0)
+            .color(palette::MUTED),
+    );
+
+    resp.clicked()
 }

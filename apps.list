@@ -13,3 +13,4 @@ store      | mini-apps/store/store.component.wasm            | The start page: b
 counter    | mini-apps/counter/counter.component.wasm       | A counter; the count lives inside the guest.
 hello      | mini-apps/hello/hello.component.wasm            | A second app, to show hot-swap with no host rebuild.
 counter-cs | mini-apps/counter-cs/counter-cs.component.wasm  | The counter written in C# (.NET NativeAOT) — same WIT, no host change.
+counter-py | mini-apps/counter-py/counter-py.component.wasm  | The counter in Python — a whole CPython inside the sandbox.

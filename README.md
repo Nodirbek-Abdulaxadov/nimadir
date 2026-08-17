@@ -32,6 +32,7 @@ both **Rust** and **C# (.NET)**, run by the same host with no changes.
 │    │  exports:  init(), update()                           │   │
 │    │  imports:  nimadir:shell/host-api                      │   │
 │    │            (log, ui-label, ui-button, ui-text-edit,    │   │
+│    │             ui-heading, ui-search-field, ui-tile,      │   │
 │    │             now-millis, list-apps, open-app)           │   │
 │    └────────────────────────────────────────────────────────┘  │
 │           ▲   typed boundary — WIT + canonical ABI   ▲         │
@@ -116,10 +117,16 @@ request.
 
 ### The address bar routes
 
-The address bar is permanent chrome — it sits above the page in every view, so a
-new address can be typed without going home first. What you type is not assumed
-to be a mini-app: `resolve.rs` classifies it, and the shell dispatches on the
-answer.
+The address bar is chrome — it sits above the page in every view *except the
+start page*, so a new address can be typed without going home first. What you
+type is not assumed to be a mini-app: `resolve.rs` classifies it, and the shell
+dispatches on the answer.
+
+The start page is the exception because it already has a text field of its own,
+and two stacked bars that mean different things is worse than either. There, the
+store's search box takes an address too and offers it as an "Open address" card;
+clicking one calls `open-app`, so the text still reaches the same resolver.
+Everywhere else the bar is back, showing the URL or the app's name.
 
 ```
 a registry name   -> that entry's source            ("counter")
@@ -210,13 +217,16 @@ package nimadir:shell@0.1.0;
 interface host-api {
     record app-entry { name: string, source: string, description: string }
 
-    log:          func(msg: string);            // debug log to the host
-    ui-label:     func(text: string);           // draw a label this frame
-    ui-button:    func(text: string) -> bool;   // draw a button; true if clicked
-    ui-text-edit: func(text: string) -> string; // draw a field; edited value back
-    now-millis:   func() -> s64;                // example host-owned capability
-    list-apps:    func() -> list<app-entry>;    // the registry, for the store
-    open-app:     func(source: string);         // ask the shell to navigate
+    log:             func(msg: string);            // debug log to the host
+    ui-label:        func(text: string);           // draw a label this frame
+    ui-button:       func(text: string) -> bool;   // draw a button; true if clicked
+    ui-text-edit:    func(text: string) -> string; // draw a field; edited value back
+    ui-heading:      func(text: string, level: u8);            // 1 is the largest
+    ui-search-field: func(text: string, placeholder: string) -> string;
+    ui-tile:         func(title: string, subtitle: string) -> bool; // a card in a grid
+    now-millis:      func() -> s64;                // example host-owned capability
+    list-apps:       func() -> list<app-entry>;    // the registry, for the store
+    open-app:        func(source: string);         // ask the shell to navigate
 }
 
 world mini-app {
@@ -234,6 +244,12 @@ world mini-app {
   `ui-label`/`ui-button`/`ui-text-edit` to describe what to show, and the host
   feeds results back through those calls' return values. State lives in the
   guest; the host owns only the live widget buffers for one frame.
+- **Every widget names a *thing*, never a position.** `ui-heading` says "this is
+  a heading", `ui-tile` says "this is a card"; how large a heading is and how
+  many cards fit on a row are the host's business. That is what keeps the
+  renderer swappable — a guest that could place pixels would be a guest egui
+  could never be swapped out from under. It is also what lets the start page
+  look like a browser's without the sandbox learning a single thing about egui.
 - **`list-apps` / `open-app`** are what make the start page an app rather than
   host code. A guest can reach neither disk nor network, so the registry is
   handed to it; and it cannot navigate synchronously, because the host cannot
@@ -310,7 +326,7 @@ Then add an entry to `apps.json` so the store lists it. See
 `mini-apps/counter` (guest-owned state) and `mini-apps/hello` (a second app) for
 complete examples.
 
-## Polyglot: the same counter in C#
+## Polyglot: the same counter in C# and Python
 
 The payoff of a typed, language-neutral WIT interface is that the host doesn't
 care what language a mini-app is written in. `mini-apps/counter-cs` is the
@@ -343,10 +359,9 @@ Two things are worth knowing:
   so the host adds WASI 0.2 to the component linker (`wasmtime-wasi`). The Rust
   mini-apps import none of it, so this is invisible to them — it's purely
   additive. The WASI context is minimal: no filesystem or network preopens.
-- **Size is the trade-off.** The Rust `counter` component is ~17 KB; the C# one is
-  ~2.2 MB — a trimmed, AOT-compiled managed runtime travels inside it. That is the
-  cost of a runtime language, and the reason to **mix**: tiny Rust widgets next to
-  heavier C# apps, all in one shell.
+- **Size is the trade-off.** See the table below: the runtime travels inside the
+  component, and that is the reason to **mix** — tiny Rust widgets next to
+  heavier managed apps, all in one shell.
 
 Build it with the **.NET 10 SDK** (`build-mini-apps.sh` does this automatically
 when `dotnet` is on PATH; the NativeAOT-LLVM + WASI SDK toolchain is downloaded
@@ -356,6 +371,54 @@ and cached on the first build):
 dotnet build -c Release mini-apps/counter-cs/counter-cs.csproj
 # -> mini-apps/counter-cs/bin/Release/net10.0/wasi-wasm/publish/counter_cs.wasm
 cargo run -p host -- counter-cs --script "1:0,2:0,3:0,5:1" --frames 8
+```
+
+### …and in Python
+
+`mini-apps/counter-py` is the third one, built with
+[`componentize-py`](https://github.com/bytecodealliance/componentize-py), which
+bakes a **whole CPython interpreter** into the component. Again: the host is not
+changed, and the bindings come from the same `wit/world.wit`.
+
+```python
+import wit_world
+from wit_world.imports.host_api import log, now_millis, ui_button, ui_heading, ui_label
+
+class WitWorld(wit_world.WitWorld):
+    count = 0
+
+    def init(self) -> None:
+        log(f"counter-py: init at host-time {now_millis()}")
+
+    def update(self) -> None:
+        ui_heading("Count (Python)", 2)
+        ui_label(str(WitWorld.count))
+        if ui_button("Increment"):
+            WitWorld.count += 1
+        if ui_button("Reset"):
+            WitWorld.count = 0
+        # `datetime` is the real stdlib, running inside the sandbox.
+        stamp = datetime.fromtimestamp(now_millis() / 1000, timezone.utc)
+        ui_label(f"host clock via Python datetime: {stamp:%H:%M:%S} UTC")
+```
+
+That last line is the part worth pausing on: `now-millis` is the only thing the
+host provides, and `datetime` formatting it is CPython's own standard library
+executing in the Wasmtime sandbox.
+
+| Mini-app | Language | Component |
+|---|---|---|
+| `counter` | Rust | ~19 KB |
+| `counter-cs` | C# (NativeAOT-LLVM) | ~2.2 MB |
+| `counter-py` | Python (CPython) | ~18 MB |
+
+Three orders of magnitude, one unchanged host, one WIT file.
+
+```bash
+pip install componentize-py
+componentize-py -d wit -w mini-app componentize app \
+  -p mini-apps/counter-py -o mini-apps/counter-py/counter-py.component.wasm
+cargo run -p host -- counter-py --script "1:0,2:0,3:0,5:1" --frames 8
 ```
 
 ## Layout

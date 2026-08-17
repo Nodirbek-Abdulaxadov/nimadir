@@ -8,6 +8,9 @@
 /mini-apps/counter-cs/bin
 /mini-apps/counter-cs/obj
 
+# Python (componentize-py bakes the app into the component; nothing else ships)
+__pycache__/
+
 # Built WASM modules are artifacts — build them from source, don't commit them.
 *.wasm
 /mini-apps/store/target

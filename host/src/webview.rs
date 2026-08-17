@@ -28,7 +28,7 @@
 //! is also X11-only there; a Wayland surface is rejected up front with a message
 //! that says so, rather than being handed to wry, which would panic on it.
 
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, Result};
 use wry::dpi::{PhysicalPosition, PhysicalSize};
 use wry::raw_window_handle::HasWindowHandle;
 use wry::{Rect, WebView, WebViewBuilder};

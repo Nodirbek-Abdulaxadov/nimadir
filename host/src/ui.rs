@@ -19,6 +19,22 @@ pub enum UiCmd {
     /// A single-line text field. `text` is the value to display — already the
     /// edited one, since the host answers the guest with last frame's edits.
     TextEdit { index: u32, text: String },
+    /// A heading; `level` 1 is the largest, already clamped to 1..=3.
+    Heading { text: String, level: u8 },
+    /// A prominent search field. A `TextEdit` in every respect that matters —
+    /// same index space, same one-frame handshake — drawn larger, with a hint.
+    Search {
+        index: u32,
+        text: String,
+        placeholder: String,
+    },
+    /// A clickable card. The backend lays *runs* of these out as a grid, so a
+    /// tile carries no position: only what is on it.
+    Tile {
+        index: u32,
+        title: String,
+        subtitle: String,
+    },
 }
 
 /// Input handed to the guest for a frame.

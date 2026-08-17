@@ -101,8 +101,7 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    let engine = wasmtime::Engine::default();
-    let mut shell = Shell::new(engine, apps);
+    let mut shell = Shell::new(engine()?, apps);
 
     // An argument means "navigate straight there", skipping the home screen. It
     // may be a listed app's name (a bookmark) or any path/URL.
@@ -145,6 +144,28 @@ fn main() -> Result<()> {
             run_headless(shell, frames, &script, &inputs)
         }
     }
+}
+
+/// The Wasmtime engine, with compiled components cached on disk.
+///
+/// Compiling is the expensive half of opening a mini-app, and it scales with
+/// the runtime the guest brought: nothing for a 19 KB Rust component, seconds
+/// for the 18 MB Python one. Caching means that cost is paid once per component
+/// per machine instead of once per visit.
+///
+/// A cache that cannot be set up is not fatal — it is an optimisation, and a
+/// shell that refuses to start because a directory is unwritable would be
+/// trading a real feature for a missing one.
+fn engine() -> Result<wasmtime::Engine> {
+    let mut config = wasmtime::Config::new();
+    match wasmtime::Cache::from_file(None) {
+        Ok(cache) => {
+            config.cache(Some(cache));
+        }
+        Err(e) => eprintln!("(no compilation cache: {e})"),
+    }
+    // wasmtime re-exports its own `Error` type, distinct from ours.
+    wasmtime::Engine::new(&config).map_err(|e| anyhow::anyhow!("{e}"))
 }
 
 /// Print the registry — the text form of the home screen.
@@ -215,6 +236,10 @@ fn run_headless(mut shell: Shell, frames: usize, script: &str, inputs: &[String]
             clicked: clicks.clone(),
             edits: edits.clone(),
         })?;
+        // A guest that asked to navigate started a load on another thread.
+        // There are no frames to draw while it flies, so block for it here and
+        // the run stays exactly as deterministic as it was.
+        shell.wait();
 
         let mut injected: Vec<u32> = clicks.into_iter().collect();
         injected.sort_unstable();
@@ -225,6 +250,17 @@ fn run_headless(mut shell: Shell, frames: usize, script: &str, inputs: &[String]
                 UiCmd::Label(t) => println!("   label   : {t:?}"),
                 UiCmd::Button { index, text } => println!("   button{index} : {text:?}"),
                 UiCmd::TextEdit { index, text } => println!("   field{index}  : {text:?}"),
+                UiCmd::Heading { text, level } => println!("   heading{level} : {text:?}"),
+                UiCmd::Search {
+                    index,
+                    text,
+                    placeholder,
+                } => println!("   search{index} : {text:?}  (hint {placeholder:?})"),
+                UiCmd::Tile {
+                    index,
+                    title,
+                    subtitle,
+                } => println!("   tile{index} : {title:?} {subtitle:?}"),
             }
         }
         for l in shell.take_logs() {

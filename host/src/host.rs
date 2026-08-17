@@ -121,6 +121,44 @@ impl Host for HostState {
         current
     }
 
+    /// Clamped rather than rejected: the guest is untrusted, and a heading
+    /// level of 9 is a typo, not an attack worth trapping over.
+    fn ui_heading(&mut self, text: String, level: u8) {
+        self.ui.push(UiCmd::Heading {
+            text,
+            level: level.clamp(1, 3),
+        });
+    }
+
+    /// Shares `text_counter` with `ui_text_edit` on purpose — a guest that
+    /// swaps one for the other keeps its field indices, and so do the
+    /// `--input` scripts that drive it headlessly.
+    fn ui_search_field(&mut self, text: String, placeholder: String) -> String {
+        let index = self.text_counter;
+        self.text_counter += 1;
+        let current = self.input.edits.get(&index).cloned().unwrap_or(text);
+        self.ui.push(UiCmd::Search {
+            index,
+            text: current.clone(),
+            placeholder,
+        });
+        current
+    }
+
+    /// Shares `button_counter` with `ui_button`, for the same reason: a click
+    /// is a click whatever it was drawn as.
+    fn ui_tile(&mut self, title: String, subtitle: String) -> bool {
+        let index = self.button_counter;
+        self.button_counter += 1;
+        let clicked = self.input.clicked.contains(&index);
+        self.ui.push(UiCmd::Tile {
+            index,
+            title,
+            subtitle,
+        });
+        clicked
+    }
+
     fn now_millis(&mut self) -> i64 {
         use std::time::{SystemTime, UNIX_EPOCH};
         SystemTime::now()
@@ -129,9 +167,20 @@ impl Host for HostState {
             .unwrap_or(0)
     }
 
+    /// The registry, minus the start page itself.
+    ///
+    /// The store's entry is how the *shell* finds home; it is plumbing, not a
+    /// destination, and a start page that lists itself as something to open is
+    /// a card that takes you where you already are. Filtered here rather than
+    /// in the store so that any catalogue written against this WIT gets it, and
+    /// so no guest has to hardcode the host's name for home.
+    ///
+    /// `--list` still prints it: that is the registry, not the home screen, and
+    /// typing `store` in the address bar goes on working.
     fn list_apps(&mut self) -> Vec<WitAppEntry> {
         self.apps
             .iter()
+            .filter(|e| e.name != crate::shell::STORE_APP)
             .map(|e| WitAppEntry {
                 name: e.name.clone(),
                 source: e.src.clone(),
@@ -159,6 +208,13 @@ impl MiniApp {
     /// Compile + instantiate a `.wasm` **component** mini-app and run its
     /// `init`. `apps` is the registry snapshot the guest may read back through
     /// `list-apps` — the store's whole reason for existing.
+    ///
+    /// Compilation is Cranelift turning a whole component into machine code —
+    /// milliseconds for a 19 KB Rust mini-app, but the C# one carries a trimmed
+    /// .NET runtime and is over two megabytes. That is why `MiniApp` is built
+    /// off the UI thread (see `Shell::start`) rather than inside a frame: every
+    /// type this touches is `Send`, so the finished app can simply be handed
+    /// over when it is ready.
     pub fn load(engine: &Engine, wasm: &[u8], apps: Vec<AppEntry>) -> Result<Self> {
         let component = Component::from_binary(engine, wasm)?;
 

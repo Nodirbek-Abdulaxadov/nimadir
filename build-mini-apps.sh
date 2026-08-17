@@ -39,6 +39,32 @@ else
   echo "==> skipping counter-cs (C#): 'dotnet' not found on PATH"
 fi
 
+# The Python mini-app is built by componentize-py (`pip install componentize-py`),
+# which bundles a CPython interpreter into the component. Optional in the same
+# way the C# one is.
+#
+# `pip` puts the launcher in the interpreter's scripts directory, which on
+# Windows is routinely not on PATH — so ask Python where it put it rather than
+# reporting "not installed" for a tool that is installed.
+cpy=$(command -v componentize-py 2>/dev/null || true)
+if [[ -z "$cpy" ]]; then
+  cpy=$(python -c "import os,sysconfig
+d = sysconfig.get_path('scripts')
+for name in ('componentize-py', 'componentize-py.exe'):
+    p = os.path.join(d, name)
+    if os.path.exists(p):
+        print(p); break" 2>/dev/null || true)
+fi
+
+if [[ -n "$cpy" ]]; then
+  echo "==> building mini-app: counter-py (Python, componentize-py)"
+  "$cpy" -d wit -w mini-app componentize app \
+    -p mini-apps/counter-py \
+    -o mini-apps/counter-py/counter-py.component.wasm
+else
+  echo "==> skipping counter-py (Python): componentize-py not installed"
+fi
+
 echo
 echo "components ready:"
 ls -la mini-apps/*/*.component.wasm

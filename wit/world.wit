@@ -29,6 +29,28 @@ interface host-api {
     /// the guest owns the state, the host owns the widget.
     ui-text-edit: func(text: string) -> string;
 
+    /// A heading. `level` 1 is the largest — a start page's wordmark — and 2
+    /// and 3 step down; anything else clamps into that range rather than
+    /// failing, since a guest is untrusted and a bad number is not worth a trap.
+    ui-heading: func(text: string, level: u8);
+
+    /// A prominent search field, with placeholder text shown while it is empty.
+    /// Otherwise `ui-text-edit`: the value goes out, the edited value comes
+    /// back, and it **shares the text-field index space** with it — the two are
+    /// the same kind of widget wearing different clothes, and a guest may mix
+    /// them freely.
+    ui-search-field: func(text: string, placeholder: string) -> string;
+
+    /// A clickable card: a title, a line of detail, and a click. **Consecutive
+    /// tiles are laid out by the host as a wrapping grid** — the guest says what
+    /// the tiles are, the host decides how many fit on a row and what a card
+    /// looks like. Shares the button index space with `ui-button`.
+    ///
+    /// This is the one widget that is about *layout*, and it is expressed as a
+    /// thing rather than a coordinate on purpose: a guest that could position
+    /// pixels would be a guest the renderer can no longer be swapped under.
+    ui-tile: func(title: string, subtitle: string) -> bool;
+
     /// Example host-owned capability: wall-clock time in milliseconds.
     now-millis: func() -> s64;
 
