@@ -262,7 +262,7 @@ impl Shell {
                 }
             }
             Err(e) => {
-                self.status = format!("could not open {}: {e}", p.src);
+                self.status = format!("could not open {}: {e:#}", p.src);
                 self.status_is_error = true;
                 if matches!(p.origin, Origin::Home) {
                     let why = std::mem::take(&mut self.status);
@@ -344,7 +344,7 @@ impl Shell {
                     // guest that just trapped *was* the store, going home would
                     // reload it and trap again.
                     self.view = View::Home;
-                    self.status = format!("the app stopped: {e}");
+                    self.status = format!("the app stopped: {e:#}");
                     self.status_is_error = true;
                     return Err(e);
                 }

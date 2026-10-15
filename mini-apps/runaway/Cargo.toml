@@ -1,0 +1,17 @@
+[package]
+name = "runaway"
+version = "0.1.0"
+edition = "2021"
+description = "Test fixture: a mini-app that misbehaves on purpose, to prove the sandbox's limits hold"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = "0.60.0"
+
+[profile.release]
+opt-level = "s"
+panic = "abort"
+lto = true
+strip = true

@@ -1,5 +1,6 @@
 //! wasm-shell — a native app shell that loads sandboxed WASM mini-apps on demand
-//! and renders their UI natively, with zero web stack (no HTML/CSS/JS/webview).
+//! and renders their UI natively. No web stack on the mini-app path: HTML, CSS
+//! and JS exist only in the optional webview module, for old web pages.
 //!
 //!   cargo run --features gui                        # the store (the start page)
 //!   cargo run --features gui -- counter             # open a listed app directly
@@ -146,7 +147,8 @@ fn main() -> Result<()> {
     }
 }
 
-/// The Wasmtime engine, with compiled components cached on disk.
+/// The Wasmtime engine, with compiled components cached on disk and guest
+/// running time bounded.
 ///
 /// Compiling is the expensive half of opening a mini-app, and it scales with
 /// the runtime the guest brought: nothing for a 19 KB Rust component, seconds
@@ -164,8 +166,14 @@ fn engine() -> Result<wasmtime::Engine> {
         }
         Err(e) => eprintln!("(no compilation cache: {e})"),
     }
+    // Guest time limits (see `host::start_epoch_ticker`). Compiled code checks
+    // the epoch only when this is on, so it has to be decided here, for every
+    // component the engine will ever compile.
+    config.epoch_interruption(true);
     // wasmtime re-exports its own `Error` type, distinct from ours.
-    wasmtime::Engine::new(&config).map_err(|e| anyhow::anyhow!("{e}"))
+    let engine = wasmtime::Engine::new(&config).map_err(|e| anyhow::anyhow!("{e}"))?;
+    host::start_epoch_ticker(&engine);
+    Ok(engine)
 }
 
 /// Print the registry — the text form of the home screen.
@@ -232,6 +240,9 @@ fn run_headless(mut shell: Shell, frames: usize, script: &str, inputs: &[String]
         }
 
         let clicks = script.get(&frame).cloned().unwrap_or_default();
+        // To tell a navigation that failed during this frame from an error
+        // that was already showing before it.
+        let status_before = shell.status.clone();
         let cmds = shell.frame(FrameInput {
             clicked: clicks.clone(),
             edits: edits.clone(),
@@ -271,6 +282,12 @@ fn run_headless(mut shell: Shell, frames: usize, script: &str, inputs: &[String]
         // glitch.
         if shell.took_navigation() {
             println!("   [nav] {}", shell.status);
+        } else if shell.status_is_error && shell.status != status_before {
+            // A guest asked to go somewhere and it did not load. The window
+            // shows this in its status bar; without this line the headless run
+            // said nothing at all, and the guest just carried on as if asked
+            // for nothing.
+            println!("   [nav failed] {}", shell.status);
         }
     }
 

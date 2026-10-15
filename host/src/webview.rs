@@ -135,11 +135,11 @@ fn check_parent(parent: &impl HasWindowHandle) -> Result<()> {
 
     match parent.window_handle()?.as_raw() {
         RawWindowHandle::Xlib(_) | RawWindowHandle::Xcb(_) => Ok(()),
-        RawWindowHandle::Wayland(_) => bail!(
+        RawWindowHandle::Wayland(_) => anyhow::bail!(
             "a child webview needs X11, and this is a Wayland session. \
              Run the shell under XWayland (WINIT_UNIX_BACKEND=x11) to open web pages."
         ),
-        _ => bail!("this window is not one a webview can attach to"),
+        _ => anyhow::bail!("this window is not one a webview can attach to"),
     }
 }
 
