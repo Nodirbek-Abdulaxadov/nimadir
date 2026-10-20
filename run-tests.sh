@@ -91,7 +91,7 @@ HOST=./target/debug/host
 
 echo "==> building"
 cargo build -q -p host || { red "host build failed"; echo; exit 1; }
-if [[ ! -f mini-apps/store/store.component.wasm ]]; then
+if [[ ! -f mini-apps/store/store.component.wasm || ! -f mini-apps/runaway/runaway.component.wasm ]]; then
   echo "    mini-apps missing; running build-mini-apps.sh"
   ./build-mini-apps.sh >/dev/null || { red "mini-app build failed"; echo; exit 1; }
 fi
@@ -162,8 +162,12 @@ check "a search matching nothing says so" "Nothing matches" \
 # address too — offered as a tile, never acted on while you are still typing.
 check "a typed address is offered as a tile" 'tile0 : "Open address"' \
   $HOST store --input "1:0=example.com" --frames 2
-check "and clicking that tile navigates" "[nav]" \
-  $HOST store --input "1:0=example.com" --script "2:0" --frames 3
+# A local path, not a web address: this is about the store handing an address
+# to the shell, and it must not depend on reaching the internet.
+check "and clicking that tile navigates" "[nav] loaded" \
+  $HOST store --input "1:0=mini-apps/hello/hello.component.wasm" --script "2:0" --frames 3
+check "a guest navigation that fails says so" "[nav failed] could not open nowhere/missing.wasm" \
+  $HOST store --input "1:0=nowhere/missing.wasm" --script "2:0" --frames 3
 
 echo
 echo "==> address classification"
@@ -179,15 +183,27 @@ check_fails "a file named .wasm that is not one fails at parse, not at classific
 rm -rf "$(dirname "$BOGUS")"
 
 echo
+echo "==> sandbox limits"
+# A guest is untrusted code; these are the two ways it could take the shell
+# down with it. Each must end in the guest being stopped, with the limit named.
+RUNAWAY=mini-apps/runaway/runaway.component.wasm
+check_fails "a guest that never returns from a frame is stopped" "did not finish a frame within 1s" \
+  $HOST $RUNAWAY --script "1:0" --frames 3
+check_fails "a guest that grows its memory without end is stopped" "more than 512 MiB of memory" \
+  $HOST $RUNAWAY --script "1:1" --frames 3
+check "and a guest that behaves is untouched by either" "Eat memory" \
+  $HOST $RUNAWAY --frames 3
+
+echo
 echo "==> address bar guessing"
 # The guess is last: a registry name and a real file both beat it.
 check "a registry name wins over any guess" "mini-apps/counter/counter.component.wasm" \
   $HOST counter --frames 1
-# Succeeds now that a web page is a real destination: before the webview module
-# landed there was nowhere for this address to go, so the guess could only be
-# observed through the error it produced.
-check "host-shaped text gets https://" "https://example.com" \
-  $HOST example.com
+# Observed through the address it tried, on a port where nothing listens: the
+# guess is what is under test, and a real host would make the suite depend on
+# the internet (and on whatever proxy stands between it and the machine).
+check_fails "host-shaped text gets https://" "could not open https://localhost:9" \
+  $HOST localhost:9
 check_fails "a filename is never guessed as a host" "read file app.wasm" \
   $HOST app.wasm
 
@@ -202,6 +218,8 @@ else
   cp mini-apps/counter/counter.component.wasm "$FIXTURES/mystery"
   printf '<!doctype html><title>t</title><p>hello\n' > "$FIXTURES/page.html"
   printf 'not a component and not a page\n'          > "$FIXTURES/notes.txt"
+  # Sparse: 65 MiB by its length, no disk behind it. Only the size is tested.
+  truncate -s 65M "$FIXTURES/huge.wasm"
   cat > "$FIXTURES/catalogue.json" <<JSON
 [{"name":"hello","source":"mini-apps/hello/hello.component.wasm","description":"served"}]
 JSON
@@ -236,6 +254,8 @@ JSON
       $HOST "$B/page.html"
     check_fails "text/plain is neither, and says which it got" "Content-Type: text/plain" \
       $HOST "$B/notes.txt"
+    check_fails "a download over the size cap is refused" "larger than 64 MiB" \
+      $HOST "$B/huge.wasm"
     check "a registry can be served over HTTP" "served" \
       $HOST --registry "$B/catalogue.json" --list
     # The store lists whatever registry the host was given, not a compiled-in one.

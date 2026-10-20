@@ -36,11 +36,12 @@ What has actually been run against this tree, rather than what it ought to do.
 | `mini-apps/hello/hello.component.wasm` | local path | component |
 | `…/page.html` (on disk) | local path | web page |
 | `README.md` | local path | error, no network request |
-| `example.com` | — | error asking for the scheme |
+| `example.com` | — | guessed as `https://example.com`, then classified like any URL (the suite checks the guess against `localhost:9`, offline) |
 
-All of the headless cases below are `./run-tests.sh` — 36 assertions, exit
-non-zero on failure, repeatable, cleaning up after itself. It is the suite; the
-tables are what it covers.
+All of the headless cases below are `./run-tests.sh` — 41 assertions, exit
+non-zero on failure, repeatable, cleaning up after itself, and needing no
+internet: every network case talks to a server on `127.0.0.1`. It is the suite;
+the tables are what it covers.
 
 **The store** (`store.component.wasm`, 43 KB), headless:
 
@@ -48,9 +49,21 @@ tables are what it covers.
 |---|---|
 | `-- store --frames 1` | hero heading, search field, 3 app tiles read through `list-apps` — 4 registry entries, the store itself not among them |
 | `-- store --input "1:0=hell" --script "2:0" --frames 4` | filtered to 1 of 3, tile indices renumbered, click opened `hello` via `open-app` |
-| `-- store --input "1:0=example.com" --script "2:0" --frames 3` | offered an `Open address` tile; clicking it navigated through `open-app` |
+| `-- store --input "1:0=example.com" --frames 2` | offered an `Open address` tile for the typed text |
+| `-- store --input "1:0=mini-apps/hello/hello.component.wasm" --script "2:0" --frames 3` | clicking that tile navigated through `open-app` |
+| `-- store --input "1:0=nowhere/missing.wasm" --script "2:0" --frames 3` | the failed navigation is reported (`[nav failed] …`), the store keeps running |
 | `--registry <url> -- store` | catalogue fetched over HTTP and listed |
 | `--registry <unreachable>` | fell back to the built-in list, did not abort |
+
+**Sandbox limits** (`runaway.component.wasm`, a fixture that misbehaves on
+purpose — see §4.10):
+
+| Command | Result |
+|---|---|
+| `-- mini-apps/runaway/runaway.component.wasm --script "1:0" --frames 3` | `loop {}` in `update`: stopped after ~1 s, "it did not finish a frame within 1s and was stopped", exit 1 |
+| `-- mini-apps/runaway/runaway.component.wasm --script "1:1" --frames 3` | `memory.grow` without end: stopped at the cap, "it tried to use more than 512 MiB of memory and was stopped" |
+| `-- mini-apps/runaway/runaway.component.wasm --frames 3` | untouched when it behaves |
+| `…/huge.wasm` (65 MiB, served) | refused before the body is read: "larger than 64 MiB" |
 
 **The window**, run under Xvfb with Mesa's software Vulkan and openbox, driven
 with `xdotool` and screenshotted at each step:
@@ -164,9 +177,19 @@ egui, on stdout, or on a future backend. Any new widget type starts here.
   registry, because those are the registry and not the home screen.
 - `open_app` records into `pending_open` rather than acting; see §4.3.
 - `MiniApp::load` — compile, link (`host-api` + WASI 0.2), instantiate,
-  call `init`.
-- `MiniApp::frame` — clear the buffer, set the input, `call_update`, return a
-  clone of the collected commands.
+  call `init`. Installs the store's limiter and an epoch deadline of
+  `INIT_BUDGET_TICKS` *before* instantiating: a component can run code while it
+  is instantiated, and a store with no deadline traps at its first check.
+- `MiniApp::frame` — clear the buffer, set the input, set a deadline of
+  `FRAME_BUDGET_TICKS`, `call_update`, return a clone of the collected commands.
+- **The limits** (§4.10): `EPOCH_TICK` (10 ms) is the unit, `FRAME_BUDGET_TICKS`
+  (~1 s per `update`) and `INIT_BUDGET_TICKS` (~10 s for instantiate + `init`)
+  bound time, `MAX_GUEST_MEMORY` (512 MiB) bounds linear memory.
+  `start_epoch_ticker` is the thread that moves the clock; `struct GuestLimits`
+  is the `ResourceLimiter`, which traps over the cap and remembers that it did.
+- `explain` — turns a guest failure into a sentence. The two limits get one
+  naming the limit; anything else is a real crash and keeps its whole error
+  chain, because the trap's wording is the only clue to what the guest did.
 - `MiniApp::take_pending_open` — the navigation the guest asked for, taken once
   it is off the stack and dropping it is legal.
 
@@ -184,6 +207,12 @@ Decides what an address *is*, before the shell tries to go there.
   nothing is downloaded twice.
 - `application/octet-stream` and missing types fall back to the WASM magic
   number, because plenty of static hosts mislabel `.wasm`.
+- `http()` — the one HTTP client, used by the registry fetch too: 10 s to
+  connect, 30 s per read. ureq's default has no read timeout, so a server that
+  accepts and then says nothing used to hold a loader thread forever.
+- `MAX_DOWNLOAD` (64 MiB) — refused up front when `Content-Length` says so,
+  cut off at the cap when it does not. The body is held whole before compiling,
+  so without a cap an address could stream until the machine ran out of memory.
 
 ### `host/src/shell.rs` — navigation
 The browser-shaped layer above a single mini-app. Knows nothing about drawing.
@@ -297,15 +326,24 @@ purpose.
   straight there", skipping the home screen.
 - `parse_script` — `"1:0,2:0"` → `{frame: {button indices}}`.
 - `run_headless` — runs N frames, injects the scripted clicks, prints
-  every `UiCmd` and guest log line.
+  every `UiCmd` and guest log line, `[nav] …` after a guest navigation that
+  landed and `[nav failed] …` after one that did not.
+- `engine` — the one `wasmtime::Engine`: compilation cache on disk, and
+  `epoch_interruption(true)` with its ticker started. Turning epochs on changes
+  the compiled code, so the cache entries from before it are not reused — the
+  first open of each component after this change compiles from scratch once.
 
 `run_headless` is the project's test suite. There is no `#[test]` anywhere; the
 `--script` flag *is* how the boundary is verified, and it needs no display.
 
 ### `run-tests.sh` — the suite
-36 assertions driven through the real binary: the guest cycle, the registry, the
-store, every branch of address classification, the scheme guess, served
-registries, and all three feature sets building. No `cargo test`, because what
+41 assertions driven through the real binary: the guest cycle, the registry, the
+store, every branch of address classification, the sandbox limits, the scheme
+guess, served registries, the download cap, and all three feature sets building.
+None of it reaches the internet: the scheme guess is observed against
+`localhost:9`, where nothing listens, and the store's typed-address click opens
+a local path. Two cases used `example.com` and failed on any machine behind a
+proxy or offline, with nothing broken. No `cargo test`, because what
 needs proving is the boundary and the routing, and `--script` / `--input` make
 both verifiable without a display.
 
@@ -332,6 +370,12 @@ Its existence is the argument: the host no longer owns a home screen, it owns a
 *fallback*, and the start page is now a component that can be replaced without
 touching the shell.
 
+### `mini-apps/runaway/` — a test fixture, not an app
+Two buttons: one that never returns from `update`, one that grows its memory until
+stopped. `run-tests.sh` clicks each and checks the guest is stopped with the
+limit named. Deliberately **not** in `apps.json` — nothing about it belongs on a
+start page — and opened by path. Built by `build-mini-apps.sh` like the others.
+
 ### `mini-apps/` — the other guests
 `counter` (Rust, state in an `AtomicI32`), `hello` (Rust, second app to prove
 hot-swap), `counter-cs` (C#, componentize-dotnet), `counter-py` (Python,
@@ -357,7 +401,7 @@ The size spread is the argument for mixing them: ~19 KB (Rust), ~2.2 MB (C#),
 
 ## 4. Findings, and what became of them
 
-Five things the code turned out to require that reading the plan alone would not
+Things the code turned out to require that reading the plan alone would not
 have told you. Each is kept with its outcome, because the reasoning is what
 transfers — the next widget, the next capability, the next platform backend will
 hit the same walls.
@@ -574,6 +618,32 @@ The general lesson is the one to carry: making slow work asynchronous stops it
 blocking, and does nothing at all to stop it being *started again*. Anything
 that can be triggered by a click needs both.
 
+### 4.10 A guest could take the shell down with it — now bounded
+"Untrusted code in a sandbox" held for *access* — a guest could reach nothing
+the WIT did not give it — but not for *resources*. Three ways in, all closed:
+
+- **Time.** `loop {}` in `update` ran on the UI thread and froze the window for
+  good: no repaint, no Home, nothing but killing the process. On Android the
+  same guest would get the *shell* killed as "not responding". Now an epoch
+  deadline stops it after ~1 s, and `init` after ~10 s — `init` runs on a
+  loader thread that nothing could otherwise reclaim.
+- **Memory.** Nothing capped linear memory below the 4 GiB a 32-bit memory can
+  address, so the host's allocation failed rather than the guest's. Now 512 MiB,
+  and going over is a trap rather than a quiet `-1` from `memory.grow`: guests
+  told "no" mostly abort anyway, and stopping them is the one outcome that is
+  the same in every language.
+- **Downloads.** No size cap and no read timeout. Now 64 MiB and 30 s of silence.
+
+Epoch interruption was chosen over fuel because it is cheap enough to leave on
+for every frame: compiled code checks a counter at loop headers and function
+entries, and one thread moves the counter. Fuel counts instructions and costs on
+every one of them. The trade is precision — a deadline is good to a tick
+(10 ms) — which is nothing next to a second.
+
+The stop goes through §4.5's path: the shell drops the app and shows why. The
+reason names the limit (`explain`), because "wasm trap: interrupt" tells the
+person in front of the window nothing about what happened.
+
 ---
 
 ## 5. Invariants worth not breaking
@@ -589,3 +659,12 @@ that can be triggered by a click needs both.
    nothing else.
 6. **No web stack in the mini-app path.** HTML/CSS/JS has no place on the guest
    side of the boundary.
+7. **A guest's time and memory are bounded.** Every call into a guest runs under
+   an epoch deadline and the store's limiter (§4.10). A new entry point into the
+   guest must set a deadline before it calls in; with epochs on, a store without
+   one traps at once.
+8. **Desktop and Android are equal targets.** Neither is a port of the other.
+   A feature lands when it works on both, and nothing may depend on what only a
+   desktop has — hover, a physical keyboard, a mouse wheel, a window that is
+   never backgrounded — outside a feature flag. (The Android backend is not built
+   yet; this is the rule it is built under.)

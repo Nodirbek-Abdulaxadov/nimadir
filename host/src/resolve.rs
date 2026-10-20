@@ -18,6 +18,7 @@
 //! a component is never downloaded twice.
 
 use std::io::Read;
+use std::time::Duration;
 
 use anyhow::{bail, Context, Result};
 
@@ -32,6 +33,26 @@ pub enum Target {
 
 /// The four bytes every WASM module and component starts with.
 const WASM_MAGIC: &[u8] = b"\0asm";
+
+/// The largest component the shell will download: 64 MiB.
+///
+/// The biggest real one today is the Python counter at ~18 MB — a whole
+/// CPython. Without a cap, an address could stream bytes until the machine ran
+/// out of memory, since the body is held whole before it is compiled.
+pub const MAX_DOWNLOAD: u64 = 64 << 20;
+
+/// The HTTP client every fetch goes through.
+///
+/// ureq's defaults give a 30-second connect timeout and **no read timeout**: a
+/// server that accepts the connection and then says nothing holds a loader
+/// thread forever. The read timeout is per read, not for the whole transfer,
+/// so a large component on a slow line still arrives — only silence fails.
+pub fn http() -> ureq::Agent {
+    ureq::AgentBuilder::new()
+        .timeout_connect(Duration::from_secs(10))
+        .timeout_read(Duration::from_secs(30))
+        .build()
+}
 
 /// Decide what `src` is, fetching it if that is the only way to know.
 pub fn classify(src: &str) -> Result<Target> {
@@ -71,7 +92,7 @@ fn remote(url: &str) -> Result<Target> {
     // server labels it badly — see the octet-stream note below.
     let named_wasm = extension(url_path(url)).as_deref() == Some("wasm");
 
-    let resp = ureq::get(url).call().with_context(|| format!("GET {url}"))?;
+    let resp = http().get(url).call().with_context(|| format!("GET {url}"))?;
 
     // Headers must be read before `into_reader` consumes the response. Only the
     // mime type matters; `; charset=utf-8` and friends are dropped.
@@ -89,10 +110,24 @@ fn remote(url: &str) -> Result<Target> {
         return Ok(Target::WebPage);
     }
 
+    // Refused up front when the server is honest about the size, and cut off
+    // at the cap when it is not (or sends no length at all).
+    let too_big = || format!("{url} is larger than {} MiB, the most the shell will download", MAX_DOWNLOAD >> 20);
+    if resp
+        .header("Content-Length")
+        .and_then(|n| n.trim().parse::<u64>().ok())
+        .is_some_and(|n| n > MAX_DOWNLOAD)
+    {
+        bail!(too_big());
+    }
     let mut body = Vec::new();
     resp.into_reader()
+        .take(MAX_DOWNLOAD + 1)
         .read_to_end(&mut body)
         .with_context(|| format!("read body of {url}"))?;
+    if body.len() as u64 > MAX_DOWNLOAD {
+        bail!(too_big());
+    }
 
     // `application/wasm` is the registered type, but plenty of static hosts
     // serve .wasm as `application/octet-stream` or with no type at all. The

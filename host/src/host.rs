@@ -7,12 +7,15 @@
 //! `MiniAppWorld` we instantiate. The canonical ABI moves strings/bools across
 //! the boundary, so there is no manual linear-memory reading here any more.
 //!
-//! The public API of `MiniApp` (`load` / `frame` / `take_logs`) is unchanged, so
-//! `main.rs` and `gui.rs` are untouched by this migration — only the internals.
+//! The public API of `MiniApp` (`load` / `frame` / `take_logs` /
+//! `take_pending_open`) is all `shell.rs` drives; everything Wasmtime-specific —
+//! the bindings, the linker, the time and memory limits — stays in this file.
 
-use anyhow::Result;
+use std::time::Duration;
+
+use anyhow::{anyhow, Result};
 use wasmtime::component::{Component, HasSelf, Linker, ResourceTable};
-use wasmtime::{Engine, Store};
+use wasmtime::{Engine, ResourceLimiter, Store, Trap};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
 use crate::registry::AppEntry;
@@ -30,6 +33,85 @@ mod bindings {
 
 use bindings::nimadir::shell::host_api::{AppEntry as WitAppEntry, Host};
 use bindings::MiniApp as MiniAppWorld;
+
+/// How often the engine's epoch advances. Every limit on guest *time* below is
+/// counted in these ticks, so this is also the precision of those limits.
+pub const EPOCH_TICK: Duration = Duration::from_millis(10);
+
+/// How long one `update` may run: about a second.
+///
+/// A frame is meant to take microseconds. A guest still inside `update` after
+/// a second is not slow, it is stuck — and it is stuck *on the UI thread*,
+/// where a `loop {}` used to freeze the whole window for good (and on Android
+/// would earn an "app not responding" kill for the shell, not the guest).
+const FRAME_BUDGET_TICKS: u64 = 100;
+
+/// How long instantiation plus `init` may run: about ten seconds. Far more
+/// than a frame, because a guest that carries a runtime boots it here — CPython
+/// is the slow one — but still finite, since this runs on a loader thread that
+/// nothing could otherwise ever reclaim.
+const INIT_BUDGET_TICKS: u64 = 1000;
+
+/// The most linear memory one guest may hold: 512 MiB.
+///
+/// Without a cap a guest could grow to the 4 GiB a 32-bit memory can address,
+/// on a machine that may not have it — the host's allocation fails, not the
+/// guest's. Generous on purpose: CPython inside the sandbox needs room.
+pub const MAX_GUEST_MEMORY: usize = 512 << 20;
+
+/// Start the clock that guest time limits are measured against.
+///
+/// Wasmtime's epoch interruption is cooperative and cheap: compiled code checks
+/// a counter at loop headers and function entries, and this thread is what
+/// moves the counter. Call once per engine, before any guest runs. The thread
+/// holds an engine handle for the life of the process, which is the life of
+/// the engine anyway.
+pub fn start_epoch_ticker(engine: &Engine) {
+    let engine = engine.clone();
+    std::thread::Builder::new()
+        .name("epoch-ticker".into())
+        .spawn(move || loop {
+            std::thread::sleep(EPOCH_TICK);
+            engine.increment_epoch();
+        })
+        .expect("spawn the epoch ticker");
+}
+
+/// The memory and table limits a guest runs under, and a note of whether it
+/// hit them — so a guest stopped for its appetite can be told apart from one
+/// that simply crashed.
+#[derive(Default)]
+struct GuestLimits {
+    memory_exceeded: bool,
+}
+
+impl ResourceLimiter for GuestLimits {
+    /// Over the cap is a trap, not a quiet `-1` from `memory.grow`. A guest
+    /// told "no" mostly aborts anyway, and the ones that do not would carry on
+    /// in some half-state; stopping it here is the one outcome that is the
+    /// same for every guest, whatever language it was written in.
+    fn memory_growing(
+        &mut self,
+        _current: usize,
+        desired: usize,
+        maximum: Option<usize>,
+    ) -> wasmtime::Result<bool> {
+        if desired > MAX_GUEST_MEMORY {
+            self.memory_exceeded = true;
+            wasmtime::bail!("guest memory would exceed {MAX_GUEST_MEMORY} bytes");
+        }
+        Ok(maximum.is_none_or(|max| desired <= max))
+    }
+
+    fn table_growing(
+        &mut self,
+        _current: usize,
+        desired: usize,
+        maximum: Option<usize>,
+    ) -> wasmtime::Result<bool> {
+        Ok(maximum.is_none_or(|max| desired <= max))
+    }
+}
 
 /// Per-instance host state. Reachable from every host-interface method via
 /// `&mut self`, and from the store via `store.data()/data_mut()`.
@@ -59,6 +141,7 @@ pub struct HostState {
     /// runtime diagnostics).
     wasi: WasiCtx,
     table: ResourceTable,
+    limits: GuestLimits,
 }
 
 impl HostState {
@@ -73,6 +156,7 @@ impl HostState {
             pending_open: None,
             wasi: WasiCtxBuilder::new().inherit_stderr().build(),
             table: ResourceTable::new(),
+            limits: GuestLimits::default(),
         }
     }
 }
@@ -232,10 +316,15 @@ impl MiniApp {
         wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
 
         let mut store = Store::new(engine, HostState::new(apps));
-        let world = MiniAppWorld::instantiate(&mut store, &component, &linker)?;
+        store.limiter(|s| &mut s.limits);
+        // Set before instantiation, not just before `init`: a component can run
+        // code while it is being instantiated, and with epoch interruption on,
+        // a store with no deadline set traps at the first check.
+        store.set_epoch_deadline(INIT_BUDGET_TICKS);
 
-        // One-time setup hook.
-        world.call_init(&mut store)?;
+        let started = MiniAppWorld::instantiate(&mut store, &component, &linker)
+            .and_then(|world| world.call_init(&mut store).map(|()| world));
+        let world = started.map_err(|e| explain(e, &store, "start", INIT_BUDGET_TICKS))?;
 
         Ok(MiniApp { store, world })
     }
@@ -250,7 +339,10 @@ impl MiniApp {
             st.text_counter = 0;
             st.input = input;
         }
-        self.world.call_update(&mut self.store)?;
+        self.store.set_epoch_deadline(FRAME_BUDGET_TICKS);
+        self.world
+            .call_update(&mut self.store)
+            .map_err(|e| explain(e, &self.store, "finish a frame", FRAME_BUDGET_TICKS))?;
         Ok(self.store.data().ui.clone())
     }
 
@@ -265,4 +357,26 @@ impl MiniApp {
     pub fn take_pending_open(&mut self) -> Option<String> {
         self.store.data_mut().pending_open.take()
     }
+}
+
+/// Turn a guest failure into something worth putting in front of a person.
+///
+/// The two limits this module enforces get a sentence that says which limit it
+/// was; anything else is a genuine crash, and keeps the whole chain — the
+/// trap's own wording is the only clue to *what* the guest did wrong.
+fn explain(e: wasmtime::Error, store: &Store<HostState>, doing: &str, ticks: u64) -> anyhow::Error {
+    if store.data().limits.memory_exceeded {
+        return anyhow!(
+            "it tried to use more than {} MiB of memory and was stopped",
+            MAX_GUEST_MEMORY >> 20
+        );
+    }
+    if e.downcast_ref::<Trap>() == Some(&Trap::Interrupt) {
+        let budget = EPOCH_TICK * ticks as u32;
+        return anyhow!(
+            "it did not {doing} within {:.0?} and was stopped",
+            budget
+        );
+    }
+    anyhow!("{e:#}")
 }

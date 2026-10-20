@@ -522,8 +522,10 @@ Because the renderer is isolated behind the `UiCmd` protocol (`ui.rs`) and the
   model and cuts boundary traffic (send diffs, not the whole UI each frame).
 - **More languages**: a Go mini-app with TinyGo, and others — same `wit/`, no host
   change. (A **C#/.NET** mini-app is already built — see *Polyglot*, above.)
-- **Per-mini-app capability policy** (which apps may call which host functions),
-  plus fuel/memory limits and timeouts.
+- **Per-mini-app capability policy** (which apps may call which host functions,
+  and which addresses a guest may ask `open-app` to open). Time, memory and
+  download limits are already built — see `docs/ARCHITECTURE.md` §4.10.
+- **Android**, as an equal target to the desktop rather than a port of it.
 - **Zero-copy bulk data** (shared linear-memory buffers for pixels/geometry)
   instead of copying across the boundary each call.
 - **A Makepad backend** behind the same `UiCmd` protocol.

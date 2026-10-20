@@ -72,10 +72,12 @@ single case, copy that `check` line's command and run it directly, e.g.:
 ```
 
 Network cases need `python3` (throwaway HTTP server) and `curl`; without them they
-are **skipped, never failed**. Several assertions match exact byte counts
-(`"loaded 17643 bytes"`) — a different rustc produces a different-sized component,
-so those fail after a toolchain change with nothing actually broken; rebuild the
-mini-apps and update the numbers together.
+are **skipped, never failed**. They talk only to `127.0.0.1` — the suite needs no
+internet. Byte-count assertions read the size off the built file (`COUNTER_BYTES`),
+so a toolchain change that resizes a component does not break them.
+
+`mini-apps/runaway` is a **test fixture**, not an app: it spins and eats memory on
+demand so the suite can check the sandbox limits hold. It stays out of `apps.json`.
 
 ## Architecture in six lines
 
@@ -96,6 +98,10 @@ mini-apps and update the numbers together.
   be dropped from inside its own frame. A frame that navigated returns no commands.
 - Leaving an app **destroys** it (`Store` + linear memory). Reopening starts fresh;
   that is the sandbox working, not lost state.
+- A guest's **time and memory are bounded** (`host.rs`): an epoch deadline of ~1 s
+  per `update` and ~10 s for instantiate + `init`, 512 MiB of linear memory, and
+  64 MiB / 30 s of silence per download (`resolve.rs`). A stuck guest is stopped,
+  not waited on. Any new call into a guest must set a deadline first.
 
 Adding a capability = a line in `wit/world.wit` + a method on `impl Host for
 HostState` (`host.rs`). Adding a widget also touches `ui.rs`, `gui.rs`, and the
@@ -110,5 +116,8 @@ precedence over the hand-editable `apps.list`).
 
 The WIT is additive-only; chrome (address bar, Home) is host-only and never
 reachable by guest code; **headless with no system GUI libraries stays the default
-feature set** — every new system dependency goes behind a feature flag; and no
-web stack on the guest side of the boundary. Full list: `docs/ARCHITECTURE.md` §5.
+feature set** — every new system dependency goes behind a feature flag; no web
+stack on the guest side of the boundary; and **desktop and Android are equal
+targets** — a feature lands when it works on both, and nothing may rely on what
+only a desktop has (hover, a physical keyboard) outside a feature flag. Full list:
+`docs/ARCHITECTURE.md` §5.

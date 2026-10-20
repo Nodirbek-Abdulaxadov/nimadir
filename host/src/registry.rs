@@ -67,7 +67,8 @@ pub fn load_from(source: &str) -> (Vec<AppEntry>, String) {
 }
 
 fn fetch(url: &str) -> Option<String> {
-    ureq::get(url).call().ok()?.into_string().ok()
+    // `into_string` caps the body at 10 MB itself; the agent bounds the wait.
+    crate::resolve::http().get(url).call().ok()?.into_string().ok()
 }
 
 /// Read the default manifests: `apps.json`, then `apps.list`, then the built-in
