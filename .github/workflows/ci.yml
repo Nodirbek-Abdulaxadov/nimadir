@@ -1,0 +1,95 @@
+# The suite on every PR, on every desktop OS. There is no `cargo test` in this
+# repo: `run-tests.sh` drives the real binary headlessly, so that is what runs.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  lint:
+    name: fmt + clippy
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      # WebKitGTK for the `webview` feature, which pulls in `gui` too.
+      - run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo fmt --all --check
+      # The mini-apps are outside the workspace, so `--all` does not reach them.
+      - run: for a in counter hello store runaway; do cargo fmt --check --manifest-path mini-apps/$a/Cargo.toml; done
+      - run: cargo clippy -p host -p componentize --all-targets -- -D warnings
+      - run: cargo clippy -p host --features webview --all-targets -- -D warnings
+
+  suite:
+    name: suite (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      # So the suite's `gui` and `webview` build checks run rather than skip.
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            mini-apps/counter
+            mini-apps/hello
+            mini-apps/store
+            mini-apps/runaway
+      - run: ./build-mini-apps.sh
+      - run: ./run-tests.sh
+
+  # The C# and Python guests, which `build-mini-apps.sh` and the suite skip when
+  # their toolchains are absent — so on the jobs above they are never exercised.
+  polyglot:
+    name: suite with C# and Python guests
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install componentize-py
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            .
+            mini-apps/counter
+            mini-apps/hello
+            mini-apps/store
+            mini-apps/runaway
+      - run: ./build-mini-apps.sh
+      # Fail rather than quietly skip: this job exists to run them.
+      - run: test -f mini-apps/counter-cs/counter-cs.component.wasm && test -f mini-apps/counter-py/counter-py.component.wasm
+      - run: ./run-tests.sh
