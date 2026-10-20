@@ -23,6 +23,7 @@ use std::collections::{HashMap, HashSet};
 use anyhow::Result;
 use eframe::egui;
 
+use crate::i18n::{t, Lang, Text};
 use crate::registry;
 use crate::settings;
 use crate::shell::{Shell, View, SETTINGS_PAGE};
@@ -50,6 +51,9 @@ pub fn run(shell: Shell) -> Result<()> {
 /// that is the desktop path unchanged.
 #[cfg(target_os = "android")]
 pub fn run_android(shell: Shell, app: AndroidApp) -> Result<()> {
+    if let Some(tag) = crate::android::system_locale(&app) {
+        crate::set_locale(tag);
+    }
     run_with(
         shell,
         eframe::NativeOptions {
@@ -352,6 +356,8 @@ struct ShellApp {
     /// What the settings page shows, read from disk once per visit rather
     /// than on every frame it is drawn.
     settings_seen: Option<(Vec<settings::Kept>, u64)>,
+    /// The language the window speaks, from the user's locale.
+    lang: Lang,
 }
 
 impl ShellApp {
@@ -376,6 +382,7 @@ impl ShellApp {
             safe_area: None,
             redraw: false,
             settings_seen: None,
+            lang: Lang::current(),
         }
     }
 
@@ -389,7 +396,7 @@ impl ShellApp {
         let mut clear: Option<String> = None;
         let mut clear_cache = false;
         egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.heading("Settings");
+            ui.heading(t(self.lang, Text::Settings));
             ui.weak(format!(
                 "nimadir {} — WIT {}",
                 env!("CARGO_PKG_VERSION"),
@@ -397,34 +404,34 @@ impl ShellApp {
             ));
             ui.add_space(12.0);
 
-            ui.strong("What apps keep");
+            ui.strong(t(self.lang, Text::WhatAppsKeep));
             if kept.is_empty() {
-                ui.weak("Nothing yet. Only a signed app that asks for storage keeps anything.");
+                ui.weak(t(self.lang, Text::NothingKept));
             }
             for k in kept.iter() {
                 ui.horizontal_wrapped(|ui| {
                     ui.label(&k.identity);
                     ui.weak(settings::human(k.bytes));
-                    if ui.button("Clear data").clicked() {
+                    if ui.button(t(self.lang, Text::ClearData)).clicked() {
                         clear = Some(k.identity.clone());
                     }
                 });
             }
             ui.add_space(12.0);
 
-            ui.strong("Downloads and compiled code");
+            ui.strong(t(self.lang, Text::Caches));
             ui.horizontal_wrapped(|ui| {
                 ui.label(settings::human(*cache));
-                if ui.button("Clear cache").clicked() {
+                if ui.button(t(self.lang, Text::ClearCache)).clicked() {
                     clear_cache = true;
                 }
             });
-            ui.weak("All of it can be fetched or compiled again; the next opens are slower.");
+            ui.weak(t(self.lang, Text::CachesRebuild));
             ui.add_space(12.0);
 
             for (what, dir) in [
-                ("Data", crate::paths::data_dir()),
-                ("Cache", crate::paths::cache_dir()),
+                (t(self.lang, Text::DataDir), crate::paths::data_dir()),
+                (t(self.lang, Text::CacheDir), crate::paths::cache_dir()),
             ] {
                 if let Some(dir) = dir {
                     ui.weak(format!("{what}: {}", dir.display()));
@@ -657,11 +664,15 @@ impl ShellApp {
 
         let (title, src) = match &self.shell.view {
             View::Home => ("wasm-shell".to_string(), String::new()),
-            View::Settings => ("Settings".to_string(), SETTINGS_PAGE.to_string()),
+            View::Settings => (
+                t(self.lang, Text::Settings).to_string(),
+                SETTINGS_PAGE.to_string(),
+            ),
             View::App { title, src, .. } => (title.clone(), src.clone()),
             View::WebPage { title, url } => (title.clone(), url.clone()),
         };
         let at_home = self.shell.is_home();
+        let lang = self.lang;
         let can_back = self.shell.can_go_back();
 
         // Follow navigation, like a browser's bar does: whatever you arrived at
@@ -690,21 +701,21 @@ impl ShellApp {
         let mut addr = std::mem::take(&mut self.address);
         ui.horizontal(|ui| {
             // A word, not an arrow: egui's bundled fonts have no arrow glyphs.
-            if can_back && ui.button("Back").clicked() {
+            if can_back && ui.button(t(lang, Text::Back)).clicked() {
                 go_back = true;
             }
             if !at_home {
-                if ui.button("Home").clicked() {
+                if ui.button(t(lang, Text::Home)).clicked() {
                     go_home = true;
                 }
-                if ui.button("Reload").clicked() {
+                if ui.button(t(lang, Text::Reload)).clicked() {
                     reload = true;
                 }
                 ui.separator();
             }
             // 520 pt where there is room, and otherwise what is left beside the
             // Open button: a fixed width pushed the button off a phone's screen.
-            let open = egui::WidgetText::from("Open").into_galley(
+            let open = egui::WidgetText::from(t(lang, Text::Open)).into_galley(
                 ui,
                 None,
                 f32::INFINITY,
@@ -718,7 +729,7 @@ impl ShellApp {
                     .hint_text("counter   |   path/to/app.wasm   |   https://example.com"),
             );
             let entered = resp.lost_focus() && ui.ctx().input(|i| i.key_pressed(egui::Key::Enter));
-            if ui.button("Open").clicked() || entered {
+            if ui.button(t(lang, Text::Open)).clicked() || entered {
                 if addr.trim().is_empty() {
                     submitted_empty = true;
                 } else {
@@ -737,7 +748,7 @@ impl ShellApp {
         }
 
         if submitted_empty {
-            self.shell.status = "type a .wasm path, a URL, or the name of a listed app".to_string();
+            self.shell.status = t(self.lang, Text::TypeSomething).to_string();
             self.shell.status_is_error = true;
         }
 
@@ -755,13 +766,16 @@ impl ShellApp {
         // chrome, which the app cannot draw over or click for the user.
         let mut answer = None;
         if let Some(ask) = self.shell.asking() {
-            let question = format!("{} wants to open {}", ask.from, ask.address);
+            let question = t(self.lang, Text::WantsToOpen)
+                .replace("{app}", &ask.from)
+                .replace("{address}", &ask.address);
+            let lang = self.lang;
             ui.horizontal_wrapped(|ui| {
                 ui.label(egui::RichText::new(question).strong());
-                if ui.button("Open").clicked() {
+                if ui.button(t(lang, Text::Open)).clicked() {
                     answer = Some(true);
                 }
-                if ui.button("Stay").clicked() {
+                if ui.button(t(lang, Text::Stay)).clicked() {
                     answer = Some(false);
                 }
             });
@@ -798,13 +812,17 @@ impl ShellApp {
         let Some((app, origin)) = self.shell.network_question() else {
             return false;
         };
+        let lang = self.lang;
         let mut answer = None;
         ui.horizontal_wrapped(|ui| {
-            ui.label(egui::RichText::new(format!("{app} wants to connect to {origin}")).strong());
-            if ui.button("Allow").clicked() {
+            let question = t(lang, Text::WantsToConnect)
+                .replace("{app}", &app)
+                .replace("{origin}", &origin);
+            ui.label(egui::RichText::new(question).strong());
+            if ui.button(t(lang, Text::Allow)).clicked() {
                 answer = Some(true);
             }
-            if ui.button("Don't allow").clicked() {
+            if ui.button(t(lang, Text::DontAllow)).clicked() {
                 answer = Some(false);
             }
         });
@@ -829,7 +847,8 @@ impl ShellApp {
         ui.horizontal(|ui| {
             let p = palette::of(ui);
             ui.add(egui::Spinner::new().size(14.0).color(p.accent));
-            ui.label(egui::RichText::new(format!("Loading {src}")).color(p.muted));
+            let loading = t(self.lang, Text::Loading).replace("{address}", &src);
+            ui.label(egui::RichText::new(loading).color(p.muted));
         });
         true
     }
@@ -872,14 +891,14 @@ impl ShellApp {
         let mut nav: Option<Nav> = None;
 
         ui.add_space(4.0);
-        ui.label("Mini-apps — click one to load it into this window.");
+        ui.label(t(self.lang, Text::MiniApps));
         ui.add_space(8.0);
 
         // Cloned so the loop holds no borrow of `self.shell` while we record a
         // click that will mutate it right after.
         let apps = self.shell.apps.clone();
         if apps.is_empty() {
-            ui.weak("No mini-apps listed. Add some to apps.list.");
+            ui.weak(t(self.lang, Text::NoMiniApps));
         }
         for e in &apps {
             ui.horizontal(|ui| {
@@ -933,16 +952,21 @@ impl ShellApp {
         let _ = frame;
 
         ui.add_space(8.0);
-        ui.strong("Web page");
+        ui.strong(t(self.lang, Text::WebPage));
         ui.add_space(4.0);
         ui.label(url.as_str());
         ui.add_space(10.0);
-        ui.weak("This address was classified as a web page, not a WASM component,");
-        ui.weak("so the shell routed it away from the mini-app path.");
+        ui.weak(t(self.lang, Text::WebPageRouted));
+        // A desktop can be rebuilt with a webview; a phone cannot have one yet.
         #[cfg(not(feature = "webview"))]
         {
             ui.add_space(6.0);
-            ui.weak("Rebuild with `--features webview` to render it here.");
+            let why = if cfg!(target_os = "android") {
+                Text::WebPageNotHere
+            } else {
+                Text::WebPageRebuild
+            };
+            ui.weak(t(self.lang, why));
         }
     }
 

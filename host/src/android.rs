@@ -123,6 +123,33 @@ fn read_insets(env: &mut JNIEnv, activity: &JObject) -> jni::errors::Result<Opti
     }
 }
 
+/// The system's locale as a BCP 47 tag — `uz-UZ`, `ru-RU` — from
+/// `java.util.Locale.getDefault()`. Nothing in the environment says it on
+/// Android, so without this every app would think the user reads English.
+pub fn system_locale(app: &AndroidApp) -> Option<String> {
+    // SAFETY: as in `measure`.
+    let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) }.ok()?;
+    let mut env = vm.attach_current_thread().ok()?;
+    let tag = env.with_local_frame(8, |env| -> jni::errors::Result<String> {
+        let locale = env
+            .call_static_method(
+                "java/util/Locale",
+                "getDefault",
+                "()Ljava/util/Locale;",
+                &[],
+            )?
+            .l()?;
+        let tag = env
+            .call_method(&locale, "toLanguageTag", "()Ljava/lang/String;", &[])?
+            .l()?;
+        Ok(env.get_string(&tag.into())?.into())
+    });
+    if tag.is_err() {
+        let _ = env.exception_clear();
+    }
+    tag.ok().filter(|t| !t.is_empty())
+}
+
 fn field(env: &mut JNIEnv, obj: &JObject, name: &str) -> jni::errors::Result<f32> {
     Ok(env.get_field(obj, name, "I")?.i()? as f32)
 }

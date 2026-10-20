@@ -447,6 +447,11 @@ Splits the window into two zones, and keeping them apart is the security story:
   a two-line container.
 - `install_fonts` — egui's fonts plus Noto Sans (`host/assets/fonts`, OFL) as
   the last fallback: none of egui's has U+02BB, the ʻ of Uzbek's oʻ and gʻ.
+- `i18n` (`host/src/i18n.rs`) — the window's own words in Uzbek, Russian and
+  English, chosen once from `locale()` (`ShellApp::lang`). Status lines and the
+  headless output stay English: logs and the suite read them. On Android the
+  locale comes from `java.util.Locale` (`android::system_locale` →
+  `set_locale`), since nothing in the environment says it there.
 - `palette` — two `Palette`s, `LIGHT` and `DARK`; everything painted by hand
   reads `palette::of(ui)`. `install_theme` builds both themes' visuals from them
   (`visuals`) and follows the system, falling back to light where the system

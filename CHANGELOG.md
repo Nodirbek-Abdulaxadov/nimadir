@@ -24,6 +24,8 @@ beta is `docs/ROADMAP.md`.
   past that the guest is stopped and the reason names the limit.
 
 ### Added
+- The window speaks Uzbek, Russian or English, by the system's locale — on
+  Android read from the platform, where no environment variable says it.
 - A Reload button in the chrome (`--reload` headlessly): the app afresh,
   without a trip home.
 - **`nimadir`, the developer tool** (it absorbs `nimadir-pack`): `new` makes a

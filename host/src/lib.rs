@@ -9,6 +9,8 @@ pub mod diag;
 #[cfg(feature = "gui")]
 pub mod gui;
 pub mod host;
+#[cfg(feature = "gui")]
+mod i18n;
 pub mod images;
 mod net;
 pub mod paths;
@@ -38,10 +40,22 @@ pub fn wit_package() -> &'static str {
         .map_or("unknown", |p| p.trim_end_matches(';'))
 }
 
+static LOCALE: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+
+/// Tell the shell the user's locale, where the platform says it some other
+/// way than environment variables — Android, from its `Locale` (`android.rs`).
+/// Only the first call counts.
+pub fn set_locale(tag: String) {
+    let _ = LOCALE.set(tag);
+}
+
 /// The user's language and region as BCP 47 — `uz_UZ.UTF-8` in `LANG` is
-/// `uz-UZ` — from the variables a Unix system sets; `en-US` when none says
-/// (Windows, a phone, `C`, `POSIX`).
+/// `uz-UZ`. What `set_locale` was told, else the variables a Unix system sets;
+/// `en-US` when nothing says (Windows, `C`, `POSIX`).
 pub fn locale() -> String {
+    if let Some(tag) = LOCALE.get() {
+        return tag.clone();
+    }
     ["LC_ALL", "LC_MESSAGES", "LANG"]
         .iter()
         .filter_map(|v| std::env::var(v).ok())
