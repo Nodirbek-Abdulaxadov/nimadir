@@ -1,52 +1,25 @@
-//! The Android front door — the spike for ROADMAP `S1-3`.
+//! The Android front door onto the shell.
 //!
-//! The same `Shell` and the same window code as the desktop. This file does
-//! only what an installed app has to and a checkout does not: put the
-//! mini-apps somewhere the shell can read them, and tell it where. On the
-//! desktop both come from the working directory (`S2-1` and `S2-2` replace
-//! that); an Android app has no working directory worth the name, so the
-//! components are compiled into the library and unpacked into the app's
-//! private storage at start.
+//! The same `Shell`, the same window code and the same registry as the
+//! desktop. All this does is what only Android needs: put the shell's config,
+//! data and caches in the app's private storage, send its log to logcat, and
+//! hand eframe the activity. The start page is the store built into the host
+//! (`builtin:store`); apps come from the registry, as they do everywhere else.
+//!
+//! For a registry of your own on a debug build, place one where the shell
+//! looks for it:
+//!
+//! ```text
+//! adb shell run-as dev.nimadir.shell mkdir -p files/config
+//! adb shell run-as dev.nimadir.shell sh -c 'cat > files/config/apps.json' < apps.json
+//! ```
 
 #![cfg(target_os = "android")]
 
-use std::time::Instant;
-
 use anyhow::{anyhow, Result};
 use host::gui::AndroidApp;
-use host::registry::AppEntry;
+use host::registry;
 use host::shell::Shell;
-
-/// `(name, description, component)`. Built by `build-mini-apps.sh` first.
-/// `runaway` is listed here, unlike in `apps.json`, so the limits can be
-/// checked by hand on a device.
-const APPS: &[(&str, &str, &[u8])] = &[
-    (
-        "store",
-        "The start page.",
-        include_bytes!("../../mini-apps/store/store.component.wasm"),
-    ),
-    (
-        "counter",
-        "A counter; the count lives inside the guest.",
-        include_bytes!("../../mini-apps/counter/counter.component.wasm"),
-    ),
-    (
-        "hello",
-        "A second app, to show hot-swap with no host rebuild.",
-        include_bytes!("../../mini-apps/hello/hello.component.wasm"),
-    ),
-    (
-        "counter-cs",
-        "The counter in C# — a .NET runtime inside the sandbox, on a phone.",
-        include_bytes!("../../mini-apps/counter-cs/counter-cs.component.wasm"),
-    ),
-    (
-        "runaway",
-        "Test fixture: spins, eats memory, floods the shell. The shell must survive each.",
-        include_bytes!("../../mini-apps/runaway/runaway.component.wasm"),
-    ),
-];
 
 #[no_mangle]
 fn android_main(app: AndroidApp) {
@@ -69,46 +42,17 @@ fn run(app: AndroidApp) -> Result<()> {
         .internal_data_path()
         .ok_or_else(|| anyhow!("no internal data path"))?;
     // Config, data and caches all live in the app's private storage.
-    host::paths::set_root(base.clone());
+    host::paths::set_root(base);
     host::diag::init();
-    let dir = base.join("mini-apps");
-    std::fs::create_dir_all(&dir)?;
 
-    let mut apps = Vec::new();
-    for (name, description, bytes) in APPS {
-        let path = dir.join(format!("{name}.component.wasm"));
-        std::fs::write(&path, bytes)?;
-        apps.push(AppEntry {
-            name: name.to_string(),
-            src: path.to_string_lossy().into_owned(),
-            description: description.to_string(),
-            // Compiled into this library: nothing to pin against.
-            sha256: None,
-        });
+    let (mut apps, label, refresh) = registry::load_default();
+    registry::ensure_start_page(&mut apps);
+    log::info!("registry: {label}");
+
+    let mut shell = Shell::new(host::engine()?, apps);
+    if let Some(url) = refresh {
+        // In the background: the window opens on what the shell already has.
+        shell.refresh_registry(url);
     }
-    log::info!("unpacked {} mini-apps into {}", apps.len(), dir.display());
-
-    let engine = host::engine()?;
-
-    // Spike data: how long each component takes to compile and start on this
-    // device, read with `adb logcat -s nimadir`. Off the UI thread, so the
-    // shell comes up while it runs.
-    let bench = engine.clone();
-    std::thread::spawn(move || {
-        for (name, _, bytes) in APPS {
-            let started = Instant::now();
-            let outcome = host::host::MiniApp::load(&bench, bytes, Vec::new()).map(|_| ());
-            log::info!(
-                "load {name}: {} KB in {:.0?} ({})",
-                bytes.len() / 1024,
-                started.elapsed(),
-                match outcome {
-                    Ok(()) => "ok".to_string(),
-                    Err(e) => format!("{e:#}"),
-                }
-            );
-        }
-    });
-
-    host::gui::run_android(Shell::new(engine, apps), app)
+    host::gui::run_android(shell, app)
 }

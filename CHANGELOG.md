@@ -33,8 +33,11 @@ beta is `docs/ROADMAP.md`.
   `docs/adr/0001-app-identity-and-manifest.md`, proposed.
 - CI on GitHub Actions: fmt and clippy, the suite on Linux, Windows and macOS,
   and a job that builds and runs the C# and Python guests.
-- `android/`: the shell on Android (spike) — the desktop window code behind an
-  `android_main`, built with `cargo apk`.
+- `android/`: the shell on Android — the desktop window code behind an
+  `android_main`, packaged by Gradle (`android/build.sh`: debug APK and
+  release AAB, API 36) and built in CI. It loads the registry as the desktop
+  does instead of bundling the samples. `tools/android-smoke.sh` checks a
+  device.
 - **Back.** The shell keeps a history; Back reopens the page before, from a
   Back button in the chrome, Android's system Back, or a mouse's back button.
   Back from the start page leaves the app on Android. Headless: `--back`.

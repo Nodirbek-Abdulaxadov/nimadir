@@ -17,6 +17,12 @@ pub mod ui;
 #[cfg(feature = "webview")]
 mod webview;
 
+// Desktop-only for beta (ROADMAP S3-8): wry on Android needs a Java activity of
+// its own, and this app is a NativeActivity with no Java at all. A web page on
+// Android is routed as everywhere else and says it cannot be shown.
+#[cfg(all(feature = "webview", target_os = "android"))]
+compile_error!("the `webview` feature is desktop-only: build Android without it");
+
 use anyhow::Result;
 
 /// The WIT package this host implements, as `wit/world.wit` declares it —

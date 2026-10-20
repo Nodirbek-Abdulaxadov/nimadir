@@ -3,9 +3,10 @@ name = "nimadir-android"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "The Android front door onto the nimadir shell (spike, ROADMAP S1-3)"
+description = "The Android front door onto the nimadir shell"
 
 # Android loads the app as a shared library and calls its `android_main`.
+# Packaged by the Gradle project in this directory — see build.sh.
 [lib]
 crate-type = ["cdylib"]
 path = "src/lib.rs"
@@ -16,31 +17,3 @@ host = { path = "../host", features = ["gui"] }
 anyhow = "1"
 log = "0.4"
 android_logger = "0.15"
-
-# Read by `cargo apk`. Build and install on a connected phone with:
-#   ANDROID_NDK_ROOT=~/Android/Sdk/ndk/<version> cargo apk run -p nimadir-android
-[package.metadata.android]
-# A placeholder. The real application ID is decided in S3-1 — once an app is
-# on Play it can never change.
-package = "dev.nimadir.shell"
-apk_name = "nimadir"
-build_targets = ["aarch64-linux-android"]
-
-[package.metadata.android.sdk]
-min_sdk_version = 28
-# 35, not 36: cargo-apk only accepts platforms the NDK lists, and NDK r29 stops
-# at 35. Play raises its required target every year — see docs/spikes/android.md.
-target_sdk_version = 35
-
-# For remote components and registries, exactly as on the desktop.
-[[package.metadata.android.uses_permission]]
-name = "android.permission.INTERNET"
-
-[package.metadata.android.application]
-label = "nimadir"
-
-[package.metadata.android.application.activity]
-# The shell redraws for these itself; without them Android destroys and
-# recreates the activity — and with it the running mini-app — on rotation or
-# when the keyboard appears.
-config_changes = "orientation|screenSize|screenLayout|keyboardHidden|keyboard"

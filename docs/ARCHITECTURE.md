@@ -427,15 +427,28 @@ loading, sandboxing or drawing a mini-app differs between them.
 `run_headless` is the project's test suite. There is no `#[test]` anywhere; the
 `--script` flag *is* how the boundary is verified, and it needs no display.
 
-### `android/` — the Android front door (spike, ROADMAP `S1-3`)
-A `cdylib` whose `android_main` builds a `Shell` and calls `gui::run_android`
-— the desktop window code, handed the `AndroidApp`. The one thing it does that
-the desktop does not: the components are compiled in (`include_bytes!`) and
-unpacked into the app's private storage, because an installed app has no
-checkout to read them from. Built with `cargo apk`; a workspace member left out
-of `default-members`, so a plain `cargo build` is unchanged. On Android eframe
-is built without X11, Wayland and `accesskit` (`host/Cargo.toml`). Findings:
-`docs/spikes/android.md`.
+### `android/` — the Android front door
+A `cdylib` whose `android_main` points `paths` at the app's private storage,
+loads the registry exactly as the desktop does (`registry::load_default`: a
+saved hosted copy or the built-in store, refreshed in the background), and
+calls `gui::run_android` — the desktop window code, handed the `AndroidApp`.
+Nothing is bundled any more: the store is the host's `builtin:store`, and
+apps come from the registry. A workspace member left out of
+`default-members`, so a plain `cargo build` is unchanged.
+
+Packaged by the Gradle project beside it (`settings.gradle.kts`, `app/`),
+which holds no code: the activity is the platform's `NativeActivity`
+(`android:hasCode="false"`, and `android.builtInKotlin=false` so AGP 9 does
+not add 2.5 MB of Kotlin nothing loads). `build.sh` runs `cargo ndk` into
+`app/src/main/jniLibs`, then Gradle for a debug APK and a release AAB, the
+release signed from `NIMADIR_KEYSTORE` when set. Gradle strips the library
+(48 → 30 MB) using the NDK `build.sh` found. It replaced the spike's
+`cargo-apk`, which could not target an API level past the NDK's list and
+could not build an AAB.
+
+On Android eframe is built without X11, Wayland and `accesskit`
+(`host/Cargo.toml`), and `webview` is a compile error (desktop-only for beta).
+Findings from the device: `docs/spikes/android.md`.
 
 ### `run-tests.sh` — the suite
 47 assertions driven through the real binary: the guest cycle, the registry, the

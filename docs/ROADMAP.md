@@ -120,6 +120,15 @@ on Android. From here on, an item is done only when it works on both.
 | S3-8 | Webview on Android (wry supports it), or the `webview` feature declared desktop-only for beta — decided by S1-3 | M |
 | S3-9 | Device smoke test over `adb`: open the store, open `counter`, tap | M |
 
+**Status (2026-10-20), on branch `sprint-3`.** Done and green on the desktop:
+S3-1 (Gradle + `cargo-ndk`, API 36, AAB — but still NativeActivity, see S3-4),
+S3-2, S3-3, S3-5 (Back; no Forward yet), S3-7, S3-8 (webview desktop-only for
+beta), S3-9 (`tools/android-smoke.sh`, written). **Waiting on a device:** the
+smoke test itself, S3-6 (with the redraw policy nothing should draw in the
+background; unmeasured), and every Android claim since the spike. **Open:**
+S3-4 — winit 0.30 drops IME text events, so GameActivity would break typing;
+it needs a winit upgrade or patch before predictions and non-ASCII can work.
+
 ## Sprint 4 — Identity, permissions, storage
 
 **Goal:** an app can keep data between runs, and the user controls what each app

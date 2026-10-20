@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The whole app is one native library behind the platform's NativeActivity:
+     android:hasCode="false", because there is no Java or Kotlin to run. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- For remote components and registries, exactly as on the desktop. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+
+    <application
+        android:hasCode="false"
+        android:label="nimadir"
+        android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+
+        <!-- configChanges: the shell redraws for these itself. Without them
+             Android destroys and recreates the activity — and with it the
+             running mini-app — on rotation or when the keyboard appears. -->
+        <activity
+            android:name="android.app.NativeActivity"
+            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard"
+            android:exported="true"
+            android:launchMode="singleTask">
+
+            <meta-data
+                android:name="android.app.lib_name"
+                android:value="nimadir_android" />
+
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
+    </application>
+</manifest>

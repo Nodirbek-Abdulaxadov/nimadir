@@ -24,15 +24,20 @@ cargo build -p host --features webview     # + wry; needs WebView2 / libwebkit2g
 On Linux the webview is X11-only: `webview::check_parent` refuses a Wayland
 surface with an error rather than letting wry panic, so run it under X11/XWayland.
 
-Android (`android/`, a spike — `docs/spikes/android.md`) needs the NDK, the
-`aarch64-linux-android` target, `cargo install cargo-apk`, and every component
-built first (they are bundled with `include_bytes!`, `counter-cs` included):
+Android (`android/`) is the Rust crate plus a Gradle project that only packages
+it. Needs `ANDROID_HOME` with an NDK, JDK 17+, `rustup target add
+aarch64-linux-android` and `cargo install cargo-ndk`; build the mini-apps first
+(the host bakes the store in):
 
 ```bash
-ANDROID_HOME=~/Android/Sdk ANDROID_NDK_ROOT=~/Android/Sdk/ndk/<version> \
-CARGO_APK_RELEASE_KEYSTORE=~/.android/debug.keystore CARGO_APK_RELEASE_KEYSTORE_PASSWORD=android \
-  cargo apk build -p nimadir-android --release
+./android/build.sh            # cargo-ndk -> jniLibs, then debug APK + release AAB
+./android/build.sh install    # ...and install the APK on the device adb sees
+./tools/android-smoke.sh      # on a device: starts, idles cold, Back exits, no panic
 ```
+
+The app is a NativeActivity with `android:hasCode="false"` — no Java or Kotlin.
+Don't move it to GameActivity without first solving IME text: winit 0.30 drops
+the text events GameActivity sends, which would break typing entirely.
 
 `host` is a library (`lib.rs`) plus the desktop binary (`main.rs`); `android/`
 is the second front door onto the same library.

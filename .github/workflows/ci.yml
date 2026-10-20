@@ -63,6 +63,30 @@ jobs:
       - run: ./build-mini-apps.sh
       - run: ./run-tests.sh
 
+  # Desktop and Android are equal targets (ARCHITECTURE.md §5): every change has
+  # to build for the phone too. Nothing runs here — that takes a device
+  # (tools/android-smoke.sh).
+  android:
+    name: Android build (APK + AAB)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown, aarch64-linux-android
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install cargo-ndk --locked
+      # The host bakes the store in, so it has to exist before the host builds.
+      - run: ./build-mini-apps.sh
+      - run: ./android/build.sh
+        env:
+          ANDROID_NDK_HOME: ${{ env.ANDROID_NDK_LATEST_HOME }}
+
   # The C# and Python guests, which `build-mini-apps.sh` and the suite skip when
   # their toolchains are absent — so on the jobs above they are never exercised.
   polyglot:

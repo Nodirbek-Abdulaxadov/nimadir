@@ -63,7 +63,10 @@ The debug keystore is for the spike only; release signing is `S8-1`.
    compiles from scratch. Harmless at 43 KB; at 18 MB (`counter-py`) it is a
    long wait on every visit. Give the cache the app's cache directory. →
    `S3-2`.
-5. **`cargo-apk` is a dead end for release.** It accepts only SDK platforms the
+5. ~~**`cargo-apk` is a dead end for release.**~~ **Fixed in Sprint 3:** a
+   Gradle project (AGP 9.4.1) packages the `cargo-ndk`-built library, targets
+   API 36 and builds an AAB — still on NativeActivity, see below. Original
+   finding: **`cargo-apk` is a dead end for release.** It accepts only SDK platforms the
    NDK lists, and NDK r29 stops at API 35, so the spike targets 35 although the
    SDK has 36. It is unmaintained, NativeActivity-only, and cannot build an
    AAB, while Play raises its required target API every year. → `S3-1` moves to
@@ -107,6 +110,15 @@ The debug keystore is for the spike only; release signing is `S8-1`.
 - **The performance headroom is real** — on this device. A 2.2 MB .NET
   component in 590 ms suggests `S5-7`'s budget is reachable, but this is an
   upper-mid-range phone; the budget must be measured on a slower one.
+
+## Later finding: GameActivity would break typing
+
+The plan was to move to GameActivity for IME text and `accesskit`. But winit
+0.30 drops the IME text events GameActivity delivers (`InputEvent::TextEvent`
+is logged as unknown), while NativeActivity's fallback input connection turns
+typed text into key events winit *does* read. Moving now would trade a
+partial keyboard for none. The app stays on NativeActivity until IME text is
+handled — a winit upgrade or a patch — which is now what `S3-4` is.
 
 ## Recommendation
 
