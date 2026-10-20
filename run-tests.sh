@@ -100,6 +100,10 @@ native() {
   if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi
 }
 NIMADIR_HOME=$(native "$NIMADIR_HOME")
+# Off: a shell with no registry would otherwise fetch the project's hosted one,
+# and the suite must not depend on the internet. The cases that need it point
+# it at the local server.
+export NIMADIR_HOSTED_REGISTRY=""
 
 HOST=./target/debug/host
 
@@ -372,6 +376,24 @@ JSON
       $HOST --registry "$B/pinned.json" pinned --frames 1
     check "and opens again from the cache, with no network" "(from the cache)" \
       $HOST --registry "$(native "$FIXTURES/offline.json")" pinned --frames 1
+
+    # The hosted registry, published as the Pages workflow does, and found by a
+    # shell that has none of its own.
+    python3 -I tools/publish_registry.py "$B/registry" "$FIXTURES/registry" >/dev/null
+    check "the published registry pins every component it lists" '"sha256"' \
+      cat "$FIXTURES/registry/apps.json"
+    HOSTED_AT=$(mktemp -d)
+    check "a shell with no registry of its own uses the hosted one" "$B/registry/hello.component.wasm" \
+      bash -c "cd '$HOSTED_AT' && NIMADIR_HOSTED_REGISTRY='$B/registry/apps.json' '$ABS_HOST' --list"
+    check "its store lists the hosted apps" ': "hello"' \
+      bash -c "cd '$HOSTED_AT' && NIMADIR_HOSTED_REGISTRY='$B/registry/apps.json' '$ABS_HOST' store --frames 1"
+    check "and a hosted app opens, pinned" "Hello from a *different* mini-app!" \
+      bash -c "cd '$HOSTED_AT' && NIMADIR_HOSTED_REGISTRY='$B/registry/apps.json' '$ABS_HOST' hello --frames 1"
+    # With the server gone, the copy kept from the last fetch stands in.
+    kill "$SRV" 2>/dev/null; wait "$SRV" 2>/dev/null; SRV=""
+    check "with the network gone, the saved copy of the registry is used" "(saved copy)" \
+      bash -c "cd '$HOSTED_AT' && NIMADIR_HOSTED_REGISTRY='$B/registry/apps.json' '$ABS_HOST' --list"
+    rm -rf "$HOSTED_AT"
   fi
 fi
 

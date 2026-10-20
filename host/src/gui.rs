@@ -398,11 +398,14 @@ impl eframe::App for ShellApp {
         // in the background. A webview's GTK loop is pumped from here, so a
         // page keeps the frames coming.
         let wanted = self.shell.take_frame_request();
+        // A registry on its way is polled rather than spun on: it can take
+        // seconds, and nothing on screen moves while it does.
+        let registry = self.shell.refreshing().then_some(250);
         let busy = self.shell.loading().is_some()
             || (cfg!(feature = "webview") && self.shell.is_web_page());
         if std::mem::take(&mut self.redraw) || busy {
             ui.ctx().request_repaint();
-        } else if let Some(ms) = wanted {
+        } else if let Some(ms) = [wanted, registry].into_iter().flatten().min() {
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_millis(ms.into()));
         }

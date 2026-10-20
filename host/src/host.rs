@@ -444,6 +444,12 @@ impl MiniApp {
         self.store.data_mut().pending_open.take()
     }
 
+    /// Replace the registry `list-apps` answers with — a fresher one arrived
+    /// while this app was running.
+    pub fn set_apps(&mut self, apps: Vec<AppEntry>) {
+        self.store.data_mut().apps = apps;
+    }
+
     /// When the guest wants its next frame, in milliseconds, if it asked.
     pub fn take_frame_request(&mut self) -> Option<u32> {
         self.store.data_mut().frame_after.take()

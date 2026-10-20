@@ -22,6 +22,9 @@ beta is `docs/ROADMAP.md`.
   into the binary, and the registry is looked for in `NIMADIR_REGISTRY` and
   the user's config directory, not only the working directory.
 - Pinned remote components are cached by hash and open again offline.
+- **A hosted registry.** `tools/publish_registry.py` builds one with every
+  entry pinned; a Pages workflow publishes it. A shell with no registry of its
+  own opens on the copy saved last time and refreshes it in the background.
 - `--version`; a log of navigations, failures and panics in the data
   directory; `NIMADIR_HOME` to put config, data and caches under one root.
 - `LICENSE` (MIT, as the README always said), this changelog, and

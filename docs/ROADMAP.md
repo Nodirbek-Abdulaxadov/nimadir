@@ -97,6 +97,12 @@ New assertions: the binary started from an empty temp dir opens the store; a
 component whose bytes do not match its hash is refused; `http://` to a
 non-local host is refused.
 
+**Status (2026-10-20): done** — all seven items, on branch `sprint-2`, with the
+suite at 63 assertions. One step is the owner's: switch GitHub Pages on with
+"GitHub Actions" as its source, so `registry.yml` can publish. Until then the
+hosted URL answers 404 and a shell outside a checkout opens on its built-in
+store alone.
+
 ## Sprint 3 — Android as an equal target
 
 **Goal** (if D1 is yes): everything that works on desktop at the end of S2 works

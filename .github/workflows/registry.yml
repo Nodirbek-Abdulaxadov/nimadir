@@ -1,0 +1,50 @@
+# Publishes the hosted registry — every sample app, pinned by SHA-256 — to
+# GitHub Pages, where a shell with no registry of its own finds it
+# (`registry::HOSTED_REGISTRY`). Pages has to be switched on once, with
+# "GitHub Actions" as its source (Settings → Pages); until then this job fails
+# at configure-pages and shells fall back to their built-in list.
+name: Registry
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment:
+      name: github-pages
+      url: ${{ steps.deploy.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: wasm32-unknown-unknown
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install componentize-py
+      - uses: Swatinem/rust-cache@v2
+      - run: ./build-mini-apps.sh
+      - id: pages
+        uses: actions/configure-pages@v5
+      - run: python3 -I tools/publish_registry.py "${{ steps.pages.outputs.base_url }}" dist/registry
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/registry
+      - id: deploy
+        uses: actions/deploy-pages@v4

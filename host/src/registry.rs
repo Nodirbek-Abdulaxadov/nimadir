@@ -84,32 +84,85 @@ fn fetch(url: &str) -> Option<String> {
         .ok()
 }
 
-/// The registry when none is named on the command line, and where it came from.
-/// In order:
+/// The registry when none is named on the command line, where it came from,
+/// and — for the hosted one — the URL to refresh it from. In order:
 ///
 ///   1. `NIMADIR_REGISTRY`, a path or URL — set once instead of passed each time
 ///   2. `apps.json` / `apps.list` in the working directory — a checkout
-///   3. `apps.json` in the user's config directory — an installed shell
-///   4. the built-in list
+///   3. `apps.json` in the user's config directory — a shell configured by hand
+///   4. the hosted registry (`hosted_url`): its saved copy now, a fresh one
+///      fetched in the background — or the built-in list until that arrives
+///   5. the built-in list
 ///
 /// The working directory used to be the only place looked, so a shell started
 /// from anywhere but the checkout had no registry and nothing to open.
-pub fn load_default() -> (Vec<AppEntry>, String) {
+pub fn load_default() -> (Vec<AppEntry>, String, Option<String>) {
     if let Some(src) = std::env::var("NIMADIR_REGISTRY")
         .ok()
         .filter(|s| !s.is_empty())
     {
-        return load_from(&src);
+        let (apps, label) = load_from(&src);
+        return (apps, label, None);
     }
     if Path::new(MANIFEST_JSON).is_file() || Path::new(MANIFEST).is_file() {
-        return (load(Path::new(".")), describe_default());
+        return (load(Path::new(".")), describe_default(), None);
     }
     if let Some(user) = crate::paths::config_dir().map(|d| d.join(MANIFEST_JSON)) {
         if user.is_file() {
-            return load_from(&user.to_string_lossy());
+            let (apps, label) = load_from(&user.to_string_lossy());
+            return (apps, label, None);
         }
     }
-    (builtin(), "built-in".to_string())
+    if let Some(url) = hosted_url() {
+        let saved = hosted_copy(&url)
+            .and_then(|p| std::fs::read_to_string(p).ok())
+            .map(|t| parse_json(&t))
+            .filter(|apps| !apps.is_empty());
+        return match saved {
+            Some(apps) => (apps, format!("{url} (saved copy)"), Some(url)),
+            None => (
+                builtin(),
+                format!("built-in, until {url} arrives"),
+                Some(url),
+            ),
+        };
+    }
+    (builtin(), "built-in".to_string(), None)
+}
+
+/// The project's own registry, published by `.github/workflows/registry.yml`,
+/// for a shell nothing else configures. `NIMADIR_HOSTED_REGISTRY` replaces it
+/// — a fork's, or the test suite's — and an empty value turns it off.
+const HOSTED_REGISTRY: &str = "https://nodirbek-abdulaxadov.github.io/nimadir/apps.json";
+
+pub fn hosted_url() -> Option<String> {
+    match std::env::var("NIMADIR_HOSTED_REGISTRY") {
+        Ok(url) => (!url.is_empty()).then_some(url),
+        Err(_) => Some(HOSTED_REGISTRY.to_string()),
+    }
+}
+
+/// Where the last good copy of a hosted registry is kept, one file per URL.
+fn hosted_copy(url: &str) -> Option<std::path::PathBuf> {
+    let key = &crate::resolve::sha256_hex(url.as_bytes())[..16];
+    crate::paths::cache_dir().map(|d| d.join("registry").join(format!("{key}.json")))
+}
+
+/// Fetch a hosted registry and keep a copy for the next start. `None` when it
+/// could not be reached or held nothing — what the shell has stays.
+pub fn fetch_hosted(url: &str) -> Option<Vec<AppEntry>> {
+    let text = fetch(url)?;
+    let apps = parse_json(&text);
+    if apps.is_empty() {
+        return None;
+    }
+    if let Some(path) = hosted_copy(url) {
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(path, text);
+    }
+    Some(apps)
 }
 
 /// Make sure there is a start page to go home to: a registry that lists no

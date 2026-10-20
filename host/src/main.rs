@@ -98,18 +98,40 @@ fn main() -> Result<()> {
 
     // Where the catalogue came from, so `--list` can say so instead of naming
     // a manifest that may not have been the one read.
-    let (mut apps, registry_label) = match &registry_src {
-        Some(s) => registry::load_from(s),
+    let (mut apps, mut registry_label, refresh) = match &registry_src {
+        Some(s) => {
+            let (apps, label) = registry::load_from(s);
+            (apps, label, None)
+        }
         None => registry::load_default(),
     };
     registry::ensure_start_page(&mut apps);
 
     if list {
+        // Nothing to draw while it arrives, so `--list` waits for the fresh
+        // copy rather than printing a stale one.
+        if let Some(fresh) = refresh.as_deref().and_then(registry::fetch_hosted) {
+            apps = fresh;
+            registry::ensure_start_page(&mut apps);
+            registry_label = refresh.unwrap_or_default();
+        }
         print_home(&apps, &registry_label);
         return Ok(());
     }
 
     let mut shell = Shell::new(host::engine()?, apps);
+    if let Some(url) = refresh {
+        shell.refresh_registry(url);
+        // The window opens on what it has and installs the rest when it
+        // lands. The headless runner has no frames to wait through.
+        #[cfg(feature = "gui")]
+        let windowed = !headless;
+        #[cfg(not(feature = "gui"))]
+        let windowed = false;
+        if !windowed {
+            shell.wait_registry();
+        }
+    }
 
     // An argument means "navigate straight there", skipping the home screen. It
     // may be a listed app's name (a bookmark) or any path/URL.

@@ -43,7 +43,9 @@ has nothing to open until `build-mini-apps.sh` runs.** Build the mini-apps
 (`builtin:store`) only if it exists at that moment.
 
 Outside a checkout the registry comes from `NIMADIR_REGISTRY`, then
-`<config>/apps.json`, then the built-in store alone. `NIMADIR_HOME=<dir>` moves
+`<config>/apps.json`, then the hosted registry (GitHub Pages, fetched in the
+background; `NIMADIR_HOSTED_REGISTRY` overrides it, empty disables it — the suite
+disables it so it never needs the internet), then the built-in store alone. `NIMADIR_HOME=<dir>` moves
 config, data (the log) and caches under one directory — the suite always sets it.
 
 Rebuilding one Rust mini-app is two steps, because `wit-bindgen` emits a *core

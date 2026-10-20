@@ -122,6 +122,8 @@ pub struct Shell {
     navigated: bool,
     /// Where `back` goes, most recent last.
     history: Vec<Visit>,
+    /// A fresher registry on its way, fetched off the UI thread.
+    registry_rx: Option<Receiver<Vec<AppEntry>>>,
 }
 
 // `is_home`/`go_home` are navigation, which only the window backend performs.
@@ -137,6 +139,7 @@ impl Shell {
             status_is_error: false,
             navigated: false,
             history: Vec::new(),
+            registry_rx: None,
         }
     }
 
@@ -190,6 +193,42 @@ impl Shell {
     /// spinner from this; nothing else needs to know.
     pub fn loading(&self) -> Option<&str> {
         self.pending.as_ref().map(|p| p.src.as_str())
+    }
+
+    /// Fetch the registry at `url` off the UI thread, and install it when it
+    /// arrives — into the shell, and into the running app, whose next
+    /// `list-apps` sees it. The window opens on what it already has (the
+    /// saved copy, or the built-in list) instead of waiting on a network.
+    pub fn refresh_registry(&mut self, url: String) {
+        let (tx, rx) = mpsc::channel();
+        std::thread::spawn(move || {
+            if let Some(apps) = crate::registry::fetch_hosted(&url) {
+                let _ = tx.send(apps);
+            }
+        });
+        self.registry_rx = Some(rx);
+    }
+
+    /// Block until a registry refresh has arrived or failed. For the CLI and
+    /// the headless runner, which have no frames to draw meanwhile.
+    pub fn wait_registry(&mut self) {
+        if let Some(Ok(apps)) = self.registry_rx.take().map(|rx| rx.recv()) {
+            self.install_registry(apps);
+        }
+    }
+
+    /// Whether a registry refresh is still on its way.
+    pub fn refreshing(&self) -> bool {
+        self.registry_rx.is_some()
+    }
+
+    fn install_registry(&mut self, mut apps: Vec<AppEntry>) {
+        crate::registry::ensure_start_page(&mut apps);
+        crate::diag::line(&format!("registry refreshed: {} entries", apps.len()));
+        if let View::App { app, .. } = &mut self.view {
+            app.set_apps(apps.clone());
+        }
+        self.apps = apps;
     }
 
     /// Whether the last `frame` navigated on the guest's behalf.
@@ -306,6 +345,15 @@ impl Shell {
     /// Take the navigation if it has landed yet. Called once per frame by the
     /// window backend; cheap, and does nothing at all when nothing is loading.
     pub fn poll(&mut self) {
+        match self.registry_rx.as_ref().map(|rx| rx.try_recv()) {
+            None | Some(Err(TryRecvError::Empty)) => {}
+            Some(Ok(apps)) => {
+                self.registry_rx = None;
+                self.install_registry(apps);
+            }
+            // Fetched nothing usable; what is showing stays.
+            Some(Err(TryRecvError::Disconnected)) => self.registry_rx = None,
+        }
         match self.pending.as_ref().map(|p| p.rx.try_recv()) {
             None | Some(Err(TryRecvError::Empty)) => {}
             Some(Ok(result)) => {

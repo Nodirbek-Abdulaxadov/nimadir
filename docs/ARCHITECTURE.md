@@ -299,9 +299,19 @@ The browser-shaped layer above a single mini-app. Knows nothing about drawing.
   rather than propagating.
 - `load_default` — the registry when none is named: `NIMADIR_REGISTRY`, then
   `apps.json` / `apps.list` in the working directory (a checkout), then
-  `apps.json` in `paths::config_dir` (an installed shell), then `builtin`. The
-  working directory used to be the only place looked, so a shell started
+  `apps.json` in `paths::config_dir`, then the hosted registry, then `builtin`.
+  The working directory used to be the only place looked, so a shell started
   anywhere else had nothing to open.
+- **The hosted registry** (`hosted_url`: `HOSTED_REGISTRY`, the project's Pages
+  site, or `NIMADIR_HOSTED_REGISTRY`; empty turns it off). The window never
+  waits on it: `load_default` hands back the copy saved from the last fetch
+  (`hosted_copy`) — or the built-in list — plus the URL, and
+  `Shell::refresh_registry` fetches it on a thread. When it lands it replaces
+  `Shell::apps` and the running app's snapshot (`MiniApp::set_apps`), so the
+  store's next `list-apps` shows it. `--list` and the headless runner wait for
+  it instead, having nothing to draw. `tools/publish_registry.py` builds what
+  is served, every entry pinned by SHA-256; `.github/workflows/registry.yml`
+  deploys it.
 - `ensure_start_page` — a registry with no `store` gets the one built into the
   binary (`builtin:store`), so there is always a start page to go home to.
 - `builtin` — only what works from anywhere: the built-in store. It used to
