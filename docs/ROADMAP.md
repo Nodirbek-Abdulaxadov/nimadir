@@ -155,7 +155,8 @@ data directory.
 
 **Sprint 6 progress (2026-10-20), on `sprint-6`:** S6-1 (ADR-3) and S6-2 —
 `fetch`, declared and granted, with S4-2's grant machinery; S6-3 `locale`
-(time zone still to do). 99 assertions.
+(time zone still to do). S6-4: `rates`, checked against the real cbu.uz by
+hand, declined in the suite. 102 assertions.
 
 **Sprint 5 closed (2026-10-20), 90 assertions.** S5-4: images, by handle,
 size-checked from the header. Earlier in the sprint: S5-1 groups (row, column,

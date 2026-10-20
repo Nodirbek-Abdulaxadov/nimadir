@@ -39,6 +39,17 @@ jobs:
           python-version: '3.12'
       - run: pip install componentize-py
       - uses: Swatinem/rust-cache@v2
+      # With a NIMADIR_SIGNING_KEY secret (the contents of a `nimadir-pack
+      # keygen` file), every app with a manifest is signed, and the registry
+      # pins its publisher. Without one they are published unsigned.
+      - name: Signing key, if the repository has one
+        env:
+          KEY: ${{ secrets.NIMADIR_SIGNING_KEY }}
+        run: |
+          if [ -n "$KEY" ]; then
+            printf '%s\n' "$KEY" > "$RUNNER_TEMP/signing.key"
+            echo "NIMADIR_SIGNING_KEY=$RUNNER_TEMP/signing.key" >> "$GITHUB_ENV"
+          fi
       - run: ./build-mini-apps.sh
       - id: pages
         uses: actions/configure-pages@v5

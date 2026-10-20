@@ -158,7 +158,7 @@ check "an unreachable registry falls back and says so" "built-in" \
 
 echo
 echo "==> the store (start page as a mini-app)"
-check "lists the registry through list-apps" '"5 apps"' \
+check "lists the registry through list-apps" '"6 apps"' \
   $HOST store --frames 1
 # 5 entries in apps.json, 4 offered: a start page that lists itself is a card
 # that takes you where you already are.
@@ -168,7 +168,7 @@ check "draws a search field" "search0" \
   $HOST store --frames 1
 check "the start page leads with a hero heading" 'heading1 : "nimadir"' \
   $HOST store --frames 1
-check "filters as you type" '1 of 5 apps matching' \
+check "filters as you type" '1 of 6 apps matching' \
   $HOST store --input "1:0=hell" --frames 2
 check "renumbers tiles when the list shrinks" 'tile0 : "hello"' \
   $HOST store --input "1:0=hell" --frames 2
@@ -176,10 +176,10 @@ check "open-app navigates after the frame returns" "[nav] loaded" \
   $HOST store --input "1:0=hell" --script "2:0" --frames 4
 check "the app it asked for actually runs" "Hello from a *different* mini-app!" \
   $HOST store --input "1:0=hell" --script "2:0" --frames 4
-check "the start page links to the settings page" 'button5 : "Settings"' \
+check "the start page links to the settings page" 'button6 : "Settings"' \
   $HOST store --frames 1
 check "which opens as host UI" "[nav] now at Settings" \
-  $HOST store --script "1:5" --frames 3
+  $HOST store --script "1:6" --frames 3
 check "a search matching nothing says so" "Nothing matches" \
   $HOST store --input "1:0=zzzz" --frames 2
 # The start page has no address bar over it, so its own field has to take an
@@ -340,6 +340,16 @@ check "an image is handed over once and drawn by number" "image : 48x48" \
   $HOST gallery --frames 1
 check "an image that claims to be huge is refused from its header" "the most is 4096 on a side" \
   $HOST mini-apps/runaway/runaway.component.wasm --script "1:5" --frames 2
+
+echo
+echo "==> rates, the first real app"
+# Declined, so cbu.uz is never contacted: the suite needs no internet.
+check "rates asks before reaching the bank" "[asks] rates wants to connect to https://cbu.uz" \
+  $HOST rates --frames 2
+check "and, refused, says why it has nothing" "the user did not allow connecting to https://cbu.uz" \
+  $HOST rates --frames 3
+check "it speaks the user's language" '"Курсы валют"' \
+  bash -c "LC_ALL= LC_MESSAGES= LANG=ru_RU.UTF-8 $HOST rates --frames 1"
 
 echo
 echo "==> what an app may know"

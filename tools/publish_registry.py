@@ -13,7 +13,21 @@ Pages included (.github/workflows/registry.yml).
 import hashlib
 import json
 import pathlib
+import subprocess
 import sys
+
+
+def publisher(root: pathlib.Path, component: pathlib.Path):
+    """The component's publisher, if it is signed — read by nimadir-pack, so
+    the registry can require it (a copy signed by anyone else is refused)."""
+    pack = root / "target" / "release" / "nimadir-pack"
+    if not pack.exists():
+        return None
+    out = subprocess.run([str(pack), "inspect", str(component)], capture_output=True, text=True)
+    for line in out.stdout.splitlines():
+        if line.strip().startswith("signed by "):
+            return line.strip()[len("signed by "):]
+    return None
 
 
 def main() -> None:
@@ -38,14 +52,16 @@ def main() -> None:
         data = component.read_bytes()
         file = f"{name}.component.wasm"
         (out / file).write_bytes(data)
-        published.append(
-            {
-                "name": name,
-                "source": f"{base}/{file}",
-                "description": app.get("description", ""),
-                "sha256": hashlib.sha256(data).hexdigest(),
-            }
-        )
+        entry = {
+            "name": name,
+            "source": f"{base}/{file}",
+            "description": app.get("description", ""),
+            "sha256": hashlib.sha256(data).hexdigest(),
+        }
+        signer = publisher(root, component)
+        if signer:
+            entry["publisher"] = signer
+        published.append(entry)
 
     catalogue = json.dumps({"apps": published}, indent=2, ensure_ascii=False)
     (out / "apps.json").write_text(catalogue + "\n", encoding="utf-8")

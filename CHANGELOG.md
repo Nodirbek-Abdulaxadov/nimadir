@@ -24,6 +24,12 @@ beta is `docs/ROADMAP.md`.
   past that the guest is stopped and the reason names the limit.
 
 ### Added
+- **rates**, the first real app: the Central Bank of Uzbekistan's exchange
+  rates and a converter, in Uzbek, Russian or English, working offline from
+  the last rates it kept.
+- `build-mini-apps.sh` packs an app's `manifest.json` into it, and signs it
+  when `NIMADIR_SIGNING_KEY` names a key; the registry workflow can sign from
+  a secret, and the published registry then pins each publisher.
 - **Network for apps** (ADR-3): `fetch` / `fetch-poll`, to origins an app's
   manifest declares, once the user allows — asked in the chrome, remembered
   for a signed app. HTTPS only, no redirects followed, 8 in flight, 8 MiB.

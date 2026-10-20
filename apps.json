@@ -21,6 +21,11 @@
       "description": "Every widget an app can draw, and what each answers back."
     },
     {
+      "name": "rates",
+      "source": "mini-apps/rates/rates.component.wasm",
+      "description": "Exchange rates from the Central Bank of Uzbekistan, with a converter."
+    },
+    {
       "name": "counter-cs",
       "source": "mini-apps/counter-cs/counter-cs.component.wasm",
       "description": "The counter written in C# (.NET NativeAOT) - same WIT, no host change."

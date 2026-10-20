@@ -600,6 +600,15 @@ Built against its own `wit/world.wit`: the real contract plus one function,
 nimadir, so the suite can check that opening one says so. Keep its WIT in step
 with the real one, plus that function.
 
+### `mini-apps/rates/` — the first real app
+Exchange rates from the Central Bank of Uzbekistan (`cbu.uz`) with a
+converter, in Uzbek, Russian or English by `locale()`. It declares `cbu.uz`
+and `storage` in `manifest.json` — `build-mini-apps.sh` packs any app's
+manifest into its component, and signs it when `NIMADIR_SIGNING_KEY` names a
+key — keeps the last rates for opening offline, and lays itself out with
+groups, a field and a choice. The suite declines its network request, so it
+never needs the internet.
+
 ### `mini-apps/` — the other guests
 `counter` (Rust, state in an `AtomicI32`), `hello` (Rust, second app to prove
 hot-swap), `counter-cs` (C#, componentize-dotnet), `counter-py` (Python,
