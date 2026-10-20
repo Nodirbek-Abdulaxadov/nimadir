@@ -24,6 +24,8 @@ beta is `docs/ROADMAP.md`.
   past that the guest is stopped and the reason names the limit.
 
 ### Added
+- **Check for updates**, on the settings page and as `--check-update`: asked
+  only when the user asks, never at start.
 - Store cards tell screen readers what they are (desktop; AccessKit through
   egui). Android's needs GameActivity, which waits on IME support.
 - The window speaks Uzbek, Russian or English, by the system's locale — on

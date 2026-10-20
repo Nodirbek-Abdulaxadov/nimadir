@@ -581,6 +581,17 @@ JSON
     check "an app with no manifest reaches nothing" "declares no network access" \
       $HOST mini-apps/fetcher/fetcher.component.wasm "${FETCH[@]}"
     rm -rf "$NET"
+
+    # Asked only when asked for; here, against releases the suite serves.
+    printf '{"tag_name":"v9.9.9","html_url":"https://example.org/releases/9.9.9"}\n' > "$FIXTURES/newer.json"
+    printf '{"tag_name":"v0.0.1","html_url":""}\n' > "$FIXTURES/older.json"
+    printf '{"tag_name":"v0.1.0-beta.1","html_url":""}\n' > "$FIXTURES/beta.json"
+    check "a newer release is reported, with where to get it" "nimadir 9.9.9 is out: https://example.org/releases/9.9.9" \
+      bash -c "NIMADIR_UPDATE_URL='$B2/newer.json' $HOST --check-update"
+    check "an older one is not" "is the newest" \
+      bash -c "NIMADIR_UPDATE_URL='$B2/older.json' $HOST --check-update"
+    check "and a pre-release of this version is older than it" "is the newest" \
+      bash -c "NIMADIR_UPDATE_URL='$B2/beta.json' $HOST --check-update"
   fi
 fi
 

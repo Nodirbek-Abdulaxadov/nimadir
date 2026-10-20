@@ -358,6 +358,10 @@ struct ShellApp {
     settings_seen: Option<(Vec<settings::Kept>, u64)>,
     /// The language the window speaks, from the user's locale.
     lang: Lang,
+    /// A check for a newer release the user asked for: the answer on its way,
+    /// then the answer, worded.
+    update_rx: Option<std::sync::mpsc::Receiver<Result<crate::update::Verdict, String>>>,
+    update_said: Option<String>,
 }
 
 impl ShellApp {
@@ -383,6 +387,8 @@ impl ShellApp {
             redraw: false,
             settings_seen: None,
             lang: Lang::current(),
+            update_rx: None,
+            update_said: None,
         }
     }
 
@@ -395,6 +401,18 @@ impl ShellApp {
 
         let mut clear: Option<String> = None;
         let mut clear_cache = false;
+        let mut check_update = false;
+        // An answer that has come in.
+        if let Some(Ok(verdict)) = self.update_rx.as_ref().map(|rx| rx.try_recv()) {
+            self.update_rx = None;
+            self.update_said = Some(match verdict {
+                Ok(crate::update::Verdict::Current) => t(self.lang, Text::Newest).to_string(),
+                Ok(crate::update::Verdict::Newer { version, page }) => t(self.lang, Text::NewerOut)
+                    .replace("{version}", &version)
+                    .replace("{page}", &page),
+                Err(why) => why,
+            });
+        }
         egui::ScrollArea::vertical().show(ui, |ui| {
             ui.heading(t(self.lang, Text::Settings));
             ui.weak(format!(
@@ -429,6 +447,20 @@ impl ShellApp {
             ui.weak(t(self.lang, Text::CachesRebuild));
             ui.add_space(12.0);
 
+            ui.strong(t(self.lang, Text::Updates));
+            ui.horizontal_wrapped(|ui| {
+                if self.update_rx.is_some() {
+                    ui.spinner();
+                    ui.weak(t(self.lang, Text::Checking));
+                } else if ui.button(t(self.lang, Text::CheckForUpdates)).clicked() {
+                    check_update = true;
+                }
+            });
+            if let Some(said) = &self.update_said {
+                ui.label(said);
+            }
+            ui.add_space(12.0);
+
             for (what, dir) in [
                 (t(self.lang, Text::DataDir), crate::paths::data_dir()),
                 (t(self.lang, Text::CacheDir), crate::paths::cache_dir()),
@@ -438,6 +470,20 @@ impl ShellApp {
                 }
             }
         });
+
+        if check_update {
+            let (tx, rx) = std::sync::mpsc::channel();
+            std::thread::spawn(move || {
+                let _ = tx.send(crate::update::check());
+            });
+            self.update_rx = Some(rx);
+            self.update_said = None;
+        }
+        if self.update_rx.is_some() {
+            // Polled, not spun on: it is a network request.
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(250));
+        }
 
         let done = match (clear, clear_cache) {
             (Some(identity), _) => Some(settings::clear(&identity)),

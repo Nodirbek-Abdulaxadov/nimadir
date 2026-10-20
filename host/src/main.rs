@@ -33,7 +33,7 @@ const USAGE: &str = "usage: host [<address> | <listed-app-name>] \
 [--list] [--headless] [--frames N] [--script \"frame:btn,...\"] \
 [--input \"frame:field=text\"] [--submit \"frame:field,...\"] [--back \"frame,...\"] [--reload \"frame,...\"] [--confirm] \
 [--registry <path-or-url>] [--timing] [--version]\n\
-       host --kept | --clear <publisher>/<name> | --clear-cache\n\
+       host --kept | --clear <publisher>/<name> | --clear-cache | --check-update\n\
 an address is a .wasm component (path or URL) or a web page URL";
 
 fn main() -> Result<()> {
@@ -79,6 +79,18 @@ fn main() -> Result<()> {
                 let identity = args.get(i + 1).cloned().unwrap_or_default();
                 host::settings::clear(&identity).map_err(|e| anyhow::anyhow!(e))?;
                 println!("cleared what {identity} kept");
+                return Ok(());
+            }
+            // Whether a newer nimadir is out — asked only when asked for.
+            "--check-update" => {
+                match host::update::check().map_err(|e| anyhow::anyhow!(e))? {
+                    host::update::Verdict::Current => {
+                        println!("nimadir {} is the newest", env!("CARGO_PKG_VERSION"))
+                    }
+                    host::update::Verdict::Newer { version, page } => {
+                        println!("nimadir {version} is out: {page}")
+                    }
+                }
                 return Ok(());
             }
             "--clear-cache" => {

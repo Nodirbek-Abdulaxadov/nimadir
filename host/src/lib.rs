@@ -20,6 +20,7 @@ pub mod settings;
 pub mod shell;
 mod storage;
 pub mod ui;
+pub mod update;
 #[cfg(feature = "webview")]
 mod webview;
 

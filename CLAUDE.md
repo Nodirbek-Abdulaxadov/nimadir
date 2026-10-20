@@ -102,7 +102,7 @@ A binary built with `--features gui` opens a **window** unless you pass
 `--headless`; the headless harness is only the default when the feature is off.
 
 Settings from the command line: `--kept`, `--clear <publisher>/<name>`,
-`--clear-cache` (the same functions as the window's settings page).
+`--clear-cache`, `--check-update` (`NIMADIR_UPDATE_URL` points it elsewhere) (the same functions as the window's settings page).
 
 Headless flags: `--frames N`, `--script "frame:tap,…"` (inject taps: buttons, tiles,
 checkboxes share one index space), `--submit "frame:field,…"` (Enter on a field),

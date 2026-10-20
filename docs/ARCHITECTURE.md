@@ -370,6 +370,13 @@ the identity checked before it becomes a path, so `../` cannot escape),
 `--clear-cache` print them. The store links to the page; a guest can only ask
 for it, never press its buttons.
 
+### `host/src/update.rs` — is there a newer release
+`check` asks GitHub's latest-release API (or `NIMADIR_UPDATE_URL`) and
+compares by semver precedence (`newer`: `1.0.0` > `1.0.0-beta.2` >
+`1.0.0-beta.1`). Only when the user asks — the settings page's button,
+`--check-update` — since a shell that checks at start tells a server when it
+is used.
+
 ### `host/src/registry.rs` — the bookmarks
 - `struct AppEntry` — `name`, `src`, `description`, and an optional
   `sha256` pin (a fourth `|` field in `apps.list`). Knows nothing about WASM;

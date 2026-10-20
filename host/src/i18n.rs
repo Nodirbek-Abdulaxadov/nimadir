@@ -59,6 +59,11 @@ pub enum Text {
     WebPageRouted,
     WebPageRebuild,
     WebPageNotHere,
+    Updates,
+    CheckForUpdates,
+    Checking,
+    Newest,
+    NewerOut,
 }
 
 pub fn t(lang: Lang, text: Text) -> &'static str {
@@ -159,5 +164,20 @@ pub fn t(lang: Lang, text: Text) -> &'static str {
         (WebPageNotHere, Uz) => "Bu qurilmada veb-sahifalar hali koʻrsatilmaydi.",
         (WebPageNotHere, Ru) => "На этом устройстве веб-страницы пока не показываются.",
         (WebPageNotHere, En) => "Web pages cannot be shown on this device yet.",
+        (Updates, Uz) => "Yangilanishlar",
+        (Updates, Ru) => "Обновления",
+        (Updates, En) => "Updates",
+        (CheckForUpdates, Uz) => "Yangilanishni tekshirish",
+        (CheckForUpdates, Ru) => "Проверить обновления",
+        (CheckForUpdates, En) => "Check for updates",
+        (Checking, Uz) => "Tekshirilmoqda…",
+        (Checking, Ru) => "Проверка…",
+        (Checking, En) => "Checking…",
+        (Newest, Uz) => "Bu eng soʻnggi versiya.",
+        (Newest, Ru) => "Это последняя версия.",
+        (Newest, En) => "This is the newest version.",
+        (NewerOut, Uz) => "nimadir {version} chiqdi: {page}",
+        (NewerOut, Ru) => "Вышел nimadir {version}: {page}",
+        (NewerOut, En) => "nimadir {version} is out: {page}",
     }
 }
