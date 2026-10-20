@@ -512,7 +512,10 @@ loading, sandboxing or drawing a mini-app differs between them.
   the compiled code, so the cache entries from before it are not reused — the
   first open of each component after this change compiles from scratch once.
 
-### `host/src/main.rs` — CLI and headless harness
+### `host/src/main.rs` — CLI and headless harness (`nimadir-shell`)
+The binary is `nimadir-shell`, not the package's name: `host` is the DNS tool
+in `/usr/bin` on Linux, which an installed shell must not shadow.
+
 - `main` — hand-rolled arg parsing (`--list`, `--headless`, `--frames`,
   `--script`, `--input`, `--back`, `--registry`, plus one positional source). A
   positional argument means "navigate straight there", skipping the home screen.

@@ -4,8 +4,10 @@ version = "0.1.0"
 edition = "2021"
 description = "Native app shell that runs sandboxed WASM component mini-apps, no web stack"
 
+# Installed as `nimadir-shell`: `host` is taken on Linux (the DNS tool in
+# /usr/bin), and the package keeps its name, so `cargo run -p host` still works.
 [[bin]]
-name = "host"
+name = "nimadir-shell"
 path = "src/main.rs"
 
 [dependencies]

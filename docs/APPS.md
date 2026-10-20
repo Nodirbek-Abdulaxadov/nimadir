@@ -10,8 +10,9 @@ This guide is for writing apps. How the shell itself is built is in
 
 ## The first one
 
-You need the `nimadir` tool (`cargo build --release -p nimadir-cli` in this
-repository puts it in `target/release/`) and, for Rust,
+You need the `nimadir` tool and the shell, `nimadir-shell`
+(`cargo build --release -p nimadir-cli -p host` in this repository puts both in
+`target/release/`) and, for Rust,
 `rustup target add wasm32-wasip2`.
 
 ```bash
@@ -124,9 +125,9 @@ The shell runs headless, printing every frame's UI as text, with taps and
 typing injected:
 
 ```bash
-host notes.component.wasm --frames 3                       # just look
-host notes.component.wasm --input "1:0=milk" --submit "2:0" --frames 4
-host notes.component.wasm --script "1:0" --confirm --frames 4
+nimadir-shell notes.component.wasm --frames 3                       # just look
+nimadir-shell notes.component.wasm --input "1:0=milk" --submit "2:0" --frames 4
+nimadir-shell notes.component.wasm --script "1:0" --confirm --frames 4
 ```
 
 `--script "frame:index"` taps; buttons, tiles and checkboxes share one index

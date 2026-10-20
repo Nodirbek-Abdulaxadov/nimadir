@@ -29,11 +29,11 @@ use host::registry;
 use host::shell::Shell;
 use host::ui::{FrameInput, UiCmd};
 
-const USAGE: &str = "usage: host [<address> | <listed-app-name>] \
+const USAGE: &str = "usage: nimadir-shell [<address> | <listed-app-name>] \
 [--list] [--headless] [--frames N] [--script \"frame:btn,...\"] \
 [--input \"frame:field=text\"] [--submit \"frame:field,...\"] [--back \"frame,...\"] [--reload \"frame,...\"] [--confirm] \
 [--registry <path-or-url>] [--timing] [--version]\n\
-       host --kept | --clear <publisher>/<name> | --clear-cache | --check-update\n\
+       nimadir-shell --kept | --clear <publisher>/<name> | --clear-cache | --check-update\n\
 an address is a .wasm component (path or URL) or a web page URL";
 
 fn main() -> Result<()> {

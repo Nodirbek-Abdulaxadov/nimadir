@@ -242,18 +242,18 @@ fn check(input: &str) -> Result<ExitCode> {
     }
 }
 
-/// The shell to run: `NIMADIR_HOST`, else the `host` built beside this tool,
-/// else whatever `host` is on the PATH.
+/// The shell to run: `NIMADIR_HOST`, else the `nimadir-shell` built beside
+/// this tool, else whatever `nimadir-shell` is on the PATH.
 fn host() -> PathBuf {
     if let Some(path) = std::env::var_os("NIMADIR_HOST") {
         return path.into();
     }
     let beside = std::env::current_exe()
         .ok()
-        .map(|me| me.with_file_name(format!("host{}", std::env::consts::EXE_SUFFIX)));
+        .map(|me| me.with_file_name(format!("nimadir-shell{}", std::env::consts::EXE_SUFFIX)));
     beside
         .filter(|p| p.exists())
-        .unwrap_or_else(|| PathBuf::from("host"))
+        .unwrap_or_else(|| PathBuf::from("nimadir-shell"))
 }
 
 fn exec(command: &mut Command, what: &str) -> Result<()> {

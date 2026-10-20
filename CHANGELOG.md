@@ -90,6 +90,8 @@ beta is `docs/ROADMAP.md`.
   in N ms. `hello` uses it to show how long it has been open.
 
 ### Changed
+- The shell's binary is `nimadir-shell`: `host`, the package's name, is the
+  DNS tool on Linux, which an installed shell must not shadow.
 - The window follows the system's light or dark theme; light where the
   system does not say.
 - The window redraws only when something happens — input, a load, a webview

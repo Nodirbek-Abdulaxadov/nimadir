@@ -98,7 +98,9 @@ cargo run -p host -- counter --script "1:0,2:0,3:0,5:1" --frames 8   # headless
 cargo run -p host -- --list                      # the registry, as text
 ```
 
-A binary built with `--features gui` opens a **window** unless you pass
+The binary is **`nimadir-shell`** (package `host`, so `cargo run -p host` still
+works): `host` is the DNS tool on Linux. A binary built with `--features gui`
+opens a **window** unless you pass
 `--headless`; the headless harness is only the default when the feature is off.
 
 Settings from the command line: `--kept`, `--clear <publisher>/<name>`,
@@ -133,7 +135,7 @@ through the real binary with `--script` / `--input`, needing no display. To run 
 single case, copy that `check` line's command and run it directly, e.g.:
 
 ```bash
-./target/debug/host store --input "1:0=hell" --script "2:0" --frames 4
+./target/debug/nimadir-shell store --input "1:0=hell" --script "2:0" --frames 4
 ```
 
 The suite rebuilds the host but **not** the mini-apps: it runs

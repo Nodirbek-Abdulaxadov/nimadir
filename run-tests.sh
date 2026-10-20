@@ -105,7 +105,7 @@ NIMADIR_HOME=$(native "$NIMADIR_HOME")
 # it at the local server.
 export NIMADIR_HOSTED_REGISTRY=""
 
-HOST=./target/debug/host
+HOST=./target/debug/nimadir-shell
 
 echo "==> building"
 # Mini-apps first: the host carries the store inside it when the store exists
@@ -198,7 +198,7 @@ echo "==> outside a checkout"
 # An installed shell has no mini-apps/ and no apps.json beside it. It must
 # still open on a start page, and read its registry from where it lives.
 ELSEWHERE=$(mktemp -d)
-ABS_HOST="$PWD/target/debug/host"
+ABS_HOST="$PWD/target/debug/nimadir-shell"
 check "started anywhere, the shell opens the store built into it" 'heading1 : "nimadir"' \
   bash -c "cd '$ELSEWHERE' && '$ABS_HOST' store --frames 1"
 mkdir -p "$NIMADIR_HOME/config"
