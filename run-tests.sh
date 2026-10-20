@@ -110,7 +110,7 @@ HOST=./target/debug/host
 echo "==> building"
 # Mini-apps first: the host carries the store inside it when the store exists
 # at the time it is built.
-if [[ ! -f mini-apps/store/store.component.wasm || ! -f mini-apps/runaway/runaway.component.wasm || ! -f mini-apps/future/future.component.wasm || ! -f mini-apps/fetcher/fetcher.component.wasm ]]; then
+if [[ ! -f mini-apps/store/store.component.wasm || ! -f mini-apps/runaway/runaway.component.wasm || ! -f mini-apps/future/future.component.wasm || ! -f mini-apps/fetcher/fetcher.component.wasm || ! -f mini-apps/fuzz/fuzz.component.wasm ]]; then
   echo "    mini-apps missing; running build-mini-apps.sh"
   ./build-mini-apps.sh >/dev/null || { red "mini-app build failed"; echo; exit 1; }
 fi
@@ -414,6 +414,10 @@ check_fails "a guest that floods the host with UI is stopped" "in one frame and 
   $HOST $RUNAWAY --script "1:2" --frames 3
 check "and a guest that behaves is untouched by either" "Eat memory" \
   $HOST $RUNAWAY --frames 3
+# Every host function, 40 calls a frame for 300 frames, with the worst inputs
+# the fixture can think of. The guest logs NULs, which bash would warn about.
+check "the host answers every function's worst inputs without falling over" "fuzz frame 299, still here" \
+  bash -c "set -o pipefail; $HOST mini-apps/fuzz/fuzz.component.wasm --frames 300 | tr -d '\\000'"
 # Built against a newer WIT: one function this host does not have.
 check_fails "an app built for a newer host says it needs one" "needs a newer nimadir" \
   $HOST mini-apps/future/future.component.wasm --frames 1

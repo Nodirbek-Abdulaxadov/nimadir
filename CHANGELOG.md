@@ -24,6 +24,8 @@ beta is `docs/ROADMAP.md`.
   past that the guest is stopped and the reason names the limit.
 
 ### Added
+- A fuzzing fixture: every host function, forty times a frame for 300 frames,
+  with awkward inputs; the suite runs it.
 - **rates**, the first real app: the Central Bank of Uzbekistan's exchange
   rates and a converter, in Uzbek, Russian or English, working offline from
   the last rates it kept.

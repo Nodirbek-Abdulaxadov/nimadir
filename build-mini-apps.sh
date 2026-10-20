@@ -17,7 +17,7 @@ rustup target add wasm32-unknown-unknown >/dev/null 2>&1 || true
 # its manifest (ADR-1).
 cargo build --release -p componentize -p nimadir-pack
 
-APPS=(counter hello gallery rates store runaway future fetcher)
+APPS=(counter hello gallery rates store runaway future fetcher fuzz)
 for app in "${APPS[@]}"; do
   echo "==> building mini-app: $app"
   cargo build --release --target wasm32-unknown-unknown \

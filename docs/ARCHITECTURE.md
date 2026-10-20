@@ -600,6 +600,14 @@ Built against its own `wit/world.wit`: the real contract plus one function,
 nimadir, so the suite can check that opening one says so. Keep its WIT in step
 with the real one, plus that function.
 
+### `mini-apps/fetcher/`, `mini-apps/fuzz/` — test fixtures
+`fetcher` fetches whatever is typed into its field, so the suite can sign it
+against its own server and walk every path of ADR-3. `fuzz` calls every
+`host-api` function forty times a frame with the worst inputs it can think of —
+empty, long and multi-byte strings, NaN, garbage for an image, nonsense for a
+URL, request numbers nobody issued — from a fixed seed, so any failure
+replays. The suite runs it 300 frames and wants it still drawing at the end.
+
 ### `mini-apps/rates/` — the first real app
 Exchange rates from the Central Bank of Uzbekistan (`cbu.uz`) with a
 converter, in Uzbek, Russian or English by `locale()`. It declares `cbu.uz`

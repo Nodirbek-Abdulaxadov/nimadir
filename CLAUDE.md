@@ -140,11 +140,12 @@ are **skipped, never failed**. They talk only to `127.0.0.1` — the suite needs
 internet. Byte-count assertions read the size off the built file (`COUNTER_BYTES`),
 so a toolchain change that resizes a component does not break them.
 
-`mini-apps/runaway` and `mini-apps/future` are **test fixtures**, not apps:
+`mini-apps/runaway`, `future`, `fetcher` and `fuzz` are **test fixtures**, not apps:
 `runaway` spins, eats memory and floods the shell on demand so the suite can check
 the sandbox limits hold; `future` is built against its own copy of the WIT with one
-extra function, standing in for an app newer than the host. Both stay out of
-`apps.json`. A change to `wit/world.wit` should be mirrored into
+extra function, standing in for an app newer than the host; `fetcher` fetches
+what is typed, for the network tests; `fuzz` calls every host function with
+awkward inputs, 300 frames deep. All stay out of `apps.json`. A change to `wit/world.wit` should be mirrored into
 `mini-apps/future/wit/world.wit` (plus its one extra function).
 
 ## Architecture in brief
