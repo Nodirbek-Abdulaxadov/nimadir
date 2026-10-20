@@ -153,6 +153,12 @@ keep and the caches, with clearing; drawn but not yet seen on a screen.
 S4-6: `--kept`, `--clear`, `--clear-cache`, `--confirm`; `NIMADIR_HOME` is the
 data directory.
 
+**Sprint 4 closed (2026-10-20), 80 assertions.** Carried forward: S4-2's
+general grant machinery moves into S6-2, where network access is the first
+capability that needs a grant (storage and `open-app` are already
+policed); S4-1's display of version and publisher in the store needs a new
+WIT function and comes with Sprint 5's vocabulary.
+
 ## Sprint 5 — UI vocabulary for real apps
 
 **Goal:** a guest can build a form, a list and a detail page — still saying what

@@ -37,7 +37,8 @@ welcome if you find a way they are worse than described here:
   (loopback excepted), and a registry entry with a `sha256` is refused unless
   the bytes match. A component opened by address with no registry entry, or
   an entry with no pin, is run as received — TLS is all that protects it.
-  Signed components are `S4-1` in `docs/ROADMAP.md`.
+  A component may be signed (ADR-1), and an entry may require its publisher;
+  the hosted registry does not require signatures yet.
 - **Permissions are coarse.** Every mini-app gets the whole `host-api`.
   `open-app` to an address the registry does not list needs the user's
   confirmation; storage persists only for a signed app that asks. Network
