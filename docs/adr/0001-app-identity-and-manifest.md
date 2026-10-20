@@ -1,8 +1,13 @@
 # ADR-1: App identity and manifest
 
-**Status:** Proposed — needs the owner's sign-off. Blocks `S2-4`, `S4-1`,
-`S4-2` and `S4-4` in `docs/ROADMAP.md`.
+**Status:** Accepted by default — the owner asked for the sprints to run
+without stopping, so the proposal below is what `S2-4`, `S4-1`, `S4-2` and
+`S4-4` are built on. Revisit before beta if it should change.
 **Date:** 2026-10-20
+
+The three questions at the end are answered with their defaults: **C**;
+unsigned components run without persistence; the hosted registry pins every
+entry by hash from `S2-3` and requires signatures once signing exists (`S4-1`).
 
 ## Context
 

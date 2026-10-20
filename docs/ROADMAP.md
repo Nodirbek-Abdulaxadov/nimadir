@@ -74,7 +74,7 @@ device is still to run.
 
 **Status (2026-10-20):** S1-2, S1-3 and S1-5 done. S1-1 written, and green
 locally (fmt, clippy, the suite) — it has not run on GitHub yet. S1-4 is
-proposed and waits for the owner (`docs/adr/0001-app-identity-and-manifest.md`).
+accepted by default (`docs/adr/0001-app-identity-and-manifest.md`).
 The Android spike's verdict is **GO**, with five blockers moved into Sprint 3
 below (`docs/spikes/android.md`).
 
