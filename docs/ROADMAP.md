@@ -159,6 +159,11 @@ data directory.
 hand, declined in the suite. S6-5: the `fuzz` fixture, 12 000 awkward calls
 without a panic.
 
+**Sprint 8 closed (2026-10-20), 117 assertions.** S8-7: the contract frozen at
+`nimadir:shell@1.0.0`, versions at 1.0.0-beta.1, and `docs/BETA-CHECKLIST.md`
+— four criteria met, three waiting on the owner (push for CI; Pages; a
+device), so **not tagged**.
+
 **Sprint 8 progress:** S8-1 installers: a `.deb` built and checked here (the
 shell starts from it with the store inside), AppImage failing in linuxdeploy on
 this machine, Windows and macOS untried until CI runs them; release workflow

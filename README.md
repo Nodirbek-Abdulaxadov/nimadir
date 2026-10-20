@@ -435,6 +435,12 @@ Component Model. `wasm-tools component new` does this from the CLI, but to keep
 the repo self-contained (no external binary on PATH) `tools/componentize` does
 the same in ~15 lines using the `wit-component` library.
 
+## Toward beta
+
+The MVP below is done. The road from it to 1.0.0-beta.1 — eight sprints —
+is `docs/ROADMAP.md`; where it stands now, and what is left before the tag,
+is `docs/BETA-CHECKLIST.md`.
+
 ## MVP status — milestones verified (now over the Component Model)
 
 - **M1 — native shell.** Host builds and runs; egui window backend builds (feature `gui`).

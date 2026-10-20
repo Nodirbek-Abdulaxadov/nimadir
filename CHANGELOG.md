@@ -5,7 +5,9 @@ Notable changes, newest first. The format follows
 [Semantic Versioning](https://semver.org/). The road from here to the first
 beta is `docs/ROADMAP.md`.
 
-## [Unreleased]
+## [1.0.0-beta.1] — not yet tagged
+
+What stands between this and the tag: `docs/BETA-CHECKLIST.md`.
 
 ### Security
 - A pre-beta review of the boundary (`docs/SECURITY-REVIEW.md`) fixed four
