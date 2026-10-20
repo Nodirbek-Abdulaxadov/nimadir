@@ -682,6 +682,7 @@ impl ShellApp {
 
         let mut go_back = false;
         let mut go_home = false;
+        let mut reload = false;
         let mut nav: Option<Nav> = None;
         // Submitted with nothing typed — needs to say so, or the button looks dead.
         let mut submitted_empty = false;
@@ -695,6 +696,9 @@ impl ShellApp {
             if !at_home {
                 if ui.button("Home").clicked() {
                     go_home = true;
+                }
+                if ui.button("Reload").clicked() {
+                    reload = true;
                 }
                 ui.separator();
             }
@@ -768,6 +772,12 @@ impl ShellApp {
 
         if go_back {
             self.go_back(ui.ctx());
+        }
+        if reload {
+            self.pending_clicks.clear();
+            self.pending_submits.clear();
+            self.field_values.clear();
+            self.shell.reload();
         }
         if go_home {
             // Drop any input aimed at the app we just left.

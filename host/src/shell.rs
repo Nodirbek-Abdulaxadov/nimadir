@@ -112,9 +112,11 @@ enum Origin {
     /// The start page, on the way home. A failure falls back to the built-in
     /// list, and success says nothing — you are simply home.
     Home,
-    /// `back`. The one navigation that does not add the page it leaves to the
-    /// history, or going back twice would return you where you started.
+    /// `back`. One of the two navigations that do not add the page they leave
+    /// to the history, or going back twice would return you where you started.
     Back,
+    /// `reload`: the same page again, so nothing to remember either.
+    Reload,
 }
 
 pub struct Shell {
@@ -190,6 +192,20 @@ impl Shell {
             self.history.remove(0);
         }
         self.history.push(visit);
+    }
+
+    /// Open the page the shell is on afresh — a new instance of the app, as
+    /// leaving and coming back would give, without the trip. Not remembered:
+    /// Back after a reload goes where it went before it.
+    pub fn reload(&mut self) {
+        if let Some((title, src)) = self.location() {
+            let (title, src) = (title.to_string(), src.to_string());
+            if self.is_start_page() {
+                self.go_start();
+            } else {
+                self.start_as(&src, &title, Origin::Reload);
+            }
+        }
     }
 
     /// Whether `back` would go anywhere — anywhere but out of the shell.
@@ -303,7 +319,7 @@ impl Shell {
     fn start_as(&mut self, src: &str, title: &str, origin: Origin) {
         // The shell's own page: nothing to fetch, classify or compile.
         if src == SETTINGS_PAGE {
-            if !matches!(origin, Origin::Back) {
+            if !matches!(origin, Origin::Back | Origin::Reload) {
                 self.record();
             }
             self.asking = None;
@@ -450,7 +466,7 @@ impl Shell {
     fn arrive(&mut self, landed: Landed, p: &Pending) -> Result<String> {
         // Recorded here, on arrival, not when the navigation starts: one that
         // fails leaves you where you were, and there is nothing to go back to.
-        if !matches!(p.origin, Origin::Back) {
+        if !matches!(p.origin, Origin::Back | Origin::Reload) {
             self.record();
         }
         // A question from the page being left is no longer anyone's to ask.

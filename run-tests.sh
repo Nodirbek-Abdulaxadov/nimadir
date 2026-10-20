@@ -308,6 +308,8 @@ check "back from an app opened directly goes to the start page" "[back] now at s
 # On a phone this is what closes the app.
 check "back from the start page has nowhere to go" "[back] nothing to go back to" \
   $HOST store --back 1 --frames 2
+check "reload starts the app afresh" '"Count: 0"' \
+  bash -c "$HOST counter --script 1:0,2:0 --reload 4 --frames 5 | sed -n '/reload/,\$p'"
 
 echo
 echo "==> where an app may send you"

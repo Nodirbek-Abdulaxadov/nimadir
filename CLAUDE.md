@@ -108,7 +108,7 @@ Headless flags: `--frames N`, `--script "frame:tap,…"` (inject taps: buttons, 
 checkboxes share one index space), `--submit "frame:field,…"` (Enter on a field),
 `--input "frame:field=text"` (repeatable; set a value: text, or a choice's option
 number), `--back "frame,…"`
-(press Back before those frames), `--confirm` (say yes when an app asks to open an
+(press Back before those frames), `--reload "frame,…"`, `--confirm` (say yes when an app asks to open an
 unlisted address), `--timing` (how long the guest's frames took),
 `--registry <path-or-url>`.
 

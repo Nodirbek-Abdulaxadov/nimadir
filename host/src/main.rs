@@ -31,7 +31,7 @@ use host::ui::{FrameInput, UiCmd};
 
 const USAGE: &str = "usage: host [<address> | <listed-app-name>] \
 [--list] [--headless] [--frames N] [--script \"frame:btn,...\"] \
-[--input \"frame:field=text\"] [--submit \"frame:field,...\"] [--back \"frame,...\"] [--confirm] \
+[--input \"frame:field=text\"] [--submit \"frame:field,...\"] [--back \"frame,...\"] [--reload \"frame,...\"] [--confirm] \
 [--registry <path-or-url>] [--timing] [--version]\n\
        host --kept | --clear <publisher>/<name> | --clear-cache\n\
 an address is a .wasm component (path or URL) or a web page URL";
@@ -48,6 +48,7 @@ fn main() -> Result<()> {
     // separator inside a search term should not silently truncate it.
     let mut inputs: Vec<String> = Vec::new();
     let mut backs = String::new();
+    let mut reloads = String::new();
     let mut submits = String::new();
     let mut confirm = false;
     let mut timing = false;
@@ -108,6 +109,10 @@ fn main() -> Result<()> {
                 }
             }
             "--confirm" => confirm = true,
+            "--reload" => {
+                i += 1;
+                reloads = args.get(i).cloned().unwrap_or_default();
+            }
             "--timing" => timing = true,
             "--submit" => {
                 i += 1;
@@ -210,6 +215,7 @@ fn main() -> Result<()> {
                 inputs: &inputs,
                 submits: &submits,
                 backs: &backs,
+                reloads: &reloads,
                 confirm,
                 timing,
             };
@@ -268,6 +274,7 @@ struct Harness<'a> {
     inputs: &'a [String],
     submits: &'a str,
     backs: &'a str,
+    reloads: &'a str,
     confirm: bool,
     /// Print how long the guest's frames took, after the run.
     timing: bool,
@@ -280,6 +287,7 @@ fn run_headless(mut shell: Shell, h: &Harness) -> Result<()> {
         inputs,
         submits,
         backs,
+        reloads,
         confirm,
         timing,
     } = *h;
@@ -296,6 +304,10 @@ fn run_headless(mut shell: Shell, h: &Harness) -> Result<()> {
     let typed: Vec<(usize, u32, String)> = inputs.iter().filter_map(|s| parse_input(s)).collect();
     // `"4,6"` => press Back before frames 4 and 6 — the system Back key on a
     // phone, the Back button in the window's chrome.
+    let reloads: HashSet<usize> = reloads
+        .split(',')
+        .filter_map(|f| f.trim().parse().ok())
+        .collect();
     let backs: HashSet<usize> = backs
         .split(',')
         .filter_map(|f| f.trim().parse().ok())
@@ -309,6 +321,12 @@ fn run_headless(mut shell: Shell, h: &Harness) -> Result<()> {
     println!("\n=== headless run: {frames} frames ===");
 
     for frame in 0..frames {
+        if reloads.contains(&frame) {
+            edits.clear();
+            shell.reload();
+            shell.wait();
+            println!("\n[reload] {}", shell.status);
+        }
         if backs.contains(&frame) {
             // The page left behind takes its text fields with it, as in the
             // window: what was typed belonged to an instance that is gone.

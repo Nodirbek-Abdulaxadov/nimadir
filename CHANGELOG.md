@@ -24,6 +24,8 @@ beta is `docs/ROADMAP.md`.
   past that the guest is stopped and the reason names the limit.
 
 ### Added
+- A Reload button in the chrome (`--reload` headlessly): the app afresh,
+  without a trip home.
 - **`nimadir`, the developer tool** (it absorbs `nimadir-pack`): `new` makes a
   Rust, C# or Python app with its own copy of the WIT, so it builds outside
   this repository; `build` (Rust via `wasm32-wasip2`, no componentize step),
