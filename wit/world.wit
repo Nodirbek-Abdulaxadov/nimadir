@@ -1,4 +1,4 @@
-package nimadir:shell@0.1.0;
+package nimadir:shell@1.0.0;
 
 /// The complete host <-> mini-app contract, defined ONCE and shared by both
 /// sides. `wit-bindgen` generates the guest bindings from this file; wasmtime's

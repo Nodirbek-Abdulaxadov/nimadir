@@ -1,6 +1,7 @@
-// A copy of wit/world.wit with one function added, standing in for a
-// contract newer than the host's. Test fixture only.
-package nimadir:shell@0.1.0;
+// A copy of wit/world.wit one minor version on, with one function added —
+// standing in for a contract newer than the host's. Test fixture only;
+// regenerate with tools/sync-fixture-wit.py.
+package nimadir:shell@1.1.0;
 
 /// The complete host <-> mini-app contract, defined ONCE and shared by both
 /// sides. `wit-bindgen` generates the guest bindings from this file; wasmtime's

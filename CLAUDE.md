@@ -158,8 +158,15 @@ so a toolchain change that resizes a component does not break them.
 the sandbox limits hold; `future` is built against its own copy of the WIT with one
 extra function, standing in for an app newer than the host; `fetcher` fetches
 what is typed, for the network tests; `fuzz` calls every host function with
-awkward inputs, 300 frames deep. All stay out of `apps.json`. A change to `wit/world.wit` should be mirrored into
-`mini-apps/future/wit/world.wit` (plus its one extra function).
+awkward inputs, 300 frames deep. All stay out of `apps.json`.
+
+**Changing `wit/world.wit`:** add only, and bump its minor version
+(`1.0.0` → `1.1.0`) — wasmtime links across minor versions within a major, so
+apps built against the old one keep working. Then run
+`tools/sync-fixture-wit.py` (the `future` fixture is the WIT one minor on; the
+suite checks), and update the C# namespace, which carries the version
+(`nimadir.shell.v1_0_0` in `mini-apps/counter-cs/Program.cs` and
+`tools/nimadir/src/templates.rs`).
 
 ## Architecture in brief
 

@@ -212,7 +212,7 @@ link cannot take the shell down.
 This is the entire contract, and it is one file — [`wit/world.wit`](wit/world.wit):
 
 ```wit
-package nimadir:shell@0.1.0;
+package nimadir:shell@1.0.0;
 
 interface host-api {
     record app-entry { name: string, source: string, description: string }

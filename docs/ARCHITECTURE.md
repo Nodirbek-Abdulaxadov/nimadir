@@ -955,7 +955,11 @@ on a phone, and invariant 8 means the phone's numbers are the ones that count.
 ## 5. Invariants worth not breaking
 
 1. **The WIT is the contract.** Add to it; do not reshape what exists. Both
-   sides regenerate from the same file.
+   sides regenerate from the same file. Each addition bumps the minor version
+   (`nimadir:shell@1.0.0` → `1.1.0`): wasmtime resolves imports across minor
+   versions of one major, so an app built against `1.0` links against a `1.x`
+   host, and `newer_than_us` names whatever functions it uses that the host
+   lacks.
 2. **Chrome is host-only.** Navigation must never be reachable by guest code.
 3. **Leaving an app destroys it.** Nothing of it stays in host memory. What it
    kept under its identity is on disk, held by the host and given back only to

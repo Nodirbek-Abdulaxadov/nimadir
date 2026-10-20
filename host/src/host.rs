@@ -753,24 +753,29 @@ impl MiniApp {
 ///
 /// Checked before linking, because the linker's own account of it ("a matching
 /// implementation was not found … the wrong type: function implementation is
-/// missing") is true and tells nobody what to do. The WIT is additive-only, so
-/// an import this host lacks is one added after it was built: the app is newer
-/// than the shell. Other imports (`wasi:*`) are left to the linker.
+/// missing") is true and tells nobody what to do. The WIT is additive-only and
+/// each addition bumps its minor version, so an import this host lacks is one
+/// added after it was built: the app is newer than the shell. Other imports
+/// (`wasi:*`) are left to the linker.
 fn newer_than_us(engine: &Engine, component: &Component) -> Option<String> {
     use wasmtime::component::types::ComponentItem;
 
     let package = crate::wit_package();
     let (name, version) = package.split_once('@').unwrap_or((package, ""));
-    let ours = format!("{name}/host-api@{version}");
+    let major = |v: &str| v.split('.').next().unwrap_or("").to_string();
     let provided = provided_functions();
 
     let mut missing = Vec::new();
     let ty = component.component_type();
     for (import, item) in ty.imports(engine) {
-        if !import.starts_with(&format!("{name}/")) {
+        let Some(rest) = import.strip_prefix(&format!("{name}/")) else {
             continue;
-        }
-        if import != ours {
+        };
+        let (interface, theirs) = rest.split_once('@').unwrap_or((rest, ""));
+        // Another interface, or another major version, is nothing this host
+        // has. Within a major version wasmtime links across minor ones
+        // (semver), so there the functions themselves decide.
+        if interface != "host-api" || major(theirs) != major(version) {
             missing.push(format!("`{import}`"));
             continue;
         }

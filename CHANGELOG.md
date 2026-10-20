@@ -100,6 +100,11 @@ beta is `docs/ROADMAP.md`.
   in N ms. `hello` uses it to show how long it has been open.
 
 ### Changed
+- **The contract is `nimadir:shell@1.0.0`**, frozen: from here it only
+  grows, a minor version at a time, and wasmtime links an app built against
+  `1.0` to any `1.x` shell. Apps built against `0.1.0` need rebuilding — none
+  had been published.
+- The shell, the `nimadir` tool and the Android app are version 1.0.0-beta.1.
 - The shell's binary is `nimadir-shell`: `host`, the package's name, is the
   DNS tool on Linux, which an installed shell must not shadow.
 - The window follows the system's light or dark theme; light where the

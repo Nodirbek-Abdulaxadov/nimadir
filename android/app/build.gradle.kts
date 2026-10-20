@@ -11,7 +11,7 @@ val releaseKeystore = providers.environmentVariable("NIMADIR_KEYSTORE")
 val releasePassword = providers.environmentVariable("NIMADIR_KEYSTORE_PASSWORD")
 val releaseAlias = providers.environmentVariable("NIMADIR_KEY_ALIAS").orElse("nimadir")
 val appVersionCode = providers.gradleProperty("versionCode").map { it.toInt() }.orElse(1)
-val appVersionName = providers.gradleProperty("versionName").orElse("0.1.0")
+val appVersionName = providers.gradleProperty("versionName").orElse("1.0.0-beta.1")
 
 android {
     // A placeholder, as in Cargo.toml. Once on Play it can never change.

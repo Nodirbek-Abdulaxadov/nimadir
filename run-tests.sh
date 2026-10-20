@@ -295,7 +295,7 @@ rm -rf "$PINS"
 
 echo
 echo "==> the shell's own record"
-check "--version names the host and the WIT it implements" "(WIT nimadir:shell@0.1.0)" \
+check "--version names the host and the WIT it implements" "(WIT nimadir:shell@1.0.0)" \
   $HOST --version
 check "navigations are logged in the data directory" "bytes of wasm from mini-apps/runaway/runaway.component.wasm" \
   bash -c "$HOST mini-apps/runaway/runaway.component.wasm --frames 1 >/dev/null && cat \"\$NIMADIR_HOME/data/nimadir.log\""
@@ -447,6 +447,11 @@ check "and a guest that behaves is untouched by either" "Eat memory" \
 # the fixture can think of. The guest logs NULs, which bash would warn about.
 check "the host answers every function's worst inputs without falling over" "fuzz frame 299, still here" \
   bash -c "set -o pipefail; $HOST mini-apps/fuzz/fuzz.component.wasm --frames 300 | tr -d '\\000'"
+# The fixture's WIT must be this one, a minor version on, plus one function.
+if command -v python3 >/dev/null 2>&1; then
+  check "the future fixture's WIT is wit/world.wit one minor version on" "in step" \
+    python3 -I tools/sync-fixture-wit.py --check
+fi
 # Built against a newer WIT: one function this host does not have.
 check_fails "an app built for a newer host says it needs one" "needs a newer nimadir" \
   $HOST mini-apps/future/future.component.wasm --frames 1
@@ -595,13 +600,16 @@ JSON
     # Asked only when asked for; here, against releases the suite serves.
     printf '{"tag_name":"v9.9.9","html_url":"https://example.org/releases/9.9.9"}\n' > "$FIXTURES/newer.json"
     printf '{"tag_name":"v0.0.1","html_url":""}\n' > "$FIXTURES/older.json"
-    printf '{"tag_name":"v0.1.0-beta.1","html_url":""}\n' > "$FIXTURES/beta.json"
+    printf '{"tag_name":"v1.0.0-alpha.3","html_url":""}\n' > "$FIXTURES/alpha.json"
+    printf '{"tag_name":"v1.0.0-beta.2","html_url":"https://example.org/releases/beta.2"}\n' > "$FIXTURES/next.json"
     check "a newer release is reported, with where to get it" "nimadir 9.9.9 is out: https://example.org/releases/9.9.9" \
       bash -c "NIMADIR_UPDATE_URL='$B2/newer.json' $HOST --check-update"
     check "an older one is not" "is the newest" \
       bash -c "NIMADIR_UPDATE_URL='$B2/older.json' $HOST --check-update"
-    check "and a pre-release of this version is older than it" "is the newest" \
-      bash -c "NIMADIR_UPDATE_URL='$B2/beta.json' $HOST --check-update"
+    check "an earlier pre-release is older than this one" "is the newest" \
+      bash -c "NIMADIR_UPDATE_URL='$B2/alpha.json' $HOST --check-update"
+    check "and a later one is newer" "nimadir 1.0.0-beta.2 is out" \
+      bash -c "NIMADIR_UPDATE_URL='$B2/next.json' $HOST --check-update"
   fi
 fi
 
