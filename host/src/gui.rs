@@ -105,16 +105,56 @@ fn run_with(mut shell: Shell, native_options: eframe::NativeOptions) -> Result<(
 mod palette {
     use eframe::egui::Color32;
 
-    pub const SURFACE: Color32 = Color32::from_rgb(0xff, 0xff, 0xff);
-    /// Cards and unpressed controls — the faint grey Chrome uses for chips.
-    pub const CARD: Color32 = Color32::from_rgb(0xf1, 0xf3, 0xf4);
-    pub const BORDER: Color32 = Color32::from_rgb(0xda, 0xdc, 0xe0);
-    pub const TEXT: Color32 = Color32::from_rgb(0x20, 0x21, 0x24);
-    pub const MUTED: Color32 = Color32::from_rgb(0x5f, 0x63, 0x68);
-    pub const ACCENT: Color32 = Color32::from_rgb(0x1a, 0x73, 0xe8);
-    /// The blue wash under a hovered control.
-    pub const ACCENT_WASH: Color32 = Color32::from_rgb(0xe8, 0xf0, 0xfe);
-    pub const DANGER: Color32 = Color32::from_rgb(0xd9, 0x30, 0x25);
+    use eframe::egui;
+
+    /// The colours of one theme. Everything drawn by hand — cards, headings,
+    /// the spinner — reads them through `of`, so it follows the theme the
+    /// window is in rather than being fixed to one.
+    pub struct Palette {
+        pub surface: Color32,
+        /// Cards and unpressed controls — the faint grey Chrome uses for chips.
+        pub card: Color32,
+        pub border: Color32,
+        pub text: Color32,
+        pub muted: Color32,
+        pub accent: Color32,
+        /// The wash under a hovered control.
+        pub accent_wash: Color32,
+        pub danger: Color32,
+    }
+
+    pub const LIGHT: Palette = Palette {
+        surface: Color32::from_rgb(0xff, 0xff, 0xff),
+        card: Color32::from_rgb(0xf1, 0xf3, 0xf4),
+        border: Color32::from_rgb(0xda, 0xdc, 0xe0),
+        text: Color32::from_rgb(0x20, 0x21, 0x24),
+        muted: Color32::from_rgb(0x5f, 0x63, 0x68),
+        accent: Color32::from_rgb(0x1a, 0x73, 0xe8),
+        accent_wash: Color32::from_rgb(0xe8, 0xf0, 0xfe),
+        danger: Color32::from_rgb(0xd9, 0x30, 0x25),
+    };
+
+    /// The same roles at night: a dark grey page rather than black, and a
+    /// lighter blue, which stays readable on it.
+    pub const DARK: Palette = Palette {
+        surface: Color32::from_rgb(0x20, 0x21, 0x24),
+        card: Color32::from_rgb(0x30, 0x31, 0x34),
+        border: Color32::from_rgb(0x5f, 0x63, 0x68),
+        text: Color32::from_rgb(0xe8, 0xea, 0xed),
+        muted: Color32::from_rgb(0x9a, 0xa0, 0xa6),
+        accent: Color32::from_rgb(0x8a, 0xb4, 0xf8),
+        accent_wash: Color32::from_rgb(0x2a, 0x37, 0x4f),
+        danger: Color32::from_rgb(0xf2, 0x8b, 0x82),
+    };
+
+    /// The palette of the theme `ui` is drawn in.
+    pub fn of(ui: &egui::Ui) -> &'static Palette {
+        if ui.visuals().dark_mode {
+            &DARK
+        } else {
+            &LIGHT
+        }
+    }
 
     /// One per app icon. Colour is decoration, but it is also the fastest way
     /// to tell two cards apart before you have read either of them.
@@ -139,66 +179,24 @@ mod palette {
     }
 }
 
-/// The window's visual defaults: a light, browser-shaped palette, rounder
-/// widgets, more air between them. Applied once at startup — egui re-reads the
-/// style every frame, so no other code has to know this happened.
+/// The window's look: a browser's, in light and in dark, from the two
+/// palettes, following whichever the system asks for.
 ///
-/// It is deliberately *style* and not layout. Layout stays a per-widget
-/// decision in `page`, because that is the part a different backend would have
-/// to reimplement, and a theme it can simply ignore.
-///
-/// The theme is **pinned to light**, and both stored styles get the same
-/// visuals, so an OS that says "dark" cannot hand back the near-black default
-/// this replaced.
+/// When the system does not say — some Linux desktops, perhaps a phone — egui
+/// would fall back to dark; the fallback here is light, the theme the shell
+/// was designed in.
 fn install_theme(ctx: &egui::Context) {
-    use palette::*;
-
     install_fonts(ctx);
-    ctx.set_theme(egui::ThemePreference::Light);
-
-    let mut v = egui::Visuals::light();
-    v.panel_fill = SURFACE;
-    v.window_fill = SURFACE;
-    v.faint_bg_color = CARD;
-    v.extreme_bg_color = SURFACE;
-    v.hyperlink_color = ACCENT;
-    v.error_fg_color = DANGER;
-    v.warn_fg_color = DANGER;
-    v.window_stroke = egui::Stroke::new(1.0, BORDER);
-    v.selection.bg_fill = ACCENT_WASH;
-    v.selection.stroke = egui::Stroke::new(1.0, ACCENT);
-
-    let w = &mut v.widgets;
-    w.noninteractive.bg_fill = SURFACE;
-    w.noninteractive.weak_bg_fill = SURFACE;
-    w.noninteractive.bg_stroke = egui::Stroke::new(1.0, BORDER);
-    w.noninteractive.fg_stroke = egui::Stroke::new(1.0, TEXT);
-
-    w.inactive.bg_fill = CARD;
-    w.inactive.weak_bg_fill = CARD;
-    w.inactive.bg_stroke = egui::Stroke::new(1.0, BORDER);
-    w.inactive.fg_stroke = egui::Stroke::new(1.0, TEXT);
-
-    w.hovered.bg_fill = ACCENT_WASH;
-    w.hovered.weak_bg_fill = ACCENT_WASH;
-    w.hovered.bg_stroke = egui::Stroke::new(1.0, ACCENT);
-    w.hovered.fg_stroke = egui::Stroke::new(1.0, ACCENT);
-
-    // `active` is also where `strong_text_color()` comes from, so its
-    // foreground has to stay legible on a light background — a solid blue
-    // button with white text here would turn every bold label white on white.
-    w.active.bg_fill = ACCENT_WASH;
-    w.active.weak_bg_fill = ACCENT_WASH;
-    w.active.bg_stroke = egui::Stroke::new(1.0, ACCENT);
-    w.active.fg_stroke = egui::Stroke::new(1.0, TEXT);
-
-    w.open.bg_fill = CARD;
-    w.open.weak_bg_fill = CARD;
-    w.open.bg_stroke = egui::Stroke::new(1.0, BORDER);
-    w.open.fg_stroke = egui::Stroke::new(1.0, TEXT);
-
-    ctx.set_visuals_of(egui::Theme::Light, v.clone());
-    ctx.set_visuals_of(egui::Theme::Dark, v);
+    ctx.set_visuals_of(
+        egui::Theme::Light,
+        visuals(&palette::LIGHT, egui::Visuals::light()),
+    );
+    ctx.set_visuals_of(
+        egui::Theme::Dark,
+        visuals(&palette::DARK, egui::Visuals::dark()),
+    );
+    ctx.options_mut(|o| o.fallback_theme = egui::Theme::Light);
+    ctx.set_theme(egui::ThemePreference::System);
 
     ctx.all_styles_mut(|style| {
         let radius = egui::CornerRadius::same(8);
@@ -232,6 +230,51 @@ fn install_theme(ctx: &egui::Context) {
         // rendering of a guest's `ui-label` — so the pointer stays a pointer.
         style.interaction.selectable_labels = false;
     });
+}
+
+/// One theme's visuals, from its palette.
+fn visuals(p: &palette::Palette, base: egui::Visuals) -> egui::Visuals {
+    let mut v = base;
+    v.panel_fill = p.surface;
+    v.window_fill = p.surface;
+    v.faint_bg_color = p.card;
+    v.extreme_bg_color = p.surface;
+    v.hyperlink_color = p.accent;
+    v.error_fg_color = p.danger;
+    v.warn_fg_color = p.danger;
+    v.window_stroke = egui::Stroke::new(1.0, p.border);
+    v.selection.bg_fill = p.accent_wash;
+    v.selection.stroke = egui::Stroke::new(1.0, p.accent);
+
+    let w = &mut v.widgets;
+    w.noninteractive.bg_fill = p.surface;
+    w.noninteractive.weak_bg_fill = p.surface;
+    w.noninteractive.bg_stroke = egui::Stroke::new(1.0, p.border);
+    w.noninteractive.fg_stroke = egui::Stroke::new(1.0, p.text);
+
+    w.inactive.bg_fill = p.card;
+    w.inactive.weak_bg_fill = p.card;
+    w.inactive.bg_stroke = egui::Stroke::new(1.0, p.border);
+    w.inactive.fg_stroke = egui::Stroke::new(1.0, p.text);
+
+    w.hovered.bg_fill = p.accent_wash;
+    w.hovered.weak_bg_fill = p.accent_wash;
+    w.hovered.bg_stroke = egui::Stroke::new(1.0, p.accent);
+    w.hovered.fg_stroke = egui::Stroke::new(1.0, p.accent);
+
+    // `active` is also where `strong_text_color()` comes from, so its
+    // foreground has to stay legible on the page — a solid blue button with
+    // white text here would turn every bold label white on white.
+    w.active.bg_fill = p.accent_wash;
+    w.active.weak_bg_fill = p.accent_wash;
+    w.active.bg_stroke = egui::Stroke::new(1.0, p.accent);
+    w.active.fg_stroke = egui::Stroke::new(1.0, p.text);
+
+    w.open.bg_fill = p.card;
+    w.open.weak_bg_fill = p.card;
+    w.open.bg_stroke = egui::Stroke::new(1.0, p.border);
+    w.open.fg_stroke = egui::Stroke::new(1.0, p.text);
+    v
 }
 
 /// egui's own fonts, plus Noto Sans after them as a fallback.
@@ -736,8 +779,9 @@ impl ShellApp {
             return false;
         };
         ui.horizontal(|ui| {
-            ui.add(egui::Spinner::new().size(14.0).color(palette::ACCENT));
-            ui.label(egui::RichText::new(format!("Loading {src}")).color(palette::MUTED));
+            let p = palette::of(ui);
+            ui.add(egui::Spinner::new().size(14.0).color(p.accent));
+            ui.label(egui::RichText::new(format!("Loading {src}")).color(p.muted));
         });
         true
     }
@@ -767,7 +811,11 @@ impl ShellApp {
         if self.shell.loading().is_some() {
             ui.add_space(48.0);
             ui.vertical_centered(|ui| {
-                ui.add(egui::Spinner::new().size(28.0).color(palette::ACCENT));
+                ui.add(
+                    egui::Spinner::new()
+                        .size(28.0)
+                        .color(palette::of(ui).accent),
+                );
             });
             return;
         }
@@ -1022,9 +1070,9 @@ impl ShellApp {
                 ui.vertical_centered(|ui| {
                     let t = egui::RichText::new(text).size(size);
                     ui.label(match level {
-                        1 => t.strong().color(palette::TEXT),
-                        3 => t.color(palette::MUTED),
-                        _ => t.color(palette::TEXT),
+                        1 => t.strong().color(palette::of(ui).text),
+                        3 => t.color(palette::of(ui).muted),
+                        _ => t.color(palette::of(ui).text),
                     });
                 });
                 ui.add_space(air * 0.5);
@@ -1164,13 +1212,11 @@ fn tile(ui: &mut egui::Ui, title: &str, subtitle: &str) -> bool {
     // The whole card is the link, so it gets the cursor a link gets.
     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
 
+    let p = palette::of(ui);
     let (fill, stroke) = if resp.hovered() {
-        (
-            palette::ACCENT_WASH,
-            egui::Stroke::new(1.0, palette::ACCENT),
-        )
+        (p.accent_wash, egui::Stroke::new(1.0, p.accent))
     } else {
-        (palette::CARD, egui::Stroke::new(1.0, palette::BORDER))
+        (p.card, egui::Stroke::new(1.0, p.border))
     };
     let painter = ui.painter();
     painter.rect(
@@ -1212,18 +1258,9 @@ fn tile(ui: &mut egui::Ui, title: &str, subtitle: &str) -> bool {
     // A long description must not paint over the card below it; clipping is
     // cheaper and more honest than measuring the text.
     card.set_clip_rect(text_area);
-    card.label(
-        egui::RichText::new(title)
-            .size(15.0)
-            .strong()
-            .color(palette::TEXT),
-    );
+    card.label(egui::RichText::new(title).size(15.0).strong().color(p.text));
     card.add_space(2.0);
-    card.label(
-        egui::RichText::new(subtitle)
-            .size(11.0)
-            .color(palette::MUTED),
-    );
+    card.label(egui::RichText::new(subtitle).size(11.0).color(p.muted));
 
     resp.clicked()
 }

@@ -62,6 +62,8 @@ beta is `docs/ROADMAP.md`.
   in N ms. `hello` uses it to show how long it has been open.
 
 ### Changed
+- The window follows the system's light or dark theme; light where the
+  system does not say.
 - The window redraws only when something happens — input, a load, a webview
   page, or a guest's `request-frame` — instead of every frame. On a phone the
   old loop held 58 % of a core idle and 99 % in the background.

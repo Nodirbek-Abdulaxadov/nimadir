@@ -411,6 +411,10 @@ Splits the window into two zones, and keeping them apart is the security story:
   a two-line container.
 - `install_fonts` — egui's fonts plus Noto Sans (`host/assets/fonts`, OFL) as
   the last fallback: none of egui's has U+02BB, the ʻ of Uzbek's oʻ and gʻ.
+- `palette` — two `Palette`s, `LIGHT` and `DARK`; everything painted by hand
+  reads `palette::of(ui)`. `install_theme` builds both themes' visuals from them
+  (`visuals`) and follows the system, falling back to light where the system
+  does not say (egui's own fallback is dark).
 - `install_theme` — rounder widgets and roomier spacing, applied through
   `all_styles_mut` so both the light and dark styles get it. Style only: layout
   stays a per-widget decision in `page`, because layout is what another backend

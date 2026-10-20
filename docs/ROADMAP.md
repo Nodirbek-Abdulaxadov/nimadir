@@ -157,7 +157,7 @@ data directory.
 section, scroll; nesting capped at 32), S5-2 checkbox, choice, separator,
 progress, S5-3 submit — all green headlessly through the new `gallery`
 sample. S5-5: U+02BB was missing from every bundled font; Noto Sans now
-falls back for it. The window draws them but nobody has looked yet.
+falls back for it. S5-6: light and dark palettes, following the system. The window draws them but nobody has looked yet.
 
 **Sprint 4 closed (2026-10-20), 80 assertions.** Carried forward: S4-2's
 general grant machinery moves into S6-2, where network access is the first
