@@ -20,7 +20,7 @@ use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
 use crate::registry::AppEntry;
 use crate::storage::Storage;
-use crate::ui::{FrameInput, UiCmd};
+use crate::ui::{Container, FrameInput, UiCmd};
 
 /// Generated bindings for the `mini-app` world, kept in a submodule so the
 /// generated world type (`bindings::MiniApp`) doesn't clash with our own
@@ -81,6 +81,11 @@ pub const MAX_FRAME_CMDS: usize = 1 << 16;
 /// guest asking for 0 ms every frame would otherwise be the busy loop the
 /// request exists to end.
 pub const MIN_FRAME_MS: u32 = 16;
+
+/// How deep groups (`ui-begin`) may nest: 32. Deeper ones are drawn flat — a
+/// renderer walks groups recursively, and a guest is not trusted with the
+/// depth of the host's stack.
+pub const MAX_NESTING: u32 = 32;
 
 /// Start the clock that guest time limits are measured against.
 ///
@@ -156,6 +161,14 @@ pub struct HostState {
     pub button_counter: u32,
     /// Running index handed to each `ui-text-edit` call this frame.
     pub text_counter: u32,
+    /// Running index handed to each group (`ui-begin`) this frame.
+    group_counter: u32,
+    /// The index of the last text or search field drawn, for `ui-submitted`;
+    /// a choice in between clears it.
+    last_text_field: Option<u32>,
+    /// How many groups are open right now — including any past
+    /// `MAX_NESTING`, which were not drawn but still have an `ui-end` coming.
+    depth: u32,
     /// Debug lines the guest sent via `log`.
     pub logs: Vec<String>,
     /// The shell's registry, so `list-apps` has something to answer with. A
@@ -189,6 +202,9 @@ impl HostState {
             input: FrameInput::default(),
             button_counter: 0,
             text_counter: 0,
+            group_counter: 0,
+            last_text_field: None,
+            depth: 0,
             logs: Vec::new(),
             apps,
             pending_open: None,
@@ -207,7 +223,14 @@ impl HostState {
     /// ABI lifts it before calling in — but it is one string, bounded by the
     /// guest's own memory, and it is dropped here rather than kept.
     fn spend(&mut self, bytes: usize) -> wasmtime::Result<()> {
-        self.sent.cmds += 1;
+        self.spend_n(1, bytes)
+    }
+
+    /// `spend` for a call that keeps `n` things — a choice's options each
+    /// cost what a widget does, or a list of a million empty strings would
+    /// be one command.
+    fn spend_n(&mut self, n: usize, bytes: usize) -> wasmtime::Result<()> {
+        self.sent.cmds += n;
         self.sent.bytes = self.sent.bytes.saturating_add(bytes);
         if self.sent.cmds > MAX_FRAME_CMDS || self.sent.bytes > MAX_FRAME_BYTES {
             self.sent.exceeded = true;
@@ -263,6 +286,7 @@ impl Host for HostState {
         self.text_counter += 1;
         let current = self.input.edits.get(&index).cloned().unwrap_or(text);
         self.spend(current.len())?;
+        self.last_text_field = Some(index);
         self.ui.push(UiCmd::TextEdit {
             index,
             text: current.clone(),
@@ -289,6 +313,7 @@ impl Host for HostState {
         self.text_counter += 1;
         let current = self.input.edits.get(&index).cloned().unwrap_or(text);
         self.spend(current.len() + placeholder.len())?;
+        self.last_text_field = Some(index);
         self.ui.push(UiCmd::Search {
             index,
             text: current.clone(),
@@ -369,6 +394,99 @@ impl Host for HostState {
 
     fn storage_keys(&mut self) -> wasmtime::Result<Vec<String>> {
         Ok(self.storage.keys())
+    }
+
+    fn ui_begin(&mut self, kind: String) -> wasmtime::Result<()> {
+        self.spend(0)?;
+        self.depth += 1;
+        if self.depth <= MAX_NESTING {
+            let index = self.group_counter;
+            self.group_counter += 1;
+            self.ui.push(UiCmd::Begin {
+                index,
+                kind: Container::from_name(&kind),
+            });
+        }
+        Ok(())
+    }
+
+    /// An `ui-end` with no group open is ignored; one closing a group past
+    /// `MAX_NESTING` closes what was never drawn.
+    fn ui_end(&mut self) -> wasmtime::Result<()> {
+        self.spend(0)?;
+        if self.depth == 0 {
+            return Ok(());
+        }
+        if self.depth <= MAX_NESTING {
+            self.ui.push(UiCmd::End);
+        }
+        self.depth -= 1;
+        Ok(())
+    }
+
+    /// The button index space, since it is tapped: the new value is the
+    /// guest's, flipped if last frame's tap landed on it.
+    fn ui_checkbox(&mut self, text: String, checked: bool) -> wasmtime::Result<bool> {
+        self.spend(text.len())?;
+        let index = self.button_counter;
+        self.button_counter += 1;
+        let checked = checked ^ self.input.clicked.contains(&index);
+        self.ui.push(UiCmd::Checkbox {
+            index,
+            text,
+            checked,
+        });
+        Ok(checked)
+    }
+
+    /// The text-field index space, since it holds a value: the user's pick
+    /// arrives as the option's number, and anything out of range is ignored.
+    fn ui_choice(&mut self, options: Vec<String>, selected: u32) -> wasmtime::Result<u32> {
+        self.spend_n(options.len().max(1), options.iter().map(String::len).sum())?;
+        let index = self.text_counter;
+        self.text_counter += 1;
+        let in_range = |i: &u32| (*i as usize) < options.len();
+        let selected = self
+            .input
+            .edits
+            .get(&index)
+            .and_then(|v| v.parse::<u32>().ok())
+            .filter(in_range)
+            .unwrap_or(if in_range(&selected) { selected } else { 0 });
+        self.last_text_field = None;
+        self.ui.push(UiCmd::Choice {
+            index,
+            options,
+            selected,
+        });
+        Ok(selected)
+    }
+
+    fn ui_separator(&mut self) -> wasmtime::Result<()> {
+        self.spend(0)?;
+        self.ui.push(UiCmd::Separator);
+        Ok(())
+    }
+
+    /// Clamped, and NaN is nothing done yet: a guest's arithmetic is not
+    /// worth a trap.
+    fn ui_progress(&mut self, fraction: f32) -> wasmtime::Result<()> {
+        self.spend(0)?;
+        let fraction = if fraction.is_nan() {
+            0.0
+        } else {
+            fraction.clamp(0.0, 1.0)
+        };
+        self.ui.push(UiCmd::Progress(fraction));
+        Ok(())
+    }
+
+    /// About the field drawn last. After a choice, or before any field, the
+    /// answer is no.
+    fn ui_submitted(&mut self) -> wasmtime::Result<bool> {
+        Ok(self
+            .last_text_field
+            .is_some_and(|i| self.input.submitted.contains(&i)))
     }
 
     /// The earliest request in a frame wins, and none is sooner than
@@ -452,6 +570,9 @@ impl MiniApp {
             st.ui.clear();
             st.button_counter = 0;
             st.text_counter = 0;
+            st.group_counter = 0;
+            st.last_text_field = None;
+            st.depth = 0;
             st.sent = Sent::default();
             st.frame_after = None;
             st.input = input;
@@ -460,8 +581,13 @@ impl MiniApp {
         self.world
             .call_update(&mut self.store)
             .map_err(|e| explain(e, &self.store, "finish a frame", FRAME_BUDGET_TICKS))?;
-        // Storage written now, or a frame asked for when it is due.
         let st = self.store.data_mut();
+        // Close what the guest left open, so a backend always sees groups
+        // balanced.
+        for _ in 0..st.depth.min(MAX_NESTING) {
+            st.ui.push(UiCmd::End);
+        }
+        // Storage written now, or a frame asked for when it is due.
         if let Some(ms) = st.storage.tick() {
             let ms = ms.max(MIN_FRAME_MS);
             st.frame_after = Some(st.frame_after.map_or(ms, |m| m.min(ms)));

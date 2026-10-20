@@ -16,6 +16,11 @@
       "description": "A second app, to show hot-swap with no host rebuild."
     },
     {
+      "name": "gallery",
+      "source": "mini-apps/gallery/gallery.component.wasm",
+      "description": "Every widget an app can draw, and what each answers back."
+    },
+    {
       "name": "counter-cs",
       "source": "mini-apps/counter-cs/counter-cs.component.wasm",
       "description": "The counter written in C# (.NET NativeAOT) - same WIT, no host change."

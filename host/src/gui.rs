@@ -26,7 +26,7 @@ use eframe::egui;
 use crate::registry;
 use crate::settings;
 use crate::shell::{Shell, View, SETTINGS_PAGE};
-use crate::ui::{FrameInput, UiCmd};
+use crate::ui::{Container, FrameInput, UiCmd};
 
 /// What `run_android` is handed, re-exported so the Android crate need not
 /// depend on winit itself just to name it.
@@ -241,6 +241,8 @@ struct ShellApp {
     shell: Shell,
     /// Buttons clicked during the previous egui frame, fed to the guest next.
     pending_clicks: HashSet<u32>,
+    /// Text fields submitted during the previous frame, fed to the guest next.
+    pending_submits: HashSet<u32>,
     /// Live contents of the guest's text fields, by index. The host owns these
     /// buffers; the guest is told what is in them one frame later.
     field_values: HashMap<u32, String>,
@@ -281,6 +283,7 @@ impl ShellApp {
         ShellApp {
             shell,
             pending_clicks: HashSet::new(),
+            pending_submits: HashSet::new(),
             field_values: HashMap::new(),
             address: String::new(),
             synced_src: String::new(),
@@ -372,6 +375,7 @@ impl ShellApp {
     fn go_back(&mut self, ctx: &egui::Context) {
         // Input aimed at the page being left goes nowhere.
         self.pending_clicks.clear();
+        self.pending_submits.clear();
         self.field_values.clear();
         let nowhere = !self.shell.back();
         #[cfg(target_os = "android")]
@@ -682,6 +686,7 @@ impl ShellApp {
         if go_home {
             // Drop any input aimed at the app we just left.
             self.pending_clicks.clear();
+            self.pending_submits.clear();
             self.field_values.clear();
             self.shell.go_home();
         }
@@ -712,6 +717,7 @@ impl ShellApp {
     /// Perform a navigation requested by the chrome or a home-screen link.
     fn navigate(&mut self, nav: Nav) {
         self.pending_clicks.clear();
+        self.pending_submits.clear();
         self.field_values.clear();
         let (src, title) = match nav {
             Nav::Listed { src, title } => (src, title),
@@ -873,6 +879,7 @@ impl ShellApp {
         let input = FrameInput {
             clicked: std::mem::take(&mut self.pending_clicks),
             edits: self.field_values.clone(),
+            submitted: std::mem::take(&mut self.pending_submits),
         };
 
         let cmds = match self.shell.frame(input) {
@@ -887,36 +894,80 @@ impl ShellApp {
         // it. Its widget state belongs to an instance that no longer exists.
         if self.shell.took_navigation() {
             self.pending_clicks.clear();
+            self.pending_submits.clear();
             self.field_values.clear();
             return;
         }
 
-        // Translate the guest's UI commands into native egui widgets. A run of
-        // consecutive tiles is taken as one unit: the grid is a property of the
-        // run, not of any tile in it, and no tile knows where it sits.
-        let mut i = 0;
-        while i < cmds.len() {
-            if matches!(cmds[i], UiCmd::Tile { .. }) {
-                let end = cmds[i..]
-                    .iter()
-                    .position(|c| !matches!(c, UiCmd::Tile { .. }))
-                    .map_or(cmds.len(), |n| i + n);
-                self.tile_grid(ui, &cmds[i..end]);
-                i = end;
-                continue;
-            }
-            self.widget(ui, &cmds[i]);
-            i += 1;
-        }
+        self.draw_run(ui, &cmds);
 
         for l in self.shell.take_logs() {
             eprintln!("[wasm log] {l}");
         }
 
         // The guest hears about these next frame, so there has to be one.
-        if !self.pending_clicks.is_empty() || self.field_values != fields_before {
+        if !self.pending_clicks.is_empty()
+            || !self.pending_submits.is_empty()
+            || self.field_values != fields_before
+        {
             self.redraw = true;
         }
+    }
+
+    /// Draw commands until the `End` that closes the group they are in, or
+    /// until they run out; returns how many it used, that `End` included.
+    ///
+    /// Recursive, one level per group — which is why the host caps nesting
+    /// (`MAX_NESTING`): the depth of this stack is not the guest's to choose.
+    /// A run of consecutive tiles is taken as one unit: the grid is a
+    /// property of the run, not of any tile in it, and no tile knows where it
+    /// sits.
+    fn draw_run(&mut self, ui: &mut egui::Ui, cmds: &[UiCmd]) -> usize {
+        let mut i = 0;
+        while i < cmds.len() {
+            match &cmds[i] {
+                UiCmd::End => return i + 1,
+                UiCmd::Begin { index, kind } => {
+                    let rest = &cmds[i + 1..];
+                    let used = match kind {
+                        Container::Row => ui.horizontal_wrapped(|ui| self.draw_run(ui, rest)).inner,
+                        Container::Column => ui.vertical(|ui| self.draw_run(ui, rest)).inner,
+                        Container::Section => {
+                            egui::Frame::group(ui.style())
+                                .show(ui, |ui| {
+                                    ui.set_width(ui.available_width());
+                                    self.draw_run(ui, rest)
+                                })
+                                .inner
+                        }
+                        // Keyed by the guest's group number, like a field by
+                        // its index, so the scroll position stays with the
+                        // group when what is around it changes.
+                        Container::Scroll => {
+                            egui::ScrollArea::vertical()
+                                .id_salt(("guest-scroll", *index))
+                                .auto_shrink([false, true])
+                                .show(ui, |ui| self.draw_run(ui, rest))
+                                .inner
+                        }
+                    };
+                    i += 1 + used;
+                }
+                UiCmd::Tile { .. } => {
+                    let end = cmds[i..]
+                        .iter()
+                        .position(|c| !matches!(c, UiCmd::Tile { .. }))
+                        .map_or(cmds.len(), |n| i + n);
+                    self.tile_grid(ui, &cmds[i..end]);
+                    i = end;
+                }
+                other => {
+                    self.widget(ui, other);
+                    i += 1;
+                }
+            }
+        }
+        i
     }
 
     /// One non-tile command.
@@ -960,6 +1011,7 @@ impl ShellApp {
                 let width = ui.available_width().min(560.0);
                 let mut value = text.clone();
                 let mut edited = false;
+                let mut submitted = false;
                 ui.vertical_centered(|ui| {
                     let resp = ui.add_sized(
                         [width, ui.spacing().interact_size.y.max(32.0)],
@@ -971,9 +1023,13 @@ impl ShellApp {
                             .vertical_align(egui::Align::Center),
                     );
                     edited = resp.changed();
+                    submitted = submitted_by(ui, &resp);
                 });
                 if edited {
                     self.field_values.insert(*index, value);
+                }
+                if submitted {
+                    self.pending_submits.insert(*index);
                 }
                 ui.add_space(10.0);
             }
@@ -993,12 +1049,48 @@ impl ShellApp {
                 let resp = ui.add(
                     egui::TextEdit::singleline(&mut value)
                         .id(egui::Id::new(("guest-field", *index)))
-                        .desired_width(320.0),
+                        .desired_width(ui.available_width().min(320.0)),
                 );
                 if resp.changed() {
                     self.field_values.insert(*index, value);
                 }
+                if submitted_by(ui, &resp) {
+                    self.pending_submits.insert(*index);
+                }
             }
+            UiCmd::Checkbox {
+                index,
+                text,
+                checked,
+            } => {
+                let mut on = *checked;
+                if ui.checkbox(&mut on, text).clicked() {
+                    self.pending_clicks.insert(*index);
+                }
+            }
+            // A row of options rather than a dropdown: a popup is fiddly under
+            // a finger, and every option stays visible.
+            UiCmd::Choice {
+                index,
+                options,
+                selected,
+            } => {
+                ui.horizontal_wrapped(|ui| {
+                    for (i, option) in options.iter().enumerate() {
+                        if ui.selectable_label(i as u32 == *selected, option).clicked() {
+                            self.field_values.insert(*index, i.to_string());
+                        }
+                    }
+                });
+            }
+            UiCmd::Separator => {
+                ui.separator();
+            }
+            UiCmd::Progress(fraction) => {
+                ui.add(egui::ProgressBar::new(*fraction).show_percentage());
+            }
+            // Groups are `draw_run`'s; they never reach here.
+            UiCmd::Begin { .. } | UiCmd::End => {}
         }
     }
 
@@ -1106,4 +1198,11 @@ fn tile(ui: &mut egui::Ui, title: &str, subtitle: &str) -> bool {
     );
 
     resp.clicked()
+}
+
+/// Whether a text field was submitted this frame: Enter on a keyboard, or a
+/// phone keyboard's action key, which arrives as Enter — focus lost *by* it,
+/// not by a tap elsewhere.
+fn submitted_by(ui: &egui::Ui, resp: &egui::Response) -> bool {
+    resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))
 }

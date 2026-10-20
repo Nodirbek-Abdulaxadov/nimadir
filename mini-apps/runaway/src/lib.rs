@@ -14,7 +14,7 @@ wit_bindgen::generate!({
 
 use std::hint::black_box;
 
-use nimadir::shell::host_api::{log, storage_set, ui_button, ui_label};
+use nimadir::shell::host_api::{log, storage_set, ui_begin, ui_button, ui_label};
 
 struct Runaway;
 
@@ -62,6 +62,16 @@ impl Guest for Runaway {
                 Ok(()) => log("runaway: stored 2 MiB"),
                 Err(why) => log(&format!("runaway: {why}")),
             }
+        }
+
+        // Button 4: open a thousand groups and close none. The host draws the
+        // first 32 and flattens the rest — a renderer recurses once a level,
+        // and the guest does not get to choose how deep the host's stack goes.
+        if ui_button("Nest deeply") {
+            for _ in 0..1000 {
+                ui_begin("column");
+            }
+            ui_label("deep");
         }
     }
 }

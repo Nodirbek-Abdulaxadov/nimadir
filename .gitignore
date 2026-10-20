@@ -16,6 +16,7 @@ __pycache__/
 /mini-apps/store/target
 /mini-apps/runaway/target
 /mini-apps/future/target
+/mini-apps/gallery/target
 
 # The hosted registry, as tools/publish_registry.py builds it.
 /dist

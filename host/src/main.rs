@@ -31,7 +31,7 @@ use host::ui::{FrameInput, UiCmd};
 
 const USAGE: &str = "usage: host [<address> | <listed-app-name>] \
 [--list] [--headless] [--frames N] [--script \"frame:btn,...\"] \
-[--input \"frame:field=text\"] [--back \"frame,...\"] [--confirm] \
+[--input \"frame:field=text\"] [--submit \"frame:field,...\"] [--back \"frame,...\"] [--confirm] \
 [--registry <path-or-url>] [--version]\n\
        host --kept | --clear <publisher>/<name> | --clear-cache\n\
 an address is a .wasm component (path or URL) or a web page URL";
@@ -48,6 +48,7 @@ fn main() -> Result<()> {
     // separator inside a search term should not silently truncate it.
     let mut inputs: Vec<String> = Vec::new();
     let mut backs = String::new();
+    let mut submits = String::new();
     let mut confirm = false;
     let mut registry_src: Option<String> = None;
 
@@ -106,6 +107,10 @@ fn main() -> Result<()> {
                 }
             }
             "--confirm" => confirm = true,
+            "--submit" => {
+                i += 1;
+                submits = args.get(i).cloned().unwrap_or_default();
+            }
             "--back" => {
                 i += 1;
                 backs = args.get(i).cloned().unwrap_or_default();
@@ -197,7 +202,7 @@ fn main() -> Result<()> {
             if shell.is_web_page() {
                 return Ok(());
             }
-            run_headless(shell, frames, &script, &inputs, &backs, confirm)
+            run_headless(shell, frames, &script, &inputs, &submits, &backs, confirm)
         }
     }
 }
@@ -250,6 +255,7 @@ fn run_headless(
     frames: usize,
     script: &str,
     inputs: &[String],
+    submits: &str,
     backs: &str,
     confirm: bool,
 ) -> Result<()> {
@@ -258,6 +264,8 @@ fn run_headless(
     }
 
     let script = parse_script(script);
+    // Same shape as a click script: `"2:0"` => at frame 2, field 0 was submitted.
+    let submits = parse_script(submits);
     let typed: Vec<(usize, u32, String)> = inputs.iter().filter_map(|s| parse_input(s)).collect();
     // `"4,6"` => press Back before frames 4 and 6 — the system Back key on a
     // phone, the Back button in the window's chrome.
@@ -300,6 +308,7 @@ fn run_headless(
         let cmds = shell.frame(FrameInput {
             clicked: clicks.clone(),
             edits: edits.clone(),
+            submitted: submits.get(&frame).cloned().unwrap_or_default(),
         })?;
         // A guest that asked to navigate started a load on another thread.
         // There are no frames to draw while it flies, so block for it here and
@@ -310,22 +319,61 @@ fn run_headless(
         injected.sort_unstable();
         println!("\n--- frame {frame}  (clicks fed to guest: {injected:?}) ---");
 
+        // Groups indent what is inside them, two spaces a level.
+        let mut depth = 0usize;
         for c in &cmds {
-            match c {
-                UiCmd::Label(t) => println!("   label   : {t:?}"),
-                UiCmd::Button { index, text } => println!("   button{index} : {text:?}"),
-                UiCmd::TextEdit { index, text } => println!("   field{index}  : {text:?}"),
-                UiCmd::Heading { text, level } => println!("   heading{level} : {text:?}"),
+            if matches!(c, UiCmd::End) {
+                depth = depth.saturating_sub(1);
+            }
+            let line = match c {
+                UiCmd::Label(t) => format!("label   : {t:?}"),
+                UiCmd::Button { index, text } => format!("button{index} : {text:?}"),
+                UiCmd::TextEdit { index, text } => format!("field{index}  : {text:?}"),
+                UiCmd::Heading { text, level } => format!("heading{level} : {text:?}"),
                 UiCmd::Search {
                     index,
                     text,
                     placeholder,
-                } => println!("   search{index} : {text:?}  (hint {placeholder:?})"),
+                } => format!("search{index} : {text:?}  (hint {placeholder:?})"),
                 UiCmd::Tile {
                     index,
                     title,
                     subtitle,
-                } => println!("   tile{index} : {title:?} {subtitle:?}"),
+                } => format!("tile{index} : {title:?} {subtitle:?}"),
+                UiCmd::Begin { index, kind } => format!("begin {}#{index}", kind.name()),
+                UiCmd::End => "end".to_string(),
+                UiCmd::Checkbox {
+                    index,
+                    text,
+                    checked,
+                } => format!(
+                    "check{index} : [{}] {text:?}",
+                    if *checked { 'x' } else { ' ' }
+                ),
+                UiCmd::Choice {
+                    index,
+                    options,
+                    selected,
+                } => {
+                    let shown: Vec<String> = options
+                        .iter()
+                        .enumerate()
+                        .map(|(i, o)| {
+                            if i as u32 == *selected {
+                                format!("[{o}]")
+                            } else {
+                                o.clone()
+                            }
+                        })
+                        .collect();
+                    format!("choice{index} : {}", shown.join(" | "))
+                }
+                UiCmd::Separator => "----".to_string(),
+                UiCmd::Progress(f) => format!("progress : {:.0}%", f * 100.0),
+            };
+            println!("   {}{line}", "  ".repeat(depth));
+            if matches!(c, UiCmd::Begin { .. }) {
+                depth += 1;
             }
         }
         for l in shell.take_logs() {

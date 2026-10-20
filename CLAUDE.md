@@ -99,8 +99,10 @@ A binary built with `--features gui` opens a **window** unless you pass
 Settings from the command line: `--kept`, `--clear <publisher>/<name>`,
 `--clear-cache` (the same functions as the window's settings page).
 
-Headless flags: `--frames N`, `--script "frame:button,…"` (inject clicks),
-`--input "frame:field=text"` (repeatable; set a text field), `--back "frame,…"`
+Headless flags: `--frames N`, `--script "frame:tap,…"` (inject taps: buttons, tiles,
+checkboxes share one index space), `--submit "frame:field,…"` (Enter on a field),
+`--input "frame:field=text"` (repeatable; set a value: text, or a choice's option
+number), `--back "frame,…"`
 (press Back before those frames), `--registry <path-or-url>`.
 
 Frames count from 0 (default 8). Widget indices are handed out per frame in call

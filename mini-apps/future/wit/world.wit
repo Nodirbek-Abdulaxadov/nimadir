@@ -87,6 +87,36 @@ interface host-api {
     storage-set: func(key: string, value: string) -> result<_, string>;
     storage-remove: func(key: string);
     storage-keys: func() -> list<string>;
+
+    /// Start a group of the widgets that follow, until `ui-end`. `kind` says
+    /// what the group *is* — "row", "column", "section" or "scroll" — and the
+    /// host decides how that looks and how big it is; still no coordinates.
+    /// A string, not an enum, so an app may name a kind added later and still
+    /// work on an older host, which draws what it does not know as a column.
+    /// Groups nest; one left open is closed when the frame ends.
+    ui-begin: func(kind: string);
+    ui-end: func();
+
+    /// A checkbox. Pass the value the guest holds; the host returns it after
+    /// the user's tap. Shares the button index space: it is something to tap.
+    ui-checkbox: func(text: string, checked: bool) -> bool;
+
+    /// One of several options, drawn as a row of choices — no popup, which is
+    /// awkward under a finger. Pass the selected index; the host returns it
+    /// after the user's pick. Shares the text-field index space: it holds a
+    /// value, the way a field does.
+    ui-choice: func(options: list<string>, selected: u32) -> u32;
+
+    /// A dividing line.
+    ui-separator: func();
+
+    /// Progress from 0.0 to 1.0; anything outside is clamped.
+    ui-progress: func(fraction: f32);
+
+    /// Whether the text or search field drawn just before this call was
+    /// submitted in the last frame — Enter on a keyboard, the action key on a
+    /// phone's. Lets an app act on "done typing" instead of on every key.
+    ui-submitted: func() -> bool;
 }
 
 /// A mini-app. It may import (call) everything in `host-api` — that interface IS

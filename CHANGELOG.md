@@ -24,6 +24,10 @@ beta is `docs/ROADMAP.md`.
   past that the guest is stopped and the reason names the limit.
 
 ### Added
+- **More to build with**: groups (`ui-begin` / `ui-end`: row, column,
+  section, scroll), `ui-checkbox`, `ui-choice`, `ui-separator`,
+  `ui-progress`, and `ui-submitted` for acting when typing is done. The new
+  `gallery` sample uses every one.
 - **Settings page** (`nimadir:settings`, linked from the store): what each
   app keeps, the caches, clearing either. `--kept`, `--clear` and
   `--clear-cache` do the same from the command line.

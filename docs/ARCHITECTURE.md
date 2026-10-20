@@ -135,7 +135,8 @@ guest side from it, `wasmtime::component::bindgen!` the host side.
   a mini-app can reach: `log`, `ui-label`, `ui-button`, `ui-text-edit`,
   `ui-heading`, `ui-search-field`, `ui-tile`, `now-millis`, `list-apps`,
   `open-app`, `request-frame`, `storage-get` / `-set` / `-remove` / `-keys`,
-  plus the `app-entry` record.
+  `ui-begin` / `ui-end`, `ui-checkbox`, `ui-choice`, `ui-separator`,
+  `ui-progress`, `ui-submitted`, plus the `app-entry` record.
 - `world mini-app` — imports `host-api`, exports `init` and `update`.
 
 The last two are what let the start page be an app instead of host code: a guest
@@ -162,6 +163,18 @@ reason to change it carefully.
 
 Small file, high leverage: it is the seam that lets the same guest render on
 egui, on stdout, or on a future backend. Any new widget type starts here.
+
+**Groups** (`Begin { index, kind }` … `End`, kinds in `ui::Container`: row,
+column, section, scroll). The guest names the kind as a string, so a kind
+added later degrades to a column on an older host instead of breaking the
+WIT. The host keeps them balanced — it closes what a guest left open and
+ignores a stray `ui-end` — and draws at most `MAX_NESTING` (32) levels,
+flattening the rest, because `gui.rs` walks them recursively (`draw_run`).
+**Index spaces**, which every headless script depends on: *taps* (button,
+tile, checkbox) share one counter, *values* (text field, search field,
+choice) another; a choice's value travels as the option's number in
+`FrameInput::edits`. `submitted` carries Enter / a phone keyboard's action
+key for text fields, read by `ui-submitted` for the field drawn last.
 
 ### `host/src/host.rs` — the sandbox boundary
 - `mod bindings` — `bindgen!` on `../wit`, kept in a submodule so the

@@ -158,7 +158,7 @@ check "an unreachable registry falls back and says so" "built-in" \
 
 echo
 echo "==> the store (start page as a mini-app)"
-check "lists the registry through list-apps" '"4 apps"' \
+check "lists the registry through list-apps" '"5 apps"' \
   $HOST store --frames 1
 # 5 entries in apps.json, 4 offered: a start page that lists itself is a card
 # that takes you where you already are.
@@ -168,7 +168,7 @@ check "draws a search field" "search0" \
   $HOST store --frames 1
 check "the start page leads with a hero heading" 'heading1 : "nimadir"' \
   $HOST store --frames 1
-check "filters as you type" '1 of 4 apps matching' \
+check "filters as you type" '1 of 5 apps matching' \
   $HOST store --input "1:0=hell" --frames 2
 check "renumbers tiles when the list shrinks" 'tile0 : "hello"' \
   $HOST store --input "1:0=hell" --frames 2
@@ -176,10 +176,10 @@ check "open-app navigates after the frame returns" "[nav] loaded" \
   $HOST store --input "1:0=hell" --script "2:0" --frames 4
 check "the app it asked for actually runs" "Hello from a *different* mini-app!" \
   $HOST store --input "1:0=hell" --script "2:0" --frames 4
-check "the start page links to the settings page" 'button4 : "Settings"' \
+check "the start page links to the settings page" 'button5 : "Settings"' \
   $HOST store --frames 1
 check "which opens as host UI" "[nav] now at Settings" \
-  $HOST store --script "1:4" --frames 3
+  $HOST store --script "1:5" --frames 3
 check "a search matching nothing says so" "Nothing matches" \
   $HOST store --input "1:0=zzzz" --frames 2
 # The start page has no address bar over it, so its own field has to take an
@@ -318,6 +318,24 @@ check "but asks before opening an address the registry does not list" "[asks] he
   $HOST hello --script "1:2" --frames 3
 check "and without a yes, stays where it is" "[declined]" \
   $HOST hello --script "1:2" --frames 3
+
+echo
+echo "==> the widget vocabulary"
+# gallery uses every widget. Taps: button0, check1. Values: field0, choice1.
+check "groups nest, and say what they are" "begin section#0" \
+  $HOST gallery --frames 1
+check "a checkbox answers its tap" 'check1 : [x] "Remember me"' \
+  $HOST gallery --script "1:1" --frames 2
+check "a choice answers its pick" '"Size: Large"' \
+  $HOST gallery --input "1:1=2" --frames 2
+check_absent "a pick out of range is ignored" "Size: Large" \
+  $HOST gallery --input "1:1=9" --frames 2
+check "a field is acted on when submitted" '"Hello, Ada!"' \
+  $HOST gallery --input "1:0=Ada" --submit "2:0" --frames 3
+check_absent "and not on every key before it" "Hello, Ada!" \
+  $HOST gallery --input "1:0=Ada" --frames 3
+check "groups nested past the limit are drawn flat, not refused" '"deep"' \
+  $HOST mini-apps/runaway/runaway.component.wasm --script "1:4" --frames 2
 
 echo
 echo "==> frames on request"
