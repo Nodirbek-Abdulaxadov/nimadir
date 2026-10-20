@@ -8,7 +8,8 @@ A native desktop shell (Rust + Wasmtime + egui) that loads sandboxed WASM
 **component** mini-apps at runtime and renders their UI natively — no HTML/CSS/JS
 on the mini-app path. `README.md` explains *why*; **`docs/ARCHITECTURE.md` is the
 code map** — read it before changing anything non-trivial. It is kept current and
-written against greppable symbol names.
+written against greppable symbol names. **`docs/ROADMAP.md`** is the plan from
+MVP to beta — sprints, item IDs, and the exit criteria beta is held to.
 
 ## Build
 
@@ -19,6 +20,22 @@ cargo build -p host                        # headless (default features)
 cargo build -p host --features gui         # + native window (eframe/egui)
 cargo build -p host --features webview     # + wry; needs WebView2 / libwebkit2gtk-4.1-dev
 ```
+
+On Linux the webview is X11-only: `webview::check_parent` refuses a Wayland
+surface with an error rather than letting wry panic, so run it under X11/XWayland.
+
+Android (`android/`, a spike — `docs/spikes/android.md`) needs the NDK, the
+`aarch64-linux-android` target, `cargo install cargo-apk`, and every component
+built first (they are bundled with `include_bytes!`, `counter-cs` included):
+
+```bash
+ANDROID_HOME=~/Android/Sdk ANDROID_NDK_ROOT=~/Android/Sdk/ndk/<version> \
+CARGO_APK_RELEASE_KEYSTORE=~/.android/debug.keystore CARGO_APK_RELEASE_KEYSTORE_PASSWORD=android \
+  cargo apk build -p nimadir-android --release
+```
+
+`host` is a library (`lib.rs`) plus the desktop binary (`main.rs`); `android/`
+is the second front door onto the same library.
 
 `*.component.wasm` is gitignored — **a fresh clone has no mini-apps and the shell
 has nothing to open until `build-mini-apps.sh` runs.**
@@ -40,6 +57,12 @@ absent. Its csproj pulls the NativeAOT-LLVM cross-compiler for the *build host*
 via `runtime.$(NETCoreSdkPortableRuntimeIdentifier).microsoft.dotnet.ilcompiler.llvm`;
 hardcoding a RID there breaks the build on every other platform.
 
+`counter-py` (Python) is built by `componentize-py` (`pip install componentize-py`)
+straight from `wit/`, with no cargo step, and is likewise skipped when absent — as
+are its assertions in the suite. It bundles CPython (~18 MB), so its **first open
+compiles for ~30 s**; the engine's on-disk cache (`main::engine`) makes later
+opens ~2 s.
+
 ## Run
 
 ```bash
@@ -53,7 +76,16 @@ A binary built with `--features gui` opens a **window** unless you pass
 `--headless`; the headless harness is only the default when the feature is off.
 
 Headless flags: `--frames N`, `--script "frame:button,…"` (inject clicks),
-`--input "frame:field=text"` (repeatable; set a text field), `--registry <path-or-url>`.
+`--input "frame:field=text"` (repeatable; set a text field), `--back "frame,…"`
+(press Back before those frames), `--registry <path-or-url>`.
+
+Frames count from 0 (default 8). Widget indices are handed out per frame in call
+order, and each counter is shared by two widgets: `ui-button` + `ui-tile` for
+clicks, `ui-text-edit` + `ui-search-field` for text. The headless output prints
+the index (`button0`, `tile2`, `search0`) — read the one to script off a run.
+
+Don't pipe the binary into `head`: it panics (exit 101) when stdout closes early.
+Capture the output instead.
 
 ## Test
 
@@ -71,6 +103,10 @@ single case, copy that `check` line's command and run it directly, e.g.:
 ./target/debug/host store --input "1:0=hell" --script "2:0" --frames 4
 ```
 
+The suite rebuilds the host but **not** the mini-apps: it runs
+`build-mini-apps.sh` only when `store` or `runaway` is missing. After editing a
+guest, rebuild it first, or the suite tests the stale component.
+
 Network cases need `python3` (throwaway HTTP server) and `curl`; without them they
 are **skipped, never failed**. They talk only to `127.0.0.1` — the suite needs no
 internet. Byte-count assertions read the size off the built file (`COUNTER_BYTES`),
@@ -79,7 +115,7 @@ so a toolchain change that resizes a component does not break them.
 `mini-apps/runaway` is a **test fixture**, not an app: it spins and eats memory on
 demand so the suite can check the sandbox limits hold. It stays out of `apps.json`.
 
-## Architecture in six lines
+## Architecture in brief
 
 - **`wit/world.wit` is the entire contract**, and the only place it is defined:
   `wit-bindgen` generates the guest side, `wasmtime::component::bindgen!` the host
@@ -87,7 +123,11 @@ demand so the suite can check the sandbox limits hold. It stays out of `apps.jso
 - The host is a **frame pump around a sandbox**: it hands the guest what the user
   did to the last frame, calls `update()`, and collects the guest's `ui-*` calls
   into a `Vec<UiCmd>` (`ui.rs`) that a backend then draws — egui (`gui.rs`) or
-  `println!` (`main.rs`). Swapping renderers should touch `gui.rs` only.
+  `println!` (`main.rs`). Swapping renderers should touch `gui.rs` only. The
+  window draws **only when something happens** (input, a load, a webview page);
+  a guest that animates asks with `request-frame`. Never reintroduce an
+  unconditional `request_repaint()` — it kept a phone's core busy in the
+  background.
 - `resolve.rs` **classifies an address before navigation** (component vs. web
   page); `shell.rs` owns `View` and dispatches on the answer. A failed load leaves
   the previous view intact.
@@ -99,18 +139,25 @@ demand so the suite can check the sandbox limits hold. It stays out of `apps.jso
 - Leaving an app **destroys** it (`Store` + linear memory). Reopening starts fresh;
   that is the sandbox working, not lost state.
 - A guest's **time and memory are bounded** (`host.rs`): an epoch deadline of ~1 s
-  per `update` and ~10 s for instantiate + `init`, 512 MiB of linear memory, and
-  64 MiB / 30 s of silence per download (`resolve.rs`). A stuck guest is stopped,
-  not waited on. Any new call into a guest must set a deadline first.
+  per `update` and ~10 s for instantiate + `init`, 512 MiB of linear memory,
+  16 MiB / 65 536 widgets of output per frame, and 64 MiB / 30 s of silence per
+  download (`resolve.rs`). A stuck guest is stopped, not waited on. Any new call
+  into a guest must set a deadline first.
 
 Adding a capability = a line in `wit/world.wit` + a method on `impl Host for
-HostState` (`host.rs`). Adding a widget also touches `ui.rs`, `gui.rs`, and the
+HostState` (`host.rs`). Every import is trappable, so the method returns
+`wasmtime::Result`; one that keeps what the guest hands it must call
+`HostState::spend` before storing it. Adding a widget also touches `ui.rs`, `gui.rs`, and the
 headless printer — and any stateful widget must key its egui id off the
 **guest-assigned index, not host draw order** (see ARCHITECTURE §4.4).
 
-Adding a mini-app: create the crate, add it to `exclude` in the workspace
-`Cargo.toml`, to `APPS` in `build-mini-apps.sh`, and to `apps.json` (which takes
-precedence over the hand-editable `apps.list`).
+Adding a Rust mini-app: create the crate, add it to `exclude` in the workspace
+`Cargo.toml`, its `target/` to `.gitignore`, and it to `APPS` in
+`build-mini-apps.sh`. Then list it in both `apps.json` (which takes precedence)
+and `apps.list` (kept in step by hand). The store assertions in `run-tests.sh`
+count the registry (`"4 apps"`, `1 of 4 apps matching`), so a new entry means
+updating them. The entry named `store` is special (`shell::STORE_APP`): Home
+loads it, and `list-apps` filters it out.
 
 ## Invariants
 

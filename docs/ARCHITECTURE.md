@@ -19,7 +19,7 @@ What has actually been run against this tree, rather than what it ought to do.
 
 | Check | Command | Result |
 |---|---|---|
-| Mini-apps build | `./build-mini-apps.sh` | OK — `counter` 18 986 B, `hello` 15 551 B (rustc 1.97.1; the figure moves with the toolchain, which is why the suite reads it off the file) |
+| Mini-apps build | `./build-mini-apps.sh` | OK — `counter` 18 986 B, `hello` 15 551 B (rustc 1.98.1; the figure moves with the toolchain, which is why the suite reads it off the file) |
 | Host + guest cycle | `-- counter --script "1:0,2:0,3:0,5:1" --frames 8` | count 0→1→2→3, reset to 0 |
 | Second app, no host rebuild | `-- hello --frames 2` | OK |
 | Registry listing | `-- --list` | names the source it actually read |
@@ -38,22 +38,22 @@ What has actually been run against this tree, rather than what it ought to do.
 | `README.md` | local path | error, no network request |
 | `example.com` | — | guessed as `https://example.com`, then classified like any URL (the suite checks the guess against `localhost:9`, offline) |
 
-All of the headless cases below are `./run-tests.sh` — 41 assertions, exit
+All of the headless cases below are `./run-tests.sh` — 47 assertions, exit
 non-zero on failure, repeatable, cleaning up after itself, and needing no
 internet: every network case talks to a server on `127.0.0.1`. It is the suite;
 the tables are what it covers.
 
-**The store** (`store.component.wasm`, 43 KB), headless:
+**The store** (`store.component.wasm`, 44 KB), headless:
 
 | Command | Result |
 |---|---|
-| `-- store --frames 1` | hero heading, search field, 3 app tiles read through `list-apps` — 4 registry entries, the store itself not among them |
-| `-- store --input "1:0=hell" --script "2:0" --frames 4` | filtered to 1 of 3, tile indices renumbered, click opened `hello` via `open-app` |
+| `-- store --frames 1` | hero heading, search field, 4 app tiles read through `list-apps` — 5 registry entries, the store itself not among them |
+| `-- store --input "1:0=hell" --script "2:0" --frames 4` | filtered to 1 of 4, tile indices renumbered, click opened `hello` via `open-app` |
 | `-- store --input "1:0=example.com" --frames 2` | offered an `Open address` tile for the typed text |
 | `-- store --input "1:0=mini-apps/hello/hello.component.wasm" --script "2:0" --frames 3` | clicking that tile navigated through `open-app` |
 | `-- store --input "1:0=nowhere/missing.wasm" --script "2:0" --frames 3` | the failed navigation is reported (`[nav failed] …`), the store keeps running |
-| `--registry <url> -- store` | catalogue fetched over HTTP and listed |
-| `--registry <unreachable>` | fell back to the built-in list, did not abort |
+| `-- --registry <url> mini-apps/store/store.component.wasm` | catalogue fetched over HTTP and listed (by path: a served registry that does not list `store` cannot resolve the name) |
+| `-- --registry <unreachable> --list` | fell back to the built-in list, did not abort |
 
 **Sandbox limits** (`runaway.component.wasm`, a fixture that misbehaves on
 purpose — see §4.10):
@@ -62,6 +62,7 @@ purpose — see §4.10):
 |---|---|
 | `-- mini-apps/runaway/runaway.component.wasm --script "1:0" --frames 3` | `loop {}` in `update`: stopped after ~1 s, "it did not finish a frame within 1s and was stopped", exit 1 |
 | `-- mini-apps/runaway/runaway.component.wasm --script "1:1" --frames 3` | `memory.grow` without end: stopped at the cap, "it tried to use more than 512 MiB of memory and was stopped" |
+| `-- mini-apps/runaway/runaway.component.wasm --script "1:2" --frames 3` | one 1 MiB label sent in a loop: stopped at the per-frame cap in ~50 ms, "it sent more than 65536 widgets or 16 MiB of text in one frame and was stopped" |
 | `-- mini-apps/runaway/runaway.component.wasm --frames 3` | untouched when it behaves |
 | `…/huge.wasm` (65 MiB, served) | refused before the body is read: "larger than 64 MiB" |
 
@@ -84,8 +85,10 @@ with `xdotool` and screenshotted at each step:
 
 Two things worth carrying forward:
 
-- **`counter-cs` is skipped** — `dotnet` is not on PATH. The build script skips
-  it cleanly by design; the Rust apps still build. Nothing is broken.
+- **`counter-py` is skipped** — `componentize-py` is not installed. The build
+  script skips it cleanly by design, and the suite skips its assertions; the
+  other apps still build (`counter-cs` too, 2.2 MB, with the .NET 10 SDK).
+  Nothing is broken.
 - The CLI panics with exit 101 if its stdout pipe closes early (`| head -n`).
   Pre-existing, unrelated to routing; noted so it is not misread as a fault.
 
@@ -131,7 +134,7 @@ guest side from it, `wasmtime::component::bindgen!` the host side.
 - `interface host-api` — the **capability table**, and the entire list of things
   a mini-app can reach: `log`, `ui-label`, `ui-button`, `ui-text-edit`,
   `ui-heading`, `ui-search-field`, `ui-tile`, `now-millis`, `list-apps`,
-  `open-app`, plus the `app-entry` record.
+  `open-app`, `request-frame`, plus the `app-entry` record.
 - `world mini-app` — imports `host-api`, exports `init` and `update`.
 
 The last two are what let the start page be an app instead of host code: a guest
@@ -176,6 +179,10 @@ egui, on stdout, or on a future backend. Any new widget type starts here.
   host's name for home; `--list` and the address bar still see the whole
   registry, because those are the registry and not the home screen.
 - `open_app` records into `pending_open` rather than acting; see §4.3.
+- `request_frame` records into `frame_after` the same way — the earliest
+  request of the frame, never under `MIN_FRAME_MS` (16 ms) — and
+  `MiniApp::take_frame_request` hands it to the shell after the call. It is
+  how a guest that shows time passing gets frames without input (§4.11).
 - `MiniApp::load` — compile, link (`host-api` + WASI 0.2), instantiate,
   call `init`. Installs the store's limiter and an epoch deadline of
   `INIT_BUDGET_TICKS` *before* instantiating: a component can run code while it
@@ -187,6 +194,12 @@ egui, on stdout, or on a future backend. Any new widget type starts here.
   bound time, `MAX_GUEST_MEMORY` (512 MiB) bounds linear memory.
   `start_epoch_ticker` is the thread that moves the clock; `struct GuestLimits`
   is the `ResourceLimiter`, which traps over the cap and remembers that it did.
+  `MAX_FRAME_BYTES` (16 MiB) and `MAX_FRAME_CMDS` (65 536) bound what one frame
+  may *send* the host: every capability that keeps a guest string calls
+  `HostState::spend` before it pushes, and `struct Sent` remembers an overrun
+  the way `GuestLimits` remembers memory. That is why `bindgen!` is
+  `imports: { default: trappable }` — each `Host` method returns
+  `wasmtime::Result`, and an `Err` is a trap in the guest.
 - `explain` — turns a guest failure into a sentence. The two limits get one
   naming the limit; anything else is a real crash and keeps its whole error
   chain, because the trap's wording is the only clue to what the guest did.
@@ -245,6 +258,16 @@ The browser-shaped layer above a single mini-app. Knows nothing about drawing.
   Replaces `view`, which **drops the `MiniApp`, its
   Wasmtime `Store`, and the guest's linear memory**. Reopening an app starts it
   from scratch. That is the sandbox working, not lost state.
+- **History.** `arrive` records the page it is leaving as a `Visit` — an
+  address and a title, nothing more, since leaving destroyed the app — and
+  `back` pops one and opens it afresh, as a browser reloads a page.
+  `Origin::Back` is the one navigation that records nothing, or two Backs
+  would land where you started. `go_home` records (Home is a navigation;
+  Back from the start page returns to the app), and `go_start` is the same
+  thing without recording, for `back` and for startup. With no history, back
+  from an app is the start page and back from the start page is `false` —
+  which a phone reads as "leave". Capped at `HISTORY_LIMIT`, because a guest
+  can navigate once per frame.
 - Fetching itself now lives in `resolve.rs`, since classification and loading
   are the same request.
 
@@ -279,6 +302,17 @@ Splits the window into two zones, and keeping them apart is the security story:
   still draws there, since that page has nowhere else to put it.
 - `navigate` is the one place a `Nav` becomes a `Shell::open` call, shared by
   the address bar and the home-screen links, so both accept the same input.
+  The bar shows a listed app by its registry name, not its `src`, which on a
+  phone is a path inside the app's private storage.
+- `go_back` — the chrome's Back button and the `BrowserBack` key (Android's
+  system Back, a mouse's back button) both land here. When `Shell::back`
+  has nowhere to go, Android closes the viewport, which leaves the app; a
+  desktop window ignores it.
+- **Redraw policy**, at the end of `ui`: another frame only when the next one
+  will differ — `redraw` (a click or an edit this frame that the guest hears
+  about next frame), a load in flight, a webview page (its GTK loop is pumped
+  from here), or the guest's `request-frame`. Input wakes egui by itself. See
+  §4.11 for what the old unconditional `request_repaint` cost.
 - `Body::of` picks the renderer for the area below the chrome. It reads the
   discriminant into a local first: the arms take `&mut self`, so the match
   cannot hold a borrow of `shell.view` across them.
@@ -298,6 +332,14 @@ Splits the window into two zones, and keeping them apart is the security story:
   default, which drags a text caret across all of a mini-app's UI. A guest's
   `ui-label` is a rendering, not a document. Tiles take the other half of that
   — `on_hover_cursor(PointingHand)`, because the whole card is the link.
+
+- `safe_rect` — the rectangle everything, chrome included, is laid out in. On
+  the desktop the whole window. On Android the window minus the system bars
+  and any cutout, plus a 12 pt side gutter: since API 35 the window runs under
+  the status bar, and laid out over all of it the Home button sat under the
+  clock where taps go to the system. winit reports no insets, so
+  `android::SafeArea` (`host/src/android.rs`) reads them from the activity's
+  `WindowInsets` over JNI, once per window size.
 
 Also: `run` calls `eframe::run_native`; `impl eframe::App` —
 note eframe 0.35 hands `fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut Frame)`
@@ -320,24 +362,45 @@ purpose.
 - Dropping the pane destroys the native surface, which is what the shell does on
   navigation. See invariant 3.
 
-### `host/src/main.rs` — CLI and headless harness
-- `main` — hand-rolled arg parsing (`--list`, `--headless`, `--frames`,
-  `--script`, plus one positional source). A positional argument means "navigate
-  straight there", skipping the home screen.
-- `parse_script` — `"1:0,2:0"` → `{frame: {button indices}}`.
-- `run_headless` — runs N frames, injects the scripted clicks, prints
-  every `UiCmd` and guest log line, `[nav] …` after a guest navigation that
-  landed and `[nav failed] …` after one that did not.
+### `host/src/lib.rs` — the shell as a library
+The modules above, plus `engine`, behind one crate that two front doors share:
+`main.rs` (desktop CLI, window, headless harness) and `android/`. Nothing about
+loading, sandboxing or drawing a mini-app differs between them.
+
 - `engine` — the one `wasmtime::Engine`: compilation cache on disk, and
   `epoch_interruption(true)` with its ticker started. Turning epochs on changes
   the compiled code, so the cache entries from before it are not reused — the
   first open of each component after this change compiles from scratch once.
 
+### `host/src/main.rs` — CLI and headless harness
+- `main` — hand-rolled arg parsing (`--list`, `--headless`, `--frames`,
+  `--script`, `--input`, `--back`, `--registry`, plus one positional source). A
+  positional argument means "navigate straight there", skipping the home screen.
+- `--back "4,6"` presses Back before those frames and prints `[back] now at …`
+  or `[back] nothing to go back to`; a frame whose guest asked for another
+  prints `[next frame in N ms]`.
+- `parse_script` — `"1:0,2:0"` → `{frame: {button indices}}`.
+- `parse_input` — `"1:0=hell"` → at frame 1, text field 0 holds `hell`. Repeatable
+  rather than comma-separated, so typed text may contain anything.
+- `run_headless` — runs N frames, injects the scripted clicks, prints
+  every `UiCmd` and guest log line, `[nav] …` after a guest navigation that
+  landed and `[nav failed] …` after one that did not.
+
 `run_headless` is the project's test suite. There is no `#[test]` anywhere; the
 `--script` flag *is* how the boundary is verified, and it needs no display.
 
+### `android/` — the Android front door (spike, ROADMAP `S1-3`)
+A `cdylib` whose `android_main` builds a `Shell` and calls `gui::run_android`
+— the desktop window code, handed the `AndroidApp`. The one thing it does that
+the desktop does not: the components are compiled in (`include_bytes!`) and
+unpacked into the app's private storage, because an installed app has no
+checkout to read them from. Built with `cargo apk`; a workspace member left out
+of `default-members`, so a plain `cargo build` is unchanged. On Android eframe
+is built without X11, Wayland and `accesskit` (`host/Cargo.toml`). Findings:
+`docs/spikes/android.md`.
+
 ### `run-tests.sh` — the suite
-41 assertions driven through the real binary: the guest cycle, the registry, the
+47 assertions driven through the real binary: the guest cycle, the registry, the
 store, every branch of address classification, the sandbox limits, the scheme
 guess, served registries, the download cap, and all three feature sets building.
 None of it reaches the internet: the scheme guess is observed against
@@ -620,7 +683,7 @@ that can be triggered by a click needs both.
 
 ### 4.10 A guest could take the shell down with it — now bounded
 "Untrusted code in a sandbox" held for *access* — a guest could reach nothing
-the WIT did not give it — but not for *resources*. Three ways in, all closed:
+the WIT did not give it — but not for *resources*. Four ways in, all closed:
 
 - **Time.** `loop {}` in `update` ran on the UI thread and froze the window for
   good: no repaint, no Home, nothing but killing the process. On Android the
@@ -633,6 +696,12 @@ the WIT did not give it — but not for *resources*. Three ways in, all closed:
   told "no" mostly abort anyway, and stopping them is the one outcome that is
   the same in every language.
 - **Downloads.** No size cap and no read timeout. Now 64 MiB and 30 s of silence.
+- **Output.** The memory cap bounds what a guest *holds*, not what it hands
+  over. Every `ui-label` copies its string into a `Vec` on the host, so one
+  1 MiB buffer sent in a loop filled the host's memory for the whole second
+  before the frame deadline fired — and the guest's own memory never grew.
+  Now a frame may send 65 536 widgets or 16 MiB of text, and the check runs
+  *before* the push, so the host never holds more than that.
 
 Epoch interruption was chosen over fuel because it is cheap enough to leave on
 for every frame: compiled code checks a counter at loop headers and function
@@ -643,6 +712,24 @@ every one of them. The trade is precision — a deadline is good to a tick
 The stop goes through §4.5's path: the shell drops the app and shows why. The
 reason names the limit (`explain`), because "wasm trap: interrupt" tells the
 person in front of the window nothing about what happened.
+
+### 4.11 Immediate mode is not "redraw forever" — found on a phone
+`ShellApp::ui` ended with an unconditional `request_repaint()`, so a click
+would reach the guest promptly. On a desktop that read as nothing. On the
+Android spike's phone it was 54–58 % of a core with the store sitting idle,
+and **99 % in the background**, with no window at all — eframe looping to
+clear surfaces that did not exist.
+
+Immediate mode needs a frame only when the next frame will differ, and the
+shell knows every reason one would: input (egui already wakes for it), a
+click or edit this frame that the guest hears about next frame (`redraw`), a
+load in flight, and a webview page whose GTK loop is pumped from the frame.
+The one reason it cannot know is the guest's own — a clock, an animation —
+so that became a capability, `request-frame(after-ms)`: the guest asks, each
+frame, for the next. An app that asks for nothing costs nothing.
+
+The general lesson: a loop that is free on a plugged-in desktop is a battery
+on a phone, and invariant 8 means the phone's numbers are the ones that count.
 
 ---
 
@@ -662,7 +749,8 @@ person in front of the window nothing about what happened.
 7. **A guest's time and memory are bounded.** Every call into a guest runs under
    an epoch deadline and the store's limiter (§4.10). A new entry point into the
    guest must set a deadline before it calls in; with epochs on, a store without
-   one traps at once.
+   one traps at once. And a new capability that *keeps* what the guest hands it
+   charges `HostState::spend` first, or it reopens the output hole.
 8. **Desktop and Android are equal targets.** Neither is a port of the other.
    A feature lands when it works on both, and nothing may depend on what only a
    desktop has — hover, a physical keyboard, a mouse wheel, a window that is

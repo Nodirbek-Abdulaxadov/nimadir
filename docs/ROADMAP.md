@@ -1,0 +1,207 @@
+# nimadir — road to beta
+
+The MVP is done (M1–M9 in `README.md`). This plan takes the project from MVP to
+a public beta. It is written against the code at `807765c` (2026-10-20) and,
+like `ARCHITECTURE.md`, names greppable symbols rather than line numbers.
+
+**Assumptions** — change one and the plan moves: two-week sprints, one developer
+full time, eight sprints (about 16 weeks). Sizes are rough: **S** ≤ 1 day,
+**M** 2–4 days, **L** a week or more. Item IDs (`S2-4`) are meant to become
+issue titles.
+
+---
+
+## What "beta" means
+
+Beta ships when all of these hold:
+
+1. **Installable.** Release builds for Windows, macOS, Linux and Android run
+   outside a checkout: the store ships with the binary, the registry comes from a
+   hosted URL.
+2. **Trusted downloads.** Every remote component is checked against a hash from a
+   registry served over HTTPS before it is compiled.
+3. **Real apps are possible.** A mini-app can keep data between runs, reach the
+   network it declared, and lay out more than a vertical list — and the user
+   decides which of those it gets.
+4. **Outside developers.** Someone who has never cloned this repo can write, test
+   headlessly and publish a mini-app in Rust (templates for C# and Python too)
+   from the docs alone.
+5. **A stable contract.** The WIT is frozen at `nimadir:shell@1.0.0-beta` and
+   additive-only after; an app built for a newer host fails with a sentence, not a
+   linker error.
+6. **CI on every PR**, on all three desktop OSes plus an Android build, and the
+   suite covers each new capability headlessly.
+7. **Bounded.** No guest can exhaust host memory or CPU — including through
+   host-side buffers and idle redraw, which today it can (`S1-2`, `S3-7`).
+
+## Decisions needed before Sprint 1
+
+| # | Decision | Recommendation | Blocks |
+|---|---|---|---|
+| D1 | Is Android in beta? | **Yes.** Invariant 8 (`ARCHITECTURE.md` §5) makes it an equal target; adding it after beta means retrofitting every feature built without it | S3 onward |
+| D2 | Code signing | macOS: yes — needs a paid Apple Developer account; unsigned apps are blocked by Gatekeeper. Windows: an unsigned beta works, behind a SmartScreen warning | S8-1 |
+| D3 | Registry hosting | GitHub Pages, filled by a CI job that builds, hashes and publishes the sample apps | S2-3 |
+| D4 | Tracker | One GitHub milestone per sprint, one issue per item ID | — |
+
+## Definition of done, for every item
+
+- Covered by `run-tests.sh` through the headless harness — adding harness flags
+  where the feature needs them (`--grant`, `--data-dir`, …).
+- Works on desktop **and**, from Sprint 3, on Android.
+- `docs/ARCHITECTURE.md` updated: the symbols in §3, a §4 entry if anything
+  surprised.
+- Respects the §5 invariants. Bending one takes an ADR in `docs/adr/` first.
+- CI green.
+
+---
+
+## Sprint 1 — Foundations, and the riskiest unknown
+
+**Goal:** CI guards every change from here on, the host-memory hole is closed,
+and the Android question has an answer before anything is built on top of it.
+
+| ID | Item | Size |
+|---|---|---|
+| S1-1 | **CI** on GitHub Actions: Linux (headless + `gui`), Windows, macOS; `cargo fmt --check`, `clippy -D warnings`, `./run-tests.sh` | M |
+| S1-2 | **Bound host-side buffers.** `HostState::ui` and `logs` grow without limit — `ui_label` and `log` just `push` — so a guest looping for its one-second budget can allocate gigabytes *on the host*, where the 512 MiB guest cap does not reach. Cap commands and bytes per frame; going over is a trap named by `explain`, like the other limits. Fixture: a third button on `runaway`. | S |
+| S1-3 | **Spike: Android.** eframe + Wasmtime run `counter` and `store` on an emulator; the soft keyboard reaches `ui-search-field`. Output: go/no-go, the packaging tool to use, and a list of blockers. | L |
+| S1-4 | **ADR-1: app identity and manifest.** What an app's ID is (not its URL — URLs move), its version, requested permissions and minimum host version, and where that lives (a component custom section vs. the registry entry). Storage, permissions, integrity and updates all key off this. | M |
+| S1-5 | **Release hygiene:** a `LICENSE` file (the README says MIT; there is no file), `CHANGELOG.md`, `SECURITY.md` — it runs untrusted code, so say how to report a hole | S |
+
+**Ahead of plan (2026-10-20):** S3-5 (Back, minus Forward) and S3-7 (frame
+scheduling, `request-frame`) are in, green in the suite; their check on the
+device is still to run.
+
+**Status (2026-10-20):** S1-2, S1-3 and S1-5 done. S1-1 written, and green
+locally (fmt, clippy, the suite) — it has not run on GitHub yet. S1-4 is
+proposed and waits for the owner (`docs/adr/0001-app-identity-and-manifest.md`).
+The Android spike's verdict is **GO**, with five blockers moved into Sprint 3
+below (`docs/spikes/android.md`).
+
+## Sprint 2 — Runs outside the repo
+
+**Goal:** a release build started from any directory opens a working store, and
+nothing remote is compiled unchecked.
+
+| ID | Item | Size |
+|---|---|---|
+| S2-1 | **Ship the store with the binary** (embedded or in a resources dir). `Shell::go_home` finds it today only because `mini-apps/store/…` happens to exist relative to the working directory. | M |
+| S2-2 | **Registry from a hosted URL + the user's config dir, not the CWD.** `main` calls `registry::load(Path::new("."))`, and `registry::builtin` holds relative paths: both only work inside a checkout. A dev checkout keeps today's `apps.json` behaviour. | M |
+| S2-3 | **Hosted registry v1** (D3): `apps.json` + components, built, hashed and published by CI | M |
+| S2-4 | **Integrity.** `AppEntry` gains a `sha256`; the loader verifies it before `Component::from_binary`; remote components only over HTTPS (`127.0.0.1` exempt, for the suite) | M |
+| S2-5 | **Component cache** in the data dir: an app opened once opens offline after, still verified against its hash | M |
+| S2-6 | **Newer app, older host:** a component importing something this host lacks fails with "needs nimadir ≥ X", not a link error | S |
+| S2-7 | `--version`; a log file in the data dir; a panic hook that writes there | S |
+
+New assertions: the binary started from an empty temp dir opens the store; a
+component whose bytes do not match its hash is refused; `http://` to a
+non-local host is refused.
+
+## Sprint 3 — Android as an equal target
+
+**Goal** (if D1 is yes): everything that works on desktop at the end of S2 works
+on Android. From here on, an item is done only when it works on both.
+
+| ID | Item | Size |
+|---|---|---|
+| S3-1 | **Build with `cargo-ndk` + a small Gradle project, on GameActivity.** The spike's `cargo-apk` cannot target the current API level or build an AAB, and NativeActivity rules out both IME text events and `accesskit`. APK and AAB built in CI. | L |
+| S3-2 | Data, cache and config paths from the platform. Includes the compile cache: on Android `wasmtime::Cache::from_file(None)` finds no directory, so every open compiles from scratch. | S |
+| S3-3 | Touch: nothing that needs hover, drag to scroll. (Done: insets and the side gutter — `android::SafeArea`; 48 dp controls — `install_theme`.) | M |
+| S3-4 | IME text for `ui-text-edit` / `ui-search-field`. The keyboard already appears and key events arrive; winit 0.30 drops IME text events, so predictions and non-ASCII (Cyrillic, `oʻ`) depend on GameActivity text input. | M |
+| S3-5 | **Navigation history** in `Shell` (back / forward). The system back button and a chrome Back button both drive it; back from the start page exits. | M |
+| S3-6 | Lifecycle: no frames while paused, redraw on resume. Process death loses nothing, since leaving an app already destroys it (invariant 3). | M |
+| S3-7 | **Frame scheduling.** `gui.rs` calls `request_repaint()` every frame unconditionally, so a still app keeps a core busy — a battery drain on a phone. Add `request-frame(after-ms)` to the WIT; the host redraws only on input, a pending load, or that request. | M |
+| S3-8 | Webview on Android (wry supports it), or the `webview` feature declared desktop-only for beta — decided by S1-3 | M |
+| S3-9 | Device smoke test over `adb`: open the store, open `counter`, tap | M |
+
+## Sprint 4 — Identity, permissions, storage
+
+**Goal:** an app can keep data between runs, and the user controls what each app
+may do.
+
+| ID | Item | Size |
+|---|---|---|
+| S4-1 | **Manifest** per ADR-1, read at load and shown in the store. Note: a WIT `record` cannot grow without breaking every guest built against the old shape — add an `app-details` function rather than widening `app-entry`. | M |
+| S4-2 | **Capability policy.** Every capability belongs to a permission (labels and buttons need none). An ungranted call fails with a named reason; granting happens in the chrome, which a guest cannot reach (invariant 2). | L |
+| S4-3 | **`open-app` policy:** registry apps open freely; any other address needs the user's confirmation in the chrome | S |
+| S4-4 | **Storage capability:** per-app key-value on disk, keyed by app ID, with a quota, cleared on uninstall. ADR-2 first: how this squares with invariant 3 — state that outlives the `Store` lives on disk, owned by the host, never in host memory. | L |
+| S4-5 | **Settings / My apps** in the chrome: installed apps, their permissions and storage use, clear data, uninstall | M |
+| S4-6 | Harness flags `--grant` and `--data-dir`, so permission and storage paths are testable headlessly | S |
+
+## Sprint 5 — UI vocabulary for real apps
+
+**Goal:** a guest can build a form, a list and a detail page — still saying what
+a thing *is*, never where it goes (`ARCHITECTURE.md` §4.6). Each widget costs the
+five-file bill from §4.6 plus a headless assertion, and a stateful one keys its
+egui id off the guest index (§4.4).
+
+| ID | Item | Size |
+|---|---|---|
+| S5-1 | **Structure:** `ui-begin(kind)` / `ui-end` for row, column, section and scroll — nesting, no coordinates; the backend decides sizes | L |
+| S5-2 | Checkbox / toggle, a touch-friendly choice list, separator, progress | M |
+| S5-3 | **Submit** on text fields: Enter on desktop, the IME action key on Android. Closes "there is no Enter key in the UI vocabulary" (§4.7), which the store's `Open address` tile works around. | M |
+| S5-4 | **Images:** bytes handed over once and referenced by a handle (a component-model `resource`), size-capped, decoded host-side | L |
+| S5-5 | **Fonts:** check that Uzbek Latin (`oʻ`, `gʻ` — U+02BB) and Cyrillic render; bundle a font that covers them if egui's defaults do not | S |
+| S5-6 | Dark theme following the OS (`install_theme` pins light today) | S |
+| S5-7 | **Performance budget:** a store with 500 entries at 60 fps on a mid-range phone, with the per-frame boundary cost measured. That number decides whether the retained UI tree (after beta) is needed. | M |
+
+## Sprint 6 — Network, and a real app
+
+| ID | Item | Size |
+|---|---|---|
+| S6-1 | **ADR-3: guest networking** — a `fetch` in `host-api`, or `wasi:http` | S |
+| S6-2 | **Fetch capability**, non-blocking — start returns a handle that is polled across frames, because `update` has a one-second deadline. Origins allow-listed in the manifest; size and time caps shared with `resolve::http`. | L |
+| S6-3 | `locale()` and time zone capabilities | S |
+| S6-4 | **Dogfood app:** one real mini-app using fetch + storage + layout — the first app not written to demonstrate a feature | M |
+| S6-5 | **Fuzz the boundary:** random `host-api` calls (huge strings, out-of-range levels and indices) never panic the host | M |
+
+## Sprint 7 — SDK and developer experience
+
+**Goal:** exit criterion 4. Today no mini-app builds outside this repo: each one
+points `wit_bindgen::generate!` at `path: "../../wit"`.
+
+| ID | Item | Size |
+|---|---|---|
+| S7-1 | Publish the WIT as a package (or vendor it in the SDK) so a guest needs no checkout | M |
+| S7-2 | Rust SDK crate + a `cargo generate` template | M |
+| S7-3 | Evaluate `wasm32-wasip2`, whose rustc output is already a component, to drop the `componentize` step; otherwise ship `componentize` as an installable tool | M |
+| S7-4 | **`nimadir` dev CLI:** `new`, `build`, `run` (the headless harness as a developer's tool), `check` (manifest and imports vs. host version), `pack` (hash for the registry) | L |
+| S7-5 | C# and Python templates; a Go/TinyGo sample (promised in the README) | M |
+| S7-6 | Docs: your first app, the WIT reference, permissions, publishing to the registry | M |
+
+## Sprint 8 — Polish, package, ship
+
+| ID | Item | Size |
+|---|---|---|
+| S8-1 | **Installers:** Windows (.msi), macOS (.dmg, signed and notarised per D2), Linux (AppImage / .deb), Android (AAB to Play internal testing, plus a plain APK) | L |
+| S8-2 | Update check: the shell says when a newer release exists | S |
+| S8-3 | Accessibility through egui's AccessKit support; every widget carries its label | M |
+| S8-4 | Chrome in Uzbek, Russian and English | M |
+| S8-5 | Error and loading pages; reload | S |
+| S8-6 | **Security review** of the whole boundary — every capability, the policy, integrity — before the tag | M |
+| S8-7 | Beta checklist against the exit criteria above; `CHANGELOG.md`; tag `v1.0.0-beta.1` | S |
+
+---
+
+## Cut line
+
+If the plan slips, these go first, in this order: S8-2, S5-6, S7-5 (the Go
+sample), S8-4, S3-8. Nothing in Sprints 1, 2 or 4 is cuttable — those are the
+exit criteria.
+
+## After beta — not in this plan
+
+- **A retained "native DOM"** (a UI tree in WIT, diffs instead of whole frames) —
+  only if S5-7 shows immediate mode is too slow.
+- A Makepad backend behind `UiCmd`.
+- Zero-copy bulk data (shared buffers for pixels and geometry).
+- Tabs; a self-serve publishing portal.
+
+## Risks
+
+| Risk | Effect | Mitigation |
+|---|---|---|
+| IME text on Android | Predictions, Cyrillic and Uzbek letters lost on phones | The S1-3 spike showed the keyboard and key events work; IME text needs GameActivity (S3-1, S3-4). Fallback: a native input overlay |
+| Large guests on phones — `counter-py` compiles for ~30 s cold on desktop | A first open that looks like a hang | The compile cache already exists; precompile in the background at install time |
+| One developer, sixteen weeks | Slips | The cut line above; Sprints 1, 2 and 4 hold |
+| WIT records cannot grow | A "small" field addition breaks every published app | Add functions, never widen records (S4-1); `check` in S7-4 catches it |
