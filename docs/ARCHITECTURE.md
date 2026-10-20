@@ -214,7 +214,11 @@ Decides what an address *is*, before the shell tries to go there.
 
 - `enum Target` — `WasmApp(Vec<u8>)` (bytes included) or `WebPage`.
 - `classify` — local paths by extension, `.wasm` URLs by name, everything else
-  by a single `GET` whose `Content-Type` answers the question.
+  by a single `GET` whose `Content-Type` answers the question. `builtin:store`
+  is the store compiled into the binary: `host/build.rs` copies
+  `mini-apps/store/store.component.wasm` into it when it exists at build time
+  (`has_builtin_store` says whether it did — a fresh clone's first build
+  carries none and builds exactly as before).
 - The fetch is deliberate: the request a `HEAD` probe would save is the one the
   component path has to make anyway, so the body rides along with the answer and
   nothing is downloaded twice.
@@ -278,8 +282,17 @@ The browser-shaped layer above a single mini-app. Knows nothing about drawing.
   a registry *server* would serve, so one parser reads a local file and a remote
   one; `load_from` takes a URL as readily as a path. Every failure falls back
   rather than propagating.
-- `builtin` — fallback entries so a fresh clone has a working home screen.
-  Note these are still *sources*, not classified targets; `resolve` runs after.
+- `load_default` — the registry when none is named: `NIMADIR_REGISTRY`, then
+  `apps.json` / `apps.list` in the working directory (a checkout), then
+  `apps.json` in `paths::config_dir` (an installed shell), then `builtin`. The
+  working directory used to be the only place looked, so a shell started
+  anywhere else had nothing to open.
+- `ensure_start_page` — a registry with no `store` gets the one built into the
+  binary (`builtin:store`), so there is always a start page to go home to.
+- `builtin` — only what works from anywhere: the built-in store. It used to
+  list the samples by their checkout paths, dead links everywhere a fallback
+  is needed. Entries are still *sources*, not classified targets; `resolve`
+  runs after.
 - `normalize` — strips surrounding quotes (Windows "Copy as path" pastes).
 - `resolve` — `input -> (source, title)`. A bare registry name wins;
   anything else passes through unchanged. **Both the CLI and the address bar go

@@ -76,6 +76,53 @@ fn fetch(url: &str) -> Option<String> {
         .ok()
 }
 
+/// The registry when none is named on the command line, and where it came from.
+/// In order:
+///
+///   1. `NIMADIR_REGISTRY`, a path or URL — set once instead of passed each time
+///   2. `apps.json` / `apps.list` in the working directory — a checkout
+///   3. `apps.json` in the user's config directory — an installed shell
+///   4. the built-in list
+///
+/// The working directory used to be the only place looked, so a shell started
+/// from anywhere but the checkout had no registry and nothing to open.
+pub fn load_default() -> (Vec<AppEntry>, String) {
+    if let Some(src) = std::env::var("NIMADIR_REGISTRY")
+        .ok()
+        .filter(|s| !s.is_empty())
+    {
+        return load_from(&src);
+    }
+    if Path::new(MANIFEST_JSON).is_file() || Path::new(MANIFEST).is_file() {
+        return (load(Path::new(".")), describe_default());
+    }
+    if let Some(user) = crate::paths::config_dir().map(|d| d.join(MANIFEST_JSON)) {
+        if user.is_file() {
+            return load_from(&user.to_string_lossy());
+        }
+    }
+    (builtin(), "built-in".to_string())
+}
+
+/// Make sure there is a start page to go home to: a registry that lists no
+/// `store` gets the one built into the binary, when there is one. Without it
+/// the shell would open on its fallback list — host UI, not the start page.
+pub fn ensure_start_page(apps: &mut Vec<AppEntry>) {
+    if crate::resolve::has_builtin_store() && !apps.iter().any(|e| e.name == STORE) {
+        apps.insert(0, builtin_store());
+    }
+}
+
+const STORE: &str = crate::shell::STORE_APP;
+
+fn builtin_store() -> AppEntry {
+    AppEntry {
+        name: STORE.into(),
+        src: format!("{}{STORE}", crate::resolve::BUILTIN_SCHEME),
+        description: "The start page, built into the shell.".into(),
+    }
+}
+
 /// Read the default manifests: `apps.json`, then `apps.list`, then the built-in
 /// entries. A missing manifest is not an error — the shell still opens.
 pub fn load(dir: &Path) -> Vec<AppEntry> {
@@ -158,27 +205,14 @@ pub fn parse(text: &str) -> Vec<AppEntry> {
     out
 }
 
-/// Entries used when no manifest exists, so a fresh clone has a working home
-/// screen after building the two sample mini-apps.
+/// Entries used when no registry was found or usable: only what works from
+/// anywhere, which is what the binary carries. It used to list the sample apps
+/// by their paths in a checkout — links that were dead everywhere else, which
+/// is exactly where this list is needed.
 pub fn builtin() -> Vec<AppEntry> {
-    vec![
-        AppEntry {
-            name: "counter".into(),
-            src: "mini-apps/counter/counter.component.wasm".into(),
-            description: "A counter; the count lives inside the guest.".into(),
-        },
-        AppEntry {
-            name: "hello".into(),
-            src: "mini-apps/hello/hello.component.wasm".into(),
-            description: "A second app, to show hot-swap with no host rebuild.".into(),
-        },
-        AppEntry {
-            name: "counter-cs".into(),
-            src: "mini-apps/counter-cs/counter-cs.component.wasm".into(),
-            description: "The counter written in C# (.NET NativeAOT) — same WIT, no host change."
-                .into(),
-        },
-    ]
+    let mut apps = Vec::new();
+    ensure_start_page(&mut apps);
+    apps
 }
 
 /// Clean up what a human typed or pasted before it is treated as an address.

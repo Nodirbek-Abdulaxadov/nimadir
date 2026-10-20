@@ -93,14 +93,24 @@ trap cleanup EXIT
 export NIMADIR_HOME
 NIMADIR_HOME=$(mktemp -d)
 
+# A path the host itself can open. Under Git Bash on Windows `$PWD` and
+# `mktemp` give MSYS paths (`/c/...`, `/tmp/...`) that only bash understands;
+# the host is a native program. Elsewhere this is the path unchanged.
+native() {
+  if command -v cygpath >/dev/null 2>&1; then cygpath -m "$1"; else printf '%s' "$1"; fi
+}
+NIMADIR_HOME=$(native "$NIMADIR_HOME")
+
 HOST=./target/debug/host
 
 echo "==> building"
-cargo build -q -p host || { red "host build failed"; echo; exit 1; }
+# Mini-apps first: the host carries the store inside it when the store exists
+# at the time it is built.
 if [[ ! -f mini-apps/store/store.component.wasm || ! -f mini-apps/runaway/runaway.component.wasm ]]; then
   echo "    mini-apps missing; running build-mini-apps.sh"
   ./build-mini-apps.sh >/dev/null || { red "mini-app build failed"; echo; exit 1; }
 fi
+cargo build -q -p host || { red "host build failed"; echo; exit 1; }
 
 # The size of the component as just built, not a number typed in here: a
 # different rustc emits a different-sized component, and a hardcoded byte count
@@ -174,6 +184,26 @@ check "and clicking that tile navigates" "[nav] loaded" \
   $HOST store --input "1:0=mini-apps/hello/hello.component.wasm" --script "2:0" --frames 3
 check "a guest navigation that fails says so" "[nav failed] could not open nowhere/missing.wasm" \
   $HOST store --input "1:0=nowhere/missing.wasm" --script "2:0" --frames 3
+
+echo
+echo "==> outside a checkout"
+# An installed shell has no mini-apps/ and no apps.json beside it. It must
+# still open on a start page, and read its registry from where it lives.
+ELSEWHERE=$(mktemp -d)
+ABS_HOST="$PWD/target/debug/host"
+check "started anywhere, the shell opens the store built into it" 'heading1 : "nimadir"' \
+  bash -c "cd '$ELSEWHERE' && '$ABS_HOST' store --frames 1"
+mkdir -p "$NIMADIR_HOME/config"
+printf '[{"name":"hello","source":"%s","description":"from the config directory"}]\n' \
+  "$(native "$PWD/mini-apps/hello/hello.component.wasm")" > "$NIMADIR_HOME/config/apps.json"
+check "an installed shell reads the registry in its config directory" "from the config directory" \
+  bash -c "cd '$ELSEWHERE' && '$ABS_HOST' --list"
+check "and the built-in store lists what that registry holds" '"1 apps"' \
+  bash -c "cd '$ELSEWHERE' && '$ABS_HOST' store --frames 1"
+rm -f "$NIMADIR_HOME/config/apps.json"
+check "NIMADIR_REGISTRY names the registry for every run" "mini-apps/counter/counter.component.wasm" \
+  bash -c "cd '$ELSEWHERE' && NIMADIR_REGISTRY='$(native "$PWD/apps.json")' '$ABS_HOST' --list"
+rm -rf "$ELSEWHERE"
 
 echo
 echo "==> the shell's own record"

@@ -56,10 +56,35 @@ pub fn http() -> ureq::Agent {
 
 /// Decide what `src` is, fetching it if that is the only way to know.
 pub fn classify(src: &str) -> Result<Target> {
-    if is_remote(src) {
+    if let Some(name) = src.strip_prefix(BUILTIN_SCHEME) {
+        builtin(name)
+    } else if is_remote(src) {
         remote(src)
     } else {
         local(src)
+    }
+}
+
+/// Addresses of components shipped inside the binary: `builtin:store`.
+pub const BUILTIN_SCHEME: &str = "builtin:";
+
+/// The store, as `build.rs` found it — empty when the binary was built before
+/// the store was.
+const BUILTIN_STORE: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/store.component.wasm"));
+
+/// Whether this binary carries its own start page.
+pub fn has_builtin_store() -> bool {
+    !BUILTIN_STORE.is_empty()
+}
+
+fn builtin(name: &str) -> Result<Target> {
+    match name {
+        "store" if has_builtin_store() => Ok(Target::WasmApp(BUILTIN_STORE.to_vec())),
+        "store" => bail!(
+            "this build carries no store — build the mini-apps (./build-mini-apps.sh) \
+             before the host"
+        ),
+        _ => bail!("nothing called {name} is built in"),
     }
 }
 

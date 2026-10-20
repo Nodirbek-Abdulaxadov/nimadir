@@ -38,7 +38,13 @@ CARGO_APK_RELEASE_KEYSTORE=~/.android/debug.keystore CARGO_APK_RELEASE_KEYSTORE_
 is the second front door onto the same library.
 
 `*.component.wasm` is gitignored — **a fresh clone has no mini-apps and the shell
-has nothing to open until `build-mini-apps.sh` runs.**
+has nothing to open until `build-mini-apps.sh` runs.** Build the mini-apps
+*before* the host: `host/build.rs` bakes the store into the binary
+(`builtin:store`) only if it exists at that moment.
+
+Outside a checkout the registry comes from `NIMADIR_REGISTRY`, then
+`<config>/apps.json`, then the built-in store alone. `NIMADIR_HOME=<dir>` moves
+config, data (the log) and caches under one directory — the suite always sets it.
 
 Rebuilding one Rust mini-app is two steps, because `wit-bindgen` emits a *core
 module* that must then be encoded into a component:

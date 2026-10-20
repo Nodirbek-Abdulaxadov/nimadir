@@ -22,7 +22,6 @@
 //! different mini-app with no host rebuild — the "browser-like" part.
 
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
 
 use anyhow::Result;
 
@@ -99,10 +98,11 @@ fn main() -> Result<()> {
 
     // Where the catalogue came from, so `--list` can say so instead of naming
     // a manifest that may not have been the one read.
-    let (apps, registry_label) = match &registry_src {
+    let (mut apps, registry_label) = match &registry_src {
         Some(s) => registry::load_from(s),
-        None => (registry::load(Path::new(".")), registry::describe_default()),
+        None => registry::load_default(),
     };
+    registry::ensure_start_page(&mut apps);
 
     if list {
         print_home(&apps, &registry_label);
