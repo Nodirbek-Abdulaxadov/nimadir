@@ -409,6 +409,8 @@ Splits the window into two zones, and keeping them apart is the security story:
   free function `tile` paints one card. Cards are painted, not composed out of
   a button, because the whole card is the click target and egui's button is not
   a two-line container.
+- `install_fonts` — egui's fonts plus Noto Sans (`host/assets/fonts`, OFL) as
+  the last fallback: none of egui's has U+02BB, the ʻ of Uzbek's oʻ and gʻ.
 - `install_theme` — rounder widgets and roomier spacing, applied through
   `all_styles_mut` so both the light and dark styles get it. Style only: layout
   stays a per-widget decision in `page`, because layout is what another backend

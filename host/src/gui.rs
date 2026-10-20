@@ -153,6 +153,7 @@ mod palette {
 fn install_theme(ctx: &egui::Context) {
     use palette::*;
 
+    install_fonts(ctx);
     ctx.set_theme(egui::ThemePreference::Light);
 
     let mut v = egui::Visuals::light();
@@ -231,6 +232,33 @@ fn install_theme(ctx: &egui::Context) {
         // rendering of a guest's `ui-label` — so the pointer stays a pointer.
         style.interaction.selectable_labels = false;
     });
+}
+
+/// egui's own fonts, plus Noto Sans after them as a fallback.
+///
+/// None of egui's bundled fonts has U+02BB — the ʻ in Uzbek's oʻ and gʻ — so
+/// Uzbek Latin drew as boxes. Checked against the fonts' own character maps:
+/// Cyrillic, Uzbek's included, they already cover; arrows the proportional
+/// font lacks and Noto does not add — the chrome says "Back", not "←". Last in
+/// each family, so egui's look is unchanged and Noto only draws what nothing
+/// before it can. Licence: `host/assets/fonts/NotoSans-OFL.txt`.
+fn install_fonts(ctx: &egui::Context) {
+    const NOTO: &str = "noto-sans";
+    let mut fonts = egui::FontDefinitions::default();
+    fonts.font_data.insert(
+        NOTO.to_owned(),
+        std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
+            "../assets/fonts/NotoSans-Regular.ttf"
+        ))),
+    );
+    for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
+        fonts
+            .families
+            .entry(family)
+            .or_default()
+            .push(NOTO.to_owned());
+    }
+    ctx.set_fonts(fonts);
 }
 
 /// A tile's footprint. Fixed rather than content-sized: a grid of cards that

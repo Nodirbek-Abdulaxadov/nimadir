@@ -72,6 +72,8 @@ beta is `docs/ROADMAP.md`.
 - All Rust sources are `cargo fmt`-formatted, which CI now checks.
 
 ### Fixed
+- Uzbek Latin's oʻ and gʻ (U+02BB) drew as boxes: none of egui's bundled
+  fonts has the character. Noto Sans is bundled as a fallback for it.
 - On Android the UI is laid out inside the window insets. It was drawn under
   the status bar, where the Home button could not be tapped; the address bar
   also shrinks now, so its Open button stays on a phone's screen.
