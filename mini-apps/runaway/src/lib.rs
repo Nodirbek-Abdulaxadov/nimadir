@@ -12,12 +12,8 @@ wit_bindgen::generate!({
 });
 
 use std::hint::black_box;
-use std::sync::Mutex;
 
 use nimadir::shell::host_api::{log, ui_button, ui_label};
-
-/// Where the eaten memory goes, so it stays allocated.
-static HOARD: Mutex<Vec<Vec<u8>>> = Mutex::new(Vec::new());
 
 struct Runaway;
 
@@ -37,12 +33,14 @@ impl Guest for Runaway {
             }
         }
 
-        // Button 1: allocate until something stops it. Each block is written
-        // to, so the pages are real and not just reserved.
+        // Button 1: grow linear memory until something stops it. Straight
+        // through `memory.grow`, not the allocator: an allocator writes the
+        // pages it hands out, and writing 512 MiB takes long enough on a busy
+        // machine that the *frame* budget sometimes fired first. A test that
+        // asks about one limit must not race the other. 1024 pages is 64 MiB.
         if ui_button("Eat memory") {
-            let mut hoard = HOARD.lock().unwrap();
             loop {
-                hoard.push(black_box(vec![1u8; 16 << 20]));
+                black_box(core::arch::wasm32::memory_grow(0, 1024));
             }
         }
     }

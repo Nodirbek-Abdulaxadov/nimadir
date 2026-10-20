@@ -7,8 +7,9 @@
 //! `MiniAppWorld` we instantiate. The canonical ABI moves strings/bools across
 //! the boundary, so there is no manual linear-memory reading here any more.
 //!
-//! The public API of `MiniApp` (`load` / `frame` / `take_logs`) is unchanged, so
-//! `main.rs` and `gui.rs` are untouched by this migration — only the internals.
+//! The public API of `MiniApp` (`load` / `frame` / `take_logs` /
+//! `take_pending_open`) is all `shell.rs` drives; everything Wasmtime-specific —
+//! the bindings, the linker, the time and memory limits — stays in this file.
 
 use std::time::Duration;
 
