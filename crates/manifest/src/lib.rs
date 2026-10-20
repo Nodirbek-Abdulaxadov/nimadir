@@ -10,7 +10,7 @@
 //!   "what was signed" simply "everything up to here".
 //!
 //! An app's identity is `<publisher>/<name>`, the publisher being derived from
-//! the key. Shared by the host, which reads and verifies, and `nimadir-pack`,
+//! the key. Shared by the host, which reads and verifies, and `nimadir`,
 //! which writes and signs.
 
 use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};

@@ -18,9 +18,9 @@ import sys
 
 
 def publisher(root: pathlib.Path, component: pathlib.Path):
-    """The component's publisher, if it is signed — read by nimadir-pack, so
+    """The component's publisher, if it is signed — read by nimadir, so
     the registry can require it (a copy signed by anyone else is refused)."""
-    pack = root / "target" / "release" / "nimadir-pack"
+    pack = root / "target" / "release" / "nimadir"
     if not pack.exists():
         return None
     out = subprocess.run([str(pack), "inspect", str(component)], capture_output=True, text=True)

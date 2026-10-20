@@ -562,7 +562,7 @@ match anything and pass over a failing build. An assertion that cannot fail is
 worse than no assertion, because it is counted.
 
 ### `crates/manifest/` — what a component says about itself (ADR-1)
-`nimadir-manifest`, shared by the host and `nimadir-pack`. A component carries
+`nimadir-manifest`, shared by the host and `nimadir`. A component carries
 two custom sections: `nimadir-manifest` (JSON: `name`, `version`,
 `permissions`, …) and `nimadir-signature` (Ed25519 public key + signature over
 every byte before it — so it must be the last section). `inspect` reads both
@@ -571,9 +571,17 @@ top-level sections by their sizes (`sections`), so it needs no wasm parser.
 `publisher_id` is the first 16 bytes of the key's SHA-256 in base32; an app's
 identity is `<publisher>/<name>`, and an unsigned app has none.
 
-### `tools/nimadir-pack/` — manifest and signature
-`keygen` (a new key file, 0600, and its publisher id), `pack` (manifest in,
-optionally signed with `--key`), `inspect`. A lost key is a lost identity.
+### `tools/nimadir/` — the app developer's tool (`nimadir-cli`)
+`new` writes a Rust, C# or Python project with its own copy of the WIT
+(`templates::WIT`, `include_str!` of `wit/world.wit` — so a project is only ever
+as new as the tool that made it) and a `manifest.json`. `build` finds the
+language by what is in the directory: Rust builds for `wasm32-wasip2`, which
+emits a component with no `componentize` step (~50 KB against ~19 KB the
+`componentize` way, a trade made for having one tool fewer); C# with `dotnet`;
+Python with `componentize-py`. It then packs the manifest in, signing with
+`--key`. `run` builds and execs the shell; `check` runs the shell headless on
+the file, which is what reports "needs a newer nimadir". `keygen`, `pack` and
+`inspect` are the signing side (ADR-1); a lost key is a lost identity.
 
 ### `tools/componentize/` — core module → component
 Wraps `wit_component::ComponentEncoder`. Does what `wasm-tools component new`

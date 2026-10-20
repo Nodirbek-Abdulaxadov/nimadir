@@ -39,7 +39,7 @@ jobs:
           python-version: '3.12'
       - run: pip install componentize-py
       - uses: Swatinem/rust-cache@v2
-      # With a NIMADIR_SIGNING_KEY secret (the contents of a `nimadir-pack
+      # With a NIMADIR_SIGNING_KEY secret (the contents of a `nimadir
       # keygen` file), every app with a manifest is signed, and the registry
       # pins its publisher. Without one they are published unsigned.
       - name: Signing key, if the repository has one

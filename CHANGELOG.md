@@ -13,7 +13,7 @@ beta is `docs/ROADMAP.md`.
 - **Signed apps** (ADR-1). A component may carry a manifest and its
   publisher's Ed25519 signature; one changed after signing, or signed by
   someone other than its registry entry names, is refused before it is
-  compiled. `nimadir-pack` makes keys, adds manifests and signs.
+  compiled. `nimadir` makes keys, adds manifests and signs.
 - Remote components and registries are fetched over HTTPS only; plain http
   is allowed to this machine alone. A registry entry may pin its component's
   SHA-256, and bytes that differ are refused before they are compiled.
@@ -24,6 +24,11 @@ beta is `docs/ROADMAP.md`.
   past that the guest is stopped and the reason names the limit.
 
 ### Added
+- **`nimadir`, the developer tool** (it absorbs `nimadir-pack`): `new` makes a
+  Rust, C# or Python app with its own copy of the WIT, so it builds outside
+  this repository; `build` (Rust via `wasm32-wasip2`, no componentize step),
+  `run`, `check`, plus `keygen` / `pack` / `inspect`.
+- `docs/APPS.md`, the guide to writing an app.
 - A fuzzing fixture: every host function, forty times a frame for 300 frames,
   with awkward inputs; the suite runs it.
 - **rates**, the first real app: the Central Bank of Uzbekistan's exchange

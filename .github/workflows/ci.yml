@@ -29,8 +29,8 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all --check
       # The mini-apps are outside the workspace, so `--all` does not reach them.
-      - run: for a in counter hello store runaway; do cargo fmt --check --manifest-path mini-apps/$a/Cargo.toml; done
-      - run: cargo clippy -p host -p componentize --all-targets -- -D warnings
+      - run: for a in counter hello gallery rates store runaway future fetcher fuzz; do cargo fmt --check --manifest-path mini-apps/$a/Cargo.toml; done
+      - run: cargo clippy -p host -p componentize -p nimadir-cli -p nimadir-manifest --all-targets -- -D warnings
       - run: cargo clippy -p host --features webview --all-targets -- -D warnings
 
   suite:
@@ -48,7 +48,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-unknown
+          targets: wasm32-unknown-unknown, wasm32-wasip2
       # So the suite's `gui` and `webview` build checks run rather than skip.
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev
@@ -97,7 +97,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
-          targets: wasm32-unknown-unknown
+          targets: wasm32-unknown-unknown, wasm32-wasip2
       - uses: actions/setup-dotnet@v4
         with:
           dotnet-version: '10.0.x'
@@ -117,3 +117,14 @@ jobs:
       # Fail rather than quietly skip: this job exists to run them.
       - run: test -f mini-apps/counter-cs/counter-cs.component.wasm && test -f mini-apps/counter-py/counter-py.component.wasm
       - run: ./run-tests.sh
+      # The templates `nimadir new` writes for the other two languages: made,
+      # built and run, as a developer would.
+      - name: C# and Python templates
+        run: |
+          cargo build -q -p host -p nimadir-cli
+          tool=$PWD/target/debug/nimadir
+          cd "$RUNNER_TEMP"
+          for lang in csharp python; do
+            "$tool" new "demo-$lang" --lang "$lang"
+            (cd "demo-$lang" && "$tool" build && "$tool" check "demo-$lang.component.wasm")
+          done

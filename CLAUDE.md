@@ -76,12 +76,17 @@ are its assertions in the suite. It bundles CPython (~18 MB), so its **first ope
 compiles for ~30 s**; the engine's on-disk cache (`main::engine`) makes later
 opens ~2 s.
 
+`nimadir` (`tools/nimadir`, package `nimadir-cli`) is the app developer's tool:
+`new` (a Rust, C# or Python project with its own copy of the WIT), `build`
+(Rust via `wasm32-wasip2`, no componentize step), `run`, `check`. `docs/APPS.md`
+is the guide for writing apps; keep it true when the WIT changes.
+
 Signing an app (ADR-1 — identity is `<publisher>/<name>`, publisher from the key):
 
 ```bash
-./target/debug/nimadir-pack keygen my.key          # keep it secret, back it up
-./target/debug/nimadir-pack pack in.wasm manifest.json out.wasm --key my.key
-./target/debug/nimadir-pack inspect out.wasm
+./target/debug/nimadir keygen my.key          # keep it secret, back it up
+./target/debug/nimadir pack in.wasm manifest.json out.wasm --key my.key
+./target/debug/nimadir inspect out.wasm
 ```
 
 ## Run

@@ -145,7 +145,7 @@ may do.
 
 **Progress (2026-10-20), on branch `sprint-4`.** S4-1: manifests and
 signatures are read, verified and enforced (`crates/manifest`,
-`nimadir-pack`, `Shell::identity`); showing them in the store is still to do.
+`nimadir`, `Shell::identity`); showing them in the store is still to do.
 S4-4: `storage-*` (ADR-2), kept for signed apps that ask, 1 MiB each.
 S4-3: `open-app` to an unlisted address asks the user (chrome; `--confirm`).
 S4-5: settings page (`nimadir:settings`, linked from the store) — what apps
@@ -158,6 +158,14 @@ data directory.
 (time zone still to do). S6-4: `rates`, checked against the real cbu.uz by
 hand, declined in the suite. S6-5: the `fuzz` fixture, 12 000 awkward calls
 without a panic.
+
+**Sprint 7 closed (2026-10-20), 109 assertions.** S7-1: each project vendors
+the WIT (`nimadir new`) instead of fetching a package — nothing to publish,
+nothing to resolve. S7-2: templates for Rust, C# and Python; an SDK crate of
+helpers is left for after beta. S7-3: `wasm32-wasip2` adopted for new Rust
+apps (one tool fewer, ~2.6× the size); the samples keep `componentize`.
+S7-4: `nimadir new/build/run/check`. S7-5: C# and Python templates, built in
+CI; the Go sample was cut. S7-6: `docs/APPS.md`.
 
 **Sprint 6 closed (2026-10-20), 103 assertions.** Left: a time-zone
 capability (S6-3's other half).

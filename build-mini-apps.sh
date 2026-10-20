@@ -15,7 +15,7 @@ rustup target add wasm32-unknown-unknown >/dev/null 2>&1 || true
 
 # Build the componentizer once (native binary), and the packer that gives an app
 # its manifest (ADR-1).
-cargo build --release -p componentize -p nimadir-pack
+cargo build --release -p componentize -p nimadir-cli
 
 APPS=(counter hello gallery rates store runaway future fetcher fuzz)
 for app in "${APPS[@]}"; do
@@ -26,12 +26,12 @@ for app in "${APPS[@]}"; do
   out="mini-apps/$app/$app.component.wasm"
   ./target/release/componentize "$core" "$out"
   # An app with a manifest.json carries it inside — and is signed with it when
-  # NIMADIR_SIGNING_KEY names a key (`nimadir-pack keygen`), as the registry
+  # NIMADIR_SIGNING_KEY names a key (`nimadir keygen`), as the registry
   # workflow can from a secret.
   if [[ -f "mini-apps/$app/manifest.json" ]]; then
     sign=()
     [[ -n "${NIMADIR_SIGNING_KEY:-}" ]] && sign=(--key "$NIMADIR_SIGNING_KEY")
-    ./target/release/nimadir-pack pack "$out" "mini-apps/$app/manifest.json" "$out" "${sign[@]}" >/dev/null
+    ./target/release/nimadir pack "$out" "mini-apps/$app/manifest.json" "$out" "${sign[@]}" >/dev/null
   fi
 done
 

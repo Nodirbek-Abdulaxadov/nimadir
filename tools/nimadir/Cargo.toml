@@ -1,12 +1,12 @@
 [package]
-name = "nimadir-pack"
+name = "nimadir-cli"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "Give a nimadir component its manifest, and sign it as its publisher"
+description = "The nimadir developer tool: make, build, check, sign and run mini-apps"
 
 [[bin]]
-name = "nimadir-pack"
+name = "nimadir"
 path = "src/main.rs"
 
 [dependencies]

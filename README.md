@@ -294,37 +294,21 @@ with the built-in list.
 
 ## How to write your own mini-app
 
-A mini-app is a `cdylib` crate targeting `wasm32-unknown-unknown`. All the
-bindings come from the shared WIT — you write only behavior:
-
-```rust
-wit_bindgen::generate!({ world: "mini-app", path: "../../wit" });
-use nimadir::shell::host_api::{ui_label, ui_button};
-
-struct App;
-impl Guest for App {
-    fn init() {}
-    fn update() {
-        ui_label("my mini-app");
-        if ui_button("click me") { ui_label("clicked!"); }
-    }
-}
-export!(App);
-```
-
-Build it into a component (or add its name to `APPS` in `build-mini-apps.sh`):
-
 ```bash
-cargo build --release --target wasm32-unknown-unknown \
-  --manifest-path mini-apps/<app>/Cargo.toml
-cargo run --release -p componentize -- \
-  mini-apps/<app>/target/wasm32-unknown-unknown/release/<app>.wasm \
-  mini-apps/<app>/<app>.component.wasm
+cargo build --release -p host -p nimadir-cli      # the shell, and the developer tool
+rustup target add wasm32-wasip2                    # once, for Rust apps
+./target/release/nimadir new my-app               # or --lang csharp / --lang python
+cd my-app && ../target/release/nimadir run        # build it, open it in the shell
 ```
 
-Then add an entry to `apps.json` so the store lists it. See
-`mini-apps/counter` (guest-owned state) and `mini-apps/hello` (a second app) for
-complete examples.
+The project `nimadir new` writes carries its own copy of the WIT, so it builds
+anywhere — no checkout of this repository. `docs/APPS.md` is the guide: how an
+app draws, what it may do and how it asks (storage, the network), signing,
+testing without a screen, and publishing to a registry.
+
+The samples in `mini-apps/` are built by `./build-mini-apps.sh` the older way —
+`wasm32-unknown-unknown` and `componentize` — which makes smaller components
+(~19 KB rather than ~50 KB for the same app) at the cost of one more tool.
 
 ## Polyglot: the same counter in C# and Python
 

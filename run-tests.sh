@@ -114,7 +114,7 @@ if [[ ! -f mini-apps/store/store.component.wasm || ! -f mini-apps/runaway/runawa
   echo "    mini-apps missing; running build-mini-apps.sh"
   ./build-mini-apps.sh >/dev/null || { red "mini-app build failed"; echo; exit 1; }
 fi
-cargo build -q -p host -p nimadir-pack || { red "host build failed"; echo; exit 1; }
+cargo build -q -p host -p nimadir-cli || { red "host build failed"; echo; exit 1; }
 
 # The size of the component as just built, not a number typed in here: a
 # different rustc emits a different-sized component, and a hardcoded byte count
@@ -216,7 +216,7 @@ rm -rf "$ELSEWHERE"
 echo
 echo "==> signed apps"
 # ADR-1: a component carries its manifest and its publisher's signature.
-PACK=./target/debug/nimadir-pack
+PACK=./target/debug/nimadir
 SIGNED=$(mktemp -d)
 PUBLISHER=$($PACK keygen "$SIGNED/key" | awk '{print $2}')
 printf '{"name":"hello","version":"1.0.0"}\n' > "$SIGNED/manifest.json"
@@ -226,7 +226,7 @@ cp "$SIGNED/signed.wasm" "$SIGNED/tampered.wasm"
 printf 'XXXX' | dd of="$SIGNED/tampered.wasm" bs=1 seek=2000 conv=notrunc 2>/dev/null
 check "a signed app says who signed it" "hello 1.0.0, signed by $PUBLISHER" \
   $HOST "$(native "$SIGNED/signed.wasm")" --frames 1
-check "nimadir-pack names the identity it claims" "identity  $PUBLISHER/hello" \
+check "nimadir names the identity it claims" "identity  $PUBLISHER/hello" \
   $PACK inspect "$SIGNED/signed.wasm"
 check_fails "a signed app changed after signing is refused" "changed after it was signed" \
   $HOST "$(native "$SIGNED/tampered.wasm")" --frames 1
@@ -384,6 +384,29 @@ BIG=$(mktemp -d)
 check "a store of 500 apps draws them all within a frame's limits" '"500 apps"' \
   $HOST --registry "$(native "$BIG/apps.json")" store --frames 2 --timing
 rm -rf "$BIG"
+
+echo
+echo "==> making an app"
+# What a developer outside this repository does: nimadir new, build, run.
+if rustup target list --installed 2>/dev/null | grep -q '^wasm32-wasip2$'; then
+  MADE=$(mktemp -d)
+  TOOL="$PWD/target/debug/nimadir"
+  check "nimadir new makes a project" "made demo/" \
+    bash -c "cd '$MADE' && '$TOOL' new demo"
+  check "with its own copy of this shell's WIT" "" \
+    cmp "$MADE/demo/wit/world.wit" wit/world.wit
+  check "nimadir build makes its component, manifest inside" "manifest  demo 0.1.0" \
+    bash -c "cd '$MADE/demo' && '$TOOL' build"
+  check "which the shell runs" '"Tapped 0 times."' \
+    $HOST "$(native "$MADE/demo/demo.component.wasm")" --frames 1
+  check "nimadir check says it will run" "runs on this shell" \
+    "$TOOL" check "$MADE/demo/demo.component.wasm"
+  check_fails "and says why one will not" "needs a newer nimadir" \
+    "$TOOL" check mini-apps/future/future.component.wasm
+  rm -rf "$MADE"
+else
+  skip "making an app (no wasm32-wasip2: rustup target add wasm32-wasip2)"
+fi
 
 echo
 echo "==> address classification"
