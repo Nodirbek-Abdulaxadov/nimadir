@@ -30,6 +30,10 @@ pub struct AppEntry {
     /// under it for opening offline (`resolve::classify_pinned`).
     #[serde(default)]
     pub sha256: Option<String>,
+    /// Who must have signed the component (ADR-1's publisher id). A component
+    /// signed by anybody else, or by nobody, is refused.
+    #[serde(default)]
+    pub publisher: Option<String>,
 }
 
 /// The JSON catalogue, looked up first.
@@ -183,6 +187,7 @@ fn builtin_store() -> AppEntry {
         description: "The start page, built into the shell.".into(),
         // Inside the binary: nothing crossed a network to tamper with.
         sha256: None,
+        publisher: None,
     }
 }
 
@@ -265,6 +270,7 @@ pub fn parse(text: &str) -> Vec<AppEntry> {
             src,
             description,
             sha256,
+            publisher: None,
         });
     }
     out

@@ -76,6 +76,14 @@ are its assertions in the suite. It bundles CPython (~18 MB), so its **first ope
 compiles for ~30 s**; the engine's on-disk cache (`main::engine`) makes later
 opens ~2 s.
 
+Signing an app (ADR-1 — identity is `<publisher>/<name>`, publisher from the key):
+
+```bash
+./target/debug/nimadir-pack keygen my.key          # keep it secret, back it up
+./target/debug/nimadir-pack pack in.wasm manifest.json out.wasm --key my.key
+./target/debug/nimadir-pack inspect out.wasm
+```
+
 ## Run
 
 ```bash

@@ -286,6 +286,12 @@ The browser-shaped layer above a single mini-app. Knows nothing about drawing.
   from an app is the start page and back from the start page is `false` —
   which a phone reads as "leave". Capped at `HISTORY_LIMIT`, because a guest
   can navigate once per frame.
+- **Vouching** (`vouch`, on the loader thread, before `MiniApp::load`): a
+  component whose manifest is malformed or whose signature does not hold is
+  refused before Cranelift sees it, and so is one signed by anybody other than
+  the `publisher` its registry entry names. `View::App` keeps the result
+  (`info`), the status line says what it found (`describe`), and
+  `Shell::identity` is what per-app state will be keyed by.
 - Fetching itself now lives in `resolve.rs`, since classification and loading
   are the same request.
 
@@ -473,6 +479,20 @@ the text appears), `check_absent` (exit zero and the text does *not*), and
 status, which made the three build checks — whose expected substring is `""` —
 match anything and pass over a failing build. An assertion that cannot fail is
 worse than no assertion, because it is counted.
+
+### `crates/manifest/` — what a component says about itself (ADR-1)
+`nimadir-manifest`, shared by the host and `nimadir-pack`. A component carries
+two custom sections: `nimadir-manifest` (JSON: `name`, `version`,
+`permissions`, …) and `nimadir-signature` (Ed25519 public key + signature over
+every byte before it — so it must be the last section). `inspect` reads both
+and verifies; `with_manifest` and `sign` write them. It walks only the
+top-level sections by their sizes (`sections`), so it needs no wasm parser.
+`publisher_id` is the first 16 bytes of the key's SHA-256 in base32; an app's
+identity is `<publisher>/<name>`, and an unsigned app has none.
+
+### `tools/nimadir-pack/` — manifest and signature
+`keygen` (a new key file, 0600, and its publisher id), `pack` (manifest in,
+optionally signed with `--key`), `inspect`. A lost key is a lost identity.
 
 ### `tools/componentize/` — core module → component
 Wraps `wit_component::ComponentEncoder`. Does what `wasm-tools component new`

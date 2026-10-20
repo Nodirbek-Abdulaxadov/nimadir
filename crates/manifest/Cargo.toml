@@ -1,0 +1,12 @@
+[package]
+name = "nimadir-manifest"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "The app manifest and publisher signature a nimadir component carries (ADR-1)"
+
+[dependencies]
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+ed25519-dalek = "2"

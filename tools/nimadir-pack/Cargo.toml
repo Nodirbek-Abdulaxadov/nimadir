@@ -1,0 +1,16 @@
+[package]
+name = "nimadir-pack"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Give a nimadir component its manifest, and sign it as its publisher"
+
+[[bin]]
+name = "nimadir-pack"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+nimadir-manifest = { path = "../../crates/manifest" }
+serde_json = "1"
+getrandom = "0.3"

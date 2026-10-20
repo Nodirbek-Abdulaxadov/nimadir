@@ -114,7 +114,7 @@ if [[ ! -f mini-apps/store/store.component.wasm || ! -f mini-apps/runaway/runawa
   echo "    mini-apps missing; running build-mini-apps.sh"
   ./build-mini-apps.sh >/dev/null || { red "mini-app build failed"; echo; exit 1; }
 fi
-cargo build -q -p host || { red "host build failed"; echo; exit 1; }
+cargo build -q -p host -p nimadir-pack || { red "host build failed"; echo; exit 1; }
 
 # The size of the component as just built, not a number typed in here: a
 # different rustc emits a different-sized component, and a hardcoded byte count
@@ -210,6 +210,31 @@ check "NIMADIR_REGISTRY names the registry for every run" "mini-apps/counter/cou
 rm -rf "$ELSEWHERE"
 
 echo
+echo "==> signed apps"
+# ADR-1: a component carries its manifest and its publisher's signature.
+PACK=./target/debug/nimadir-pack
+SIGNED=$(mktemp -d)
+PUBLISHER=$($PACK keygen "$SIGNED/key" | awk '{print $2}')
+printf '{"name":"hello","version":"1.0.0"}\n' > "$SIGNED/manifest.json"
+$PACK pack mini-apps/hello/hello.component.wasm "$SIGNED/manifest.json" "$SIGNED/signed.wasm" --key "$SIGNED/key" >/dev/null
+$PACK pack mini-apps/hello/hello.component.wasm "$SIGNED/manifest.json" "$SIGNED/unsigned.wasm" >/dev/null
+cp "$SIGNED/signed.wasm" "$SIGNED/tampered.wasm"
+printf 'XXXX' | dd of="$SIGNED/tampered.wasm" bs=1 seek=2000 conv=notrunc 2>/dev/null
+check "a signed app says who signed it" "hello 1.0.0, signed by $PUBLISHER" \
+  $HOST "$(native "$SIGNED/signed.wasm")" --frames 1
+check "nimadir-pack names the identity it claims" "identity  $PUBLISHER/hello" \
+  $PACK inspect "$SIGNED/signed.wasm"
+check_fails "a signed app changed after signing is refused" "changed after it was signed" \
+  $HOST "$(native "$SIGNED/tampered.wasm")" --frames 1
+check "an app with a manifest and no signature runs, unverified" "hello 1.0.0, unsigned" \
+  $HOST "$(native "$SIGNED/unsigned.wasm")" --frames 1
+printf '[{"name":"hello","source":"%s","publisher":"someoneelse"}]\n' \
+  "$(native "$SIGNED/signed.wasm")" > "$SIGNED/registry.json"
+check_fails "an app signed by another publisher than its listing says is refused" "is listed as published by someoneelse" \
+  $HOST --registry "$(native "$SIGNED/registry.json")" hello --frames 1
+rm -rf "$SIGNED"
+
+echo
 echo "==> trusted downloads"
 # What crosses the network unencrypted could have been swapped on the way.
 check_fails "plain http to another machine is refused, before any request" "plain http" \
@@ -271,7 +296,7 @@ check_fails "a local file that is neither is refused, without a network call" \
 BOGUS=$(mktemp -d)/bogus.wasm
 printf 'this is not webassembly\n' > "$BOGUS"
 check_fails "a file named .wasm that is not one fails at parse, not at classification" \
-  "failed to parse WebAssembly module" $HOST "$BOGUS"
+  "not a WebAssembly component" $HOST "$BOGUS"
 rm -rf "$(dirname "$BOGUS")"
 
 echo

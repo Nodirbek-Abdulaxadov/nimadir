@@ -8,6 +8,10 @@ beta is `docs/ROADMAP.md`.
 ## [Unreleased]
 
 ### Security
+- **Signed apps** (ADR-1). A component may carry a manifest and its
+  publisher's Ed25519 signature; one changed after signing, or signed by
+  someone other than its registry entry names, is refused before it is
+  compiled. `nimadir-pack` makes keys, adds manifests and signs.
 - Remote components and registries are fetched over HTTPS only; plain http
   is allowed to this machine alone. A registry entry may pin its component's
   SHA-256, and bytes that differ are refused before they are compiled.

@@ -143,6 +143,10 @@ may do.
 | S4-5 | **Settings / My apps** in the chrome: installed apps, their permissions and storage use, clear data, uninstall | M |
 | S4-6 | Harness flags `--grant` and `--data-dir`, so permission and storage paths are testable headlessly | S |
 
+**Progress (2026-10-20), on branch `sprint-4`.** S4-1: manifests and
+signatures are read, verified and enforced (`crates/manifest`,
+`nimadir-pack`, `Shell::identity`); showing them in the store is still to do.
+
 ## Sprint 5 — UI vocabulary for real apps
 
 **Goal:** a guest can build a form, a list and a detail page — still saying what

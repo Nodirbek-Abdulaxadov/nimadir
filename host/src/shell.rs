@@ -20,6 +20,8 @@ use std::sync::mpsc::{self, Receiver, TryRecvError};
 use anyhow::Result;
 use wasmtime::Engine;
 
+use nimadir_manifest::{Inspected, SignedBy};
+
 use crate::host::MiniApp;
 use crate::registry::AppEntry;
 use crate::resolve::{self, Target};
@@ -48,11 +50,13 @@ struct Visit {
 pub enum View {
     /// The start page: the list of mini-apps.
     Home,
-    /// A loaded mini-app, with the address it came from.
+    /// A loaded mini-app, with the address it came from and what it says
+    /// about itself — its manifest, and who signed it (ADR-1).
     App {
         title: String,
         src: String,
         app: Box<MiniApp>,
+        info: Inspected,
     },
     /// An old-style web page. Routing reaches this view today and the backend
     /// draws a placeholder; the webview renders into it in the next stage.
@@ -86,6 +90,7 @@ enum Landed {
         app: Box<MiniApp>,
         bytes: usize,
         cached: bool,
+        info: Inspected,
     },
     WebPage,
 }
@@ -301,11 +306,11 @@ impl Shell {
         let engine = self.engine.clone();
         let apps = self.apps.clone();
         // A registry entry may pin what this address must hold.
-        let pin = self
-            .apps
-            .iter()
-            .find(|e| e.src == src)
-            .and_then(|e| e.sha256.clone());
+        // A registry entry may pin what this address must hold, and who
+        // must have signed it.
+        let entry = self.apps.iter().find(|e| e.src == src);
+        let pin = entry.and_then(|e| e.sha256.clone());
+        let publisher = entry.and_then(|e| e.publisher.clone());
         // If a second navigation starts first, this receiver is dropped and the
         // send fails — which is the right outcome: the answer to a question
         // nobody is asking any more goes nowhere.
@@ -313,10 +318,14 @@ impl Shell {
             let landed =
                 resolve::classify_pinned(&address, pin.as_deref()).and_then(|f| match f.target {
                     Target::WasmApp(wasm) => {
+                        // Before anything is compiled: a component whose
+                        // signature does not hold never reaches Cranelift.
+                        let info = vouch(&address, &wasm, publisher.as_deref())?;
                         MiniApp::load(&engine, &wasm, apps).map(|app| Landed::App {
                             app: Box::new(app),
                             bytes: wasm.len(),
                             cached: f.cached,
+                            info,
                         })
                     }
                     Target::WebPage => Ok(Landed::WebPage),
@@ -414,16 +423,24 @@ impl Shell {
         }
         let (title, src) = (p.title.clone(), p.src.clone());
         match landed {
-            Landed::App { app, bytes, cached } => {
+            Landed::App {
+                app,
+                bytes,
+                cached,
+                info,
+            } => {
+                let from_cache = if cached { " (from the cache)" } else { "" };
+                let status = format!(
+                    "loaded {bytes} bytes of wasm from {src}{from_cache}{}",
+                    describe(&info)
+                );
                 self.view = View::App {
                     title,
-                    src: src.clone(),
+                    src,
                     app,
+                    info,
                 };
-                let from_cache = if cached { " (from the cache)" } else { "" };
-                Ok(format!(
-                    "loaded {bytes} bytes of wasm from {src}{from_cache}"
-                ))
+                Ok(status)
             }
             Landed::WebPage => {
                 self.view = View::WebPage {
@@ -524,11 +541,54 @@ impl Shell {
         }
     }
 
+    /// The running app's identity, `<publisher>/<name>` — `None` for an app
+    /// that is unsigned or has no manifest, which runs as unverified.
+    pub fn identity(&self) -> Option<String> {
+        match &self.view {
+            View::App { info, .. } => info.identity(),
+            View::Home | View::WebPage { .. } => None,
+        }
+    }
+
     /// Drain log lines from the current mini-app.
     pub fn take_logs(&mut self) -> Vec<String> {
         match &mut self.view {
             View::App { app, .. } => app.take_logs(),
             View::Home | View::WebPage { .. } => Vec::new(),
         }
+    }
+}
+
+/// Check what a component says about itself before it is compiled: a
+/// malformed manifest or a signature that does not hold is refused, and so is
+/// one signed by somebody other than the publisher its registry entry names.
+fn vouch(src: &str, wasm: &[u8], publisher: Option<&str>) -> Result<Inspected> {
+    let info = nimadir_manifest::inspect(wasm)
+        .map_err(|e| anyhow::anyhow!("{src}: {e} — it was not run"))?;
+    if let Some(want) = publisher {
+        match &info.signed_by {
+            SignedBy::Publisher(p) if p == want => {}
+            SignedBy::Publisher(p) => anyhow::bail!(
+                "{src} is listed as published by {want}, but was signed by {p} — it was not run"
+            ),
+            SignedBy::Nobody => anyhow::bail!(
+                "{src} is listed as published by {want}, but is not signed — it was not run"
+            ),
+        }
+    }
+    Ok(info)
+}
+
+/// What a landed app said about itself, for the status line.
+fn describe(info: &Inspected) -> String {
+    let what = info
+        .manifest
+        .as_ref()
+        .map(|m| format!("{} {}", m.name, m.version));
+    match (&info.signed_by, what) {
+        (SignedBy::Publisher(p), Some(what)) => format!(" — {what}, signed by {p}"),
+        (SignedBy::Publisher(p), None) => format!(" — signed by {p}, no manifest"),
+        (SignedBy::Nobody, Some(what)) => format!(" — {what}, unsigned"),
+        (SignedBy::Nobody, None) => String::new(),
     }
 }
