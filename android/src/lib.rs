@@ -82,6 +82,8 @@ fn run(app: AndroidApp) -> Result<()> {
             name: name.to_string(),
             src: path.to_string_lossy().into_owned(),
             description: description.to_string(),
+            // Compiled into this library: nothing to pin against.
+            sha256: None,
         });
     }
     log::info!("unpacked {} mini-apps into {}", apps.len(), dir.display());

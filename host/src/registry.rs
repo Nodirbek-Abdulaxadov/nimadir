@@ -25,6 +25,11 @@ pub struct AppEntry {
     pub src: String,
     #[serde(default)]
     pub description: String,
+    /// The component's SHA-256, hex. When present, bytes that do not match are
+    /// refused before they are compiled, and a remote component is cached
+    /// under it for opening offline (`resolve::classify_pinned`).
+    #[serde(default)]
+    pub sha256: Option<String>,
 }
 
 /// The JSON catalogue, looked up first.
@@ -67,6 +72,9 @@ pub fn load_from(source: &str) -> (Vec<AppEntry>, String) {
 }
 
 fn fetch(url: &str) -> Option<String> {
+    // A registry decides what gets run, so it travels over TLS like a
+    // component does.
+    crate::resolve::require_tls(url).ok()?;
     // `into_string` caps the body at 10 MB itself; the agent bounds the wait.
     crate::resolve::http()
         .get(url)
@@ -120,6 +128,8 @@ fn builtin_store() -> AppEntry {
         name: STORE.into(),
         src: format!("{}{STORE}", crate::resolve::BUILTIN_SCHEME),
         description: "The start page, built into the shell.".into(),
+        // Inside the binary: nothing crossed a network to tamper with.
+        sha256: None,
     }
 }
 
@@ -180,8 +190,8 @@ pub fn parse_json(text: &str) -> Vec<AppEntry> {
     }
 }
 
-/// Parse the manifest: one entry per line, `name | src | description`.
-/// Blank lines and `#` comments are skipped; description is optional.
+/// Parse the manifest: one entry per line, `name | src | description | sha256`.
+/// Blank lines and `#` comments are skipped; description and pin are optional.
 pub fn parse(text: &str) -> Vec<AppEntry> {
     let mut out = Vec::new();
     for line in text.lines() {
@@ -193,6 +203,7 @@ pub fn parse(text: &str) -> Vec<AppEntry> {
         let name = parts.next().unwrap_or("").to_string();
         let src = parts.next().unwrap_or("").to_string();
         let description = parts.next().unwrap_or("").to_string();
+        let sha256 = parts.next().filter(|h| !h.is_empty()).map(str::to_string);
         if name.is_empty() || src.is_empty() {
             continue;
         }
@@ -200,6 +211,7 @@ pub fn parse(text: &str) -> Vec<AppEntry> {
             name,
             src,
             description,
+            sha256,
         });
     }
     out

@@ -230,6 +230,15 @@ Decides what an address *is*, before the shell tries to go there.
 - `MAX_DOWNLOAD` (64 MiB) — refused up front when `Content-Length` says so,
   cut off at the cap when it does not. The body is held whole before compiling,
   so without a cap an address could stream until the machine ran out of memory.
+- `require_tls` — plain `http://` is refused unless the host is loopback, for
+  components and registries alike, and before any request is made. Android's
+  cleartext block does not cover Rust's sockets, so this is the only guard
+  there.
+- `classify_pinned` — `classify` for an address the registry pins: the
+  SHA-256 is checked before anything is compiled, and a pinned *remote*
+  component is kept in `<cache>/components/<sha256>.wasm`, read back (and
+  re-hashed) on the next open, so it works offline. The loader thread in
+  `Shell::start_as` goes through this, finding the pin by `src`.
 
 ### `host/src/shell.rs` — navigation
 The browser-shaped layer above a single mini-app. Knows nothing about drawing.
@@ -276,8 +285,9 @@ The browser-shaped layer above a single mini-app. Knows nothing about drawing.
   are the same request.
 
 ### `host/src/registry.rs` — the bookmarks
-- `struct AppEntry` — `name`, `src`, `description`. Knows nothing about
-  WASM; it is an address book.
+- `struct AppEntry` — `name`, `src`, `description`, and an optional
+  `sha256` pin (a fourth `|` field in `apps.list`). Knows nothing about WASM;
+  it is an address book.
 - `parse` / `parse_json` — the pipe format and the JSON catalogue. JSON is what
   a registry *server* would serve, so one parser reads a local file and a remote
   one; `load_from` takes a URL as readily as a path. Every failure falls back

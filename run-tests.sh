@@ -206,6 +206,29 @@ check "NIMADIR_REGISTRY names the registry for every run" "mini-apps/counter/cou
 rm -rf "$ELSEWHERE"
 
 echo
+echo "==> trusted downloads"
+# What crosses the network unencrypted could have been swapped on the way.
+check_fails "plain http to another machine is refused, before any request" "plain http" \
+  $HOST http://example.invalid/app.wasm
+# A registry can pin each component's SHA-256; bytes that differ never run.
+sha256_of() {
+  sha256sum "$1" 2>/dev/null | cut -d' ' -f1 && return
+  shasum -a 256 "$1" 2>/dev/null | cut -d' ' -f1 && return
+  python3 -c "import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],'rb').read()).hexdigest())" "$1"
+}
+COUNTER_SHA=$(sha256_of mini-apps/counter/counter.component.wasm)
+HELLO_SHA=$(sha256_of mini-apps/hello/hello.component.wasm)
+PINS=$(mktemp -d)
+HELLO_NATIVE=$(native "$PWD/mini-apps/hello/hello.component.wasm")
+printf '[{"name":"hello","source":"%s","sha256":"%s"}]\n' "$HELLO_NATIVE" "$COUNTER_SHA" > "$PINS/tampered.json"
+printf '[{"name":"hello","source":"%s","sha256":"%s"}]\n' "$HELLO_NATIVE" "$HELLO_SHA" > "$PINS/pinned.json"
+check_fails "a component that is not the one pinned is refused" "is not the component the registry pinned" \
+  $HOST --registry "$(native "$PINS/tampered.json")" hello --frames 1
+check "the one pinned runs" "Hello from a *different* mini-app!" \
+  $HOST --registry "$(native "$PINS/pinned.json")" hello --frames 1
+rm -rf "$PINS"
+
+echo
 echo "==> the shell's own record"
 check "--version names the host and the WIT it implements" "(WIT nimadir:shell@0.1.0)" \
   $HOST --version
@@ -334,6 +357,16 @@ JSON
       $HOST --registry "$B/catalogue.json" mini-apps/store/store.component.wasm --frames 1
     check "and its entries are the served ones" "served" \
       $HOST --registry "$B/catalogue.json" mini-apps/store/store.component.wasm --frames 1
+    # Pinned and remote: fetched once, then opened with no server at all —
+    # the second registry points at a port where nothing listens.
+    printf '[{"name":"pinned","source":"%s/counter.component.wasm","sha256":"%s"}]\n' \
+      "$B" "$COUNTER_SHA" > "$FIXTURES/pinned.json"
+    printf '[{"name":"pinned","source":"http://127.0.0.1:9/counter.component.wasm","sha256":"%s"}]\n' \
+      "$COUNTER_SHA" > "$FIXTURES/offline.json"
+    check "a pinned remote component is fetched and checked" "loaded $COUNTER_BYTES bytes of wasm from $B" \
+      $HOST --registry "$B/pinned.json" pinned --frames 1
+    check "and opens again from the cache, with no network" "(from the cache)" \
+      $HOST --registry "$(native "$FIXTURES/offline.json")" pinned --frames 1
   fi
 fi
 

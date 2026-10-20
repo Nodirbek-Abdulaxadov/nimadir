@@ -8,6 +8,9 @@ beta is `docs/ROADMAP.md`.
 ## [Unreleased]
 
 ### Security
+- Remote components and registries are fetched over HTTPS only; plain http
+  is allowed to this machine alone. A registry entry may pin its component's
+  SHA-256, and bytes that differ are refused before they are compiled.
 - A guest can no longer fill the host's memory by sending UI. Widget text and
   log lines are copied into the host, outside the guest's 512 MiB cap, so one
   buffer sent in a loop grew the host without limit for the whole one-second
@@ -15,6 +18,12 @@ beta is `docs/ROADMAP.md`.
   past that the guest is stopped and the reason names the limit.
 
 ### Added
+- The shell opens on a start page from any directory: the store is built
+  into the binary, and the registry is looked for in `NIMADIR_REGISTRY` and
+  the user's config directory, not only the working directory.
+- Pinned remote components are cached by hash and open again offline.
+- `--version`; a log of navigations, failures and panics in the data
+  directory; `NIMADIR_HOME` to put config, data and caches under one root.
 - `LICENSE` (MIT, as the README always said), this changelog, and
   `SECURITY.md`.
 - `docs/ROADMAP.md`: the sprints from MVP to beta, and what beta is held to;

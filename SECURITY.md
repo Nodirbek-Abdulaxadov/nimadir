@@ -33,8 +33,10 @@ Before the first beta, only the `main` branch is supported; fixes land there.
 These are planned work, not vulnerabilities — reports about them are still
 welcome if you find a way they are worse than described here:
 
-- **No integrity checks yet.** A component fetched over plain HTTP, or from a
-  compromised server, is run as received. Hash pinning and HTTPS-only remote
-  components are `S2-4` in `docs/ROADMAP.md`.
+- **Pinning is per entry.** Remote components are fetched over HTTPS only
+  (loopback excepted), and a registry entry with a `sha256` is refused unless
+  the bytes match. A component opened by address with no registry entry, or
+  an entry with no pin, is run as received — TLS is all that protects it.
+  Signed components are `S4-1` in `docs/ROADMAP.md`.
 - **No per-app permissions yet.** Every mini-app gets the whole `host-api`,
   and `open-app` may ask for any address. Policy is `S4-2` and `S4-3`.

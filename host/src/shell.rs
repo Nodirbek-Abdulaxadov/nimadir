@@ -82,7 +82,11 @@ struct Pending {
 /// stops repainting for that long is a window Windows paints "(Not
 /// Responding)" over.
 enum Landed {
-    App { app: Box<MiniApp>, bytes: usize },
+    App {
+        app: Box<MiniApp>,
+        bytes: usize,
+        cached: bool,
+    },
     WebPage,
 }
 
@@ -257,19 +261,27 @@ impl Shell {
         // snapshot is cloned because the guest is handed one at instantiation.
         let engine = self.engine.clone();
         let apps = self.apps.clone();
+        // A registry entry may pin what this address must hold.
+        let pin = self
+            .apps
+            .iter()
+            .find(|e| e.src == src)
+            .and_then(|e| e.sha256.clone());
         // If a second navigation starts first, this receiver is dropped and the
         // send fails — which is the right outcome: the answer to a question
         // nobody is asking any more goes nowhere.
         std::thread::spawn(move || {
-            let landed = resolve::classify(&address).and_then(|target| match target {
-                Target::WasmApp(wasm) => {
-                    MiniApp::load(&engine, &wasm, apps).map(|app| Landed::App {
-                        app: Box::new(app),
-                        bytes: wasm.len(),
-                    })
-                }
-                Target::WebPage => Ok(Landed::WebPage),
-            });
+            let landed =
+                resolve::classify_pinned(&address, pin.as_deref()).and_then(|f| match f.target {
+                    Target::WasmApp(wasm) => {
+                        MiniApp::load(&engine, &wasm, apps).map(|app| Landed::App {
+                            app: Box::new(app),
+                            bytes: wasm.len(),
+                            cached: f.cached,
+                        })
+                    }
+                    Target::WebPage => Ok(Landed::WebPage),
+                });
             let _ = tx.send(landed);
         });
         self.pending = Some(Pending {
@@ -354,13 +366,16 @@ impl Shell {
         }
         let (title, src) = (p.title.clone(), p.src.clone());
         match landed {
-            Landed::App { app, bytes } => {
+            Landed::App { app, bytes, cached } => {
                 self.view = View::App {
                     title,
                     src: src.clone(),
                     app,
                 };
-                Ok(format!("loaded {bytes} bytes of wasm from {src}"))
+                let from_cache = if cached { " (from the cache)" } else { "" };
+                Ok(format!(
+                    "loaded {bytes} bytes of wasm from {src}{from_cache}"
+                ))
             }
             Landed::WebPage => {
                 self.view = View::WebPage {

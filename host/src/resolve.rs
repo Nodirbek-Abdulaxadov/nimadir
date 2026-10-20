@@ -65,6 +65,124 @@ pub fn classify(src: &str) -> Result<Target> {
     }
 }
 
+/// Plain `http://` only to this machine; anything else must be `https://`.
+///
+/// What a shell fetches it runs, and a component that crossed the network
+/// unencrypted is one anybody on the path could have swapped. Android's own
+/// cleartext block does not cover this: it guards Java's networking, and these
+/// are Rust's sockets. Loopback stays allowed because there is no path to
+/// tamper with — and because the test suite serves from it.
+pub fn require_tls(url: &str) -> Result<()> {
+    let Some(rest) = url.strip_prefix("http://") else {
+        return Ok(());
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    let host_port = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
+    let host = match host_port.strip_prefix('[') {
+        Some(v6) => v6.split(']').next().unwrap_or(""),
+        None => host_port.split(':').next().unwrap_or(""),
+    };
+    let loopback = host.eq_ignore_ascii_case("localhost")
+        || host
+            .parse::<std::net::IpAddr>()
+            .is_ok_and(|ip| ip.is_loopback());
+    if !loopback {
+        bail!(
+            "{url} is plain http — the shell only fetches over https:// \
+             (this machine, localhost or 127.0.0.1, is the one exception)"
+        );
+    }
+    Ok(())
+}
+
+/// A classified address, and whether its component came from the cache.
+pub struct Fetched {
+    pub target: Target,
+    pub cached: bool,
+}
+
+/// `classify`, for an address the registry pins to a SHA-256.
+///
+/// The bytes are checked before anything is compiled: a server that is
+/// compromised, or a registry entry pointed somewhere else, gets a refusal
+/// naming both hashes rather than a run. A pinned remote component is also
+/// kept in the cache, so it opens again with no network — read back by the
+/// same hash, which checks the cached copy too.
+pub fn classify_pinned(src: &str, pin: Option<&str>) -> Result<Fetched> {
+    let Some(pin) = pin.map(str::to_ascii_lowercase) else {
+        return classify(src).map(|target| Fetched {
+            target,
+            cached: false,
+        });
+    };
+    let remote_src = is_remote(src);
+    if remote_src {
+        if let Some(bytes) = cache_get(&pin) {
+            return Ok(Fetched {
+                target: Target::WasmApp(bytes),
+                cached: true,
+            });
+        }
+    }
+    let Target::WasmApp(bytes) = classify(src)? else {
+        bail!("{src} is pinned to a component, but it is a web page");
+    };
+    let got = sha256_hex(&bytes);
+    if got != pin {
+        bail!(
+            "{src} is not the component the registry pinned \
+             (expected sha256 {pin}, got {got}) — it was not run"
+        );
+    }
+    if remote_src {
+        cache_put(&pin, &bytes);
+    }
+    Ok(Fetched {
+        target: Target::WasmApp(bytes),
+        cached: false,
+    })
+}
+
+/// Lower-case hex SHA-256, the form registries pin with.
+pub fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::{Digest, Sha256};
+    Sha256::digest(bytes)
+        .iter()
+        .map(|b| format!("{b:02x}"))
+        .collect()
+}
+
+fn cache_path(hash: &str) -> Option<std::path::PathBuf> {
+    // A pin is hex or it is not used as a file name.
+    if hash.is_empty() || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+        return None;
+    }
+    crate::paths::cache_dir().map(|d| d.join("components").join(format!("{hash}.wasm")))
+}
+
+/// The cached component with this hash, if there is one and it still has it.
+fn cache_get(hash: &str) -> Option<Vec<u8>> {
+    let bytes = std::fs::read(cache_path(hash)?).ok()?;
+    (sha256_hex(&bytes) == hash).then_some(bytes)
+}
+
+/// Best effort: a cache that cannot be written is a slower next open, nothing
+/// more.
+fn cache_put(hash: &str, bytes: &[u8]) {
+    let Some(path) = cache_path(hash) else {
+        return;
+    };
+    if let Some(dir) = path.parent() {
+        let _ = std::fs::create_dir_all(dir);
+    }
+    // Written aside and renamed, so a crash mid-write leaves no torn file
+    // under a name that claims a hash.
+    let tmp = path.with_extension("part");
+    if std::fs::write(&tmp, bytes).is_ok() {
+        let _ = std::fs::rename(&tmp, &path);
+    }
+}
+
 /// Addresses of components shipped inside the binary: `builtin:store`.
 pub const BUILTIN_SCHEME: &str = "builtin:";
 
@@ -113,6 +231,7 @@ fn local(path: &str) -> Result<Target> {
 
 /// Remote addresses are fetched once; the response says what they are.
 fn remote(url: &str) -> Result<Target> {
+    require_tls(url)?;
     // Checked before the request so a `.wasm` address is trusted even when the
     // server labels it badly — see the octet-stream note below.
     let named_wasm = extension(url_path(url)).as_deref() == Some("wasm");
