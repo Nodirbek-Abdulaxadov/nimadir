@@ -148,7 +148,8 @@ guest side from it, `wasmtime::component::bindgen!` the host side.
   `ui-heading`, `ui-search-field`, `ui-tile`, `now-millis`, `list-apps`,
   `open-app`, `request-frame`, `storage-get` / `-set` / `-remove` / `-keys`,
   `ui-begin` / `ui-end`, `ui-checkbox`, `ui-choice`, `ui-separator`,
-  `ui-progress`, `ui-submitted`, plus the `app-entry` record.
+  `ui-progress`, `ui-submitted`, `image-load`, `ui-image`, plus the
+  `app-entry` record.
 - `world mini-app` — imports `host-api`, exports `init` and `update`.
 
 The last two are what let the start page be an app instead of host code: a guest
@@ -336,6 +337,14 @@ thread and passes it to `MiniApp::load` — and is memory-only otherwise.
 `tick` runs after every frame: it writes out at most every 250 ms, and when a
 write is waiting it asks for a frame so an idle app's last change is not held
 until the next tap. `Drop` writes whatever is left when the app is left.
+
+### `host/src/images.rs` — what an app shows
+`Images::load` decodes PNG or JPEG on the host, reading the size from the
+header *before* any pixel is allocated — a few bytes can claim any size — and
+refuses past `MAX_IMAGE_SIDE` (4096) or the app's `MAX_APP_PIXELS` (8 MP). A
+`Picture` keeps its RGBA behind an `Arc`, since the frame's commands are cloned
+every frame, and an `id` unique across apps, which `gui.rs` caches its
+textures by (`ShellApp::textures`), dropping any not drawn in a frame.
 
 ### `host/src/settings.rs` — what the shell keeps on disk
 `kept` (each app's storage, by identity, with its size), `clear` (one app's —

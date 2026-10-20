@@ -117,6 +117,17 @@ interface host-api {
     /// submitted in the last frame — Enter on a keyboard, the action key on a
     /// phone's. Lets an app act on "done typing" instead of on every key.
     ui-submitted: func() -> bool;
+
+    /// Hand the host an image — PNG or JPEG bytes — once, and draw it by the
+    /// number this returns as often as needed. The host decodes it, and
+    /// refuses one larger than 4096 × 4096, or one that would take the app's
+    /// images past 8 megapixels in all. Images last as long as the app.
+    image-load: func(bytes: list<u8>) -> result<u32, string>;
+
+    /// Draw an image from `image-load`: at its own size where there is room,
+    /// scaled down to fit where there is not, never up. A number that is not
+    /// an image draws nothing.
+    ui-image: func(handle: u32);
 }
 
 /// A mini-app. It may import (call) everything in `host-api` — that interface IS

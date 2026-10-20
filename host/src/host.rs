@@ -18,6 +18,7 @@ use wasmtime::component::{Component, HasSelf, Linker, ResourceTable};
 use wasmtime::{Engine, ResourceLimiter, Store, Trap};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
+use crate::images::Images;
 use crate::registry::AppEntry;
 use crate::storage::Storage;
 use crate::ui::{Container, FrameInput, UiCmd};
@@ -193,6 +194,8 @@ pub struct HostState {
     sent: Sent,
     /// The app's `storage-*` strings (ADR-2).
     storage: Storage,
+    /// What it loaded with `image-load`.
+    images: Images,
 }
 
 impl HostState {
@@ -214,6 +217,7 @@ impl HostState {
             limits: GuestLimits::default(),
             sent: Sent::default(),
             storage,
+            images: Images::default(),
         }
     }
 
@@ -487,6 +491,21 @@ impl Host for HostState {
         Ok(self
             .last_text_field
             .is_some_and(|i| self.input.submitted.contains(&i)))
+    }
+
+    /// The bytes are charged like any the host keeps; the decoded image is
+    /// bounded by `images::MAX_APP_PIXELS` instead.
+    fn image_load(&mut self, bytes: Vec<u8>) -> wasmtime::Result<Result<u32, String>> {
+        self.spend(bytes.len())?;
+        Ok(self.images.load(&bytes))
+    }
+
+    fn ui_image(&mut self, handle: u32) -> wasmtime::Result<()> {
+        self.spend(0)?;
+        if let Some(picture) = self.images.get(handle) {
+            self.ui.push(UiCmd::Image(picture.clone()));
+        }
+        Ok(())
     }
 
     /// The earliest request in a frame wins, and none is sooner than

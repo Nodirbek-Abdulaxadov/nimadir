@@ -14,7 +14,7 @@ wit_bindgen::generate!({
 
 use std::hint::black_box;
 
-use nimadir::shell::host_api::{log, storage_set, ui_begin, ui_button, ui_label};
+use nimadir::shell::host_api::{image_load, log, storage_set, ui_begin, ui_button, ui_label};
 
 struct Runaway;
 
@@ -73,7 +73,26 @@ impl Guest for Runaway {
             }
             ui_label("deep");
         }
+
+        // Button 5: 65 bytes of PNG that claim to be 100 000 pixels square —
+        // 40 GB of pixels, if anyone believed it. The host reads the size from
+        // the header and refuses before setting a byte aside.
+        if ui_button("Load a huge image") {
+            match image_load(HUGE_PNG) {
+                Ok(_) => log("runaway: the huge image loaded"),
+                Err(why) => log(&format!("runaway: image refused: {why}")),
+            }
+        }
     }
 }
+
+/// A PNG of 100000 x 100000 RGBA by its header, with an empty image stream.
+const HUGE_PNG: &[u8] = &[
+    0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d, 0x49, 0x48, 0x44, 0x52,
+    0x00, 0x01, 0x86, 0xa0, 0x00, 0x01, 0x86, 0xa0, 0x08, 0x06, 0x00, 0x00, 0x00, 0xa8, 0x52, 0x0b,
+    0xc8, 0x00, 0x00, 0x00, 0x08, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9c, 0x03, 0x00, 0x00, 0x00, 0x00,
+    0x01, 0x48, 0x06, 0x89, 0xd2, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60,
+    0x82,
+];
 
 export!(Runaway);

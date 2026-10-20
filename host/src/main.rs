@@ -399,6 +399,7 @@ fn run_headless(mut shell: Shell, h: &Harness) -> Result<()> {
                 }
                 UiCmd::Separator => "----".to_string(),
                 UiCmd::Progress(f) => format!("progress : {:.0}%", f * 100.0),
+                UiCmd::Image(p) => format!("image : {}x{}", p.width, p.height),
             };
             println!("   {}{line}", "  ".repeat(depth));
             if matches!(c, UiCmd::Begin { .. }) {

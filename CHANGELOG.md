@@ -28,6 +28,9 @@ beta is `docs/ROADMAP.md`.
   section, scroll), `ui-checkbox`, `ui-choice`, `ui-separator`,
   `ui-progress`, and `ui-submitted` for acting when typing is done. The new
   `gallery` sample uses every one.
+- **Images**: `image-load` hands PNG or JPEG over once, `ui-image` draws it
+  by number. 4096 pixels a side, 8 megapixels an app, checked from the
+  header before anything is decoded.
 - **Settings page** (`nimadir:settings`, linked from the store): what each
   app keeps, the caches, clearing either. `--kept`, `--clear` and
   `--clear-cache` do the same from the command line.

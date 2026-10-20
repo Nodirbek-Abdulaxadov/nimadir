@@ -9,6 +9,7 @@ pub mod diag;
 #[cfg(feature = "gui")]
 pub mod gui;
 pub mod host;
+pub mod images;
 pub mod paths;
 pub mod registry;
 pub mod resolve;

@@ -314,6 +314,11 @@ struct ShellApp {
     pending_clicks: HashSet<u32>,
     /// Text fields submitted during the previous frame, fed to the guest next.
     pending_submits: HashSet<u32>,
+    /// Guest images uploaded to the GPU, by `Picture::id`. Kept while drawn;
+    /// one not drawn in a frame is dropped, with the app it belonged to.
+    textures: HashMap<u64, egui::TextureHandle>,
+    /// The images drawn in the current frame.
+    textures_used: HashSet<u64>,
     /// Live contents of the guest's text fields, by index. The host owns these
     /// buffers; the guest is told what is in them one frame later.
     field_values: HashMap<u32, String>,
@@ -355,6 +360,8 @@ impl ShellApp {
             shell,
             pending_clicks: HashSet::new(),
             pending_submits: HashSet::new(),
+            textures: HashMap::new(),
+            textures_used: HashSet::new(),
             field_values: HashMap::new(),
             address: String::new(),
             synced_src: String::new(),
@@ -951,6 +958,7 @@ impl ShellApp {
 
     /// The page area: purely whatever the guest described this frame.
     fn page(&mut self, ui: &mut egui::Ui) {
+        self.textures_used.clear();
         let fields_before = self.field_values.clone();
         let input = FrameInput {
             clicked: std::mem::take(&mut self.pending_clicks),
@@ -976,6 +984,8 @@ impl ShellApp {
         }
 
         self.draw_run(ui, &cmds);
+        let used = &self.textures_used;
+        self.textures.retain(|id, _| used.contains(id));
 
         for l in self.shell.take_logs() {
             eprintln!("[wasm log] {l}");
@@ -1164,6 +1174,24 @@ impl ShellApp {
             }
             UiCmd::Progress(fraction) => {
                 ui.add(egui::ProgressBar::new(*fraction).show_percentage());
+            }
+            // Uploaded once and drawn by handle; at its own size where there
+            // is room, scaled down where there is not, never up.
+            UiCmd::Image(picture) => {
+                let texture = self.textures.entry(picture.id).or_insert_with(|| {
+                    ui.ctx().load_texture(
+                        format!("guest-image-{}", picture.id),
+                        egui::ColorImage::from_rgba_unmultiplied(
+                            [picture.width as usize, picture.height as usize],
+                            &picture.rgba,
+                        ),
+                        egui::TextureOptions::LINEAR,
+                    )
+                });
+                self.textures_used.insert(picture.id);
+                let (w, h) = (picture.width as f32, picture.height as f32);
+                let scale = (ui.available_width() / w).min(1.0);
+                ui.image((texture.id(), egui::vec2(w * scale, h * scale)));
             }
             // Groups are `draw_run`'s; they never reach here.
             UiCmd::Begin { .. } | UiCmd::End => {}

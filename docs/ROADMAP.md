@@ -153,7 +153,8 @@ keep and the caches, with clearing; drawn but not yet seen on a screen.
 S4-6: `--kept`, `--clear`, `--clear-cache`, `--confirm`; `NIMADIR_HOME` is the
 data directory.
 
-**Sprint 5 progress (2026-10-20), on `sprint-5`:** S5-1 groups (row, column,
+**Sprint 5 closed (2026-10-20), 90 assertions.** S5-4: images, by handle,
+size-checked from the header. Earlier in the sprint: S5-1 groups (row, column,
 section, scroll; nesting capped at 32), S5-2 checkbox, choice, separator,
 progress, S5-3 submit — all green headlessly through the new `gallery`
 sample. S5-5: U+02BB was missing from every bundled font; Noto Sans now

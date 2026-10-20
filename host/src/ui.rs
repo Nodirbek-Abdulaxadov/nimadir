@@ -8,6 +8,8 @@
 
 use std::collections::{HashMap, HashSet};
 
+pub use crate::images::Picture;
+
 /// One immediate-mode UI element emitted by the guest during a frame.
 #[derive(Clone, Debug)]
 pub enum UiCmd {
@@ -69,6 +71,8 @@ pub enum UiCmd {
     Separator,
     /// Already clamped to 0.0..=1.0.
     Progress(f32),
+    /// An image the app loaded; cheap to clone, its pixels are shared.
+    Image(Picture),
 }
 
 /// What a group is. A backend decides what each looks like and how much room

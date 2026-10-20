@@ -14,8 +14,8 @@ wit_bindgen::generate!({
 use std::sync::Mutex;
 
 use nimadir::shell::host_api::{
-    ui_begin, ui_button, ui_checkbox, ui_choice, ui_end, ui_heading, ui_label, ui_progress,
-    ui_separator, ui_submitted, ui_text_edit,
+    image_load, log, ui_begin, ui_button, ui_checkbox, ui_choice, ui_end, ui_heading, ui_image,
+    ui_label, ui_progress, ui_separator, ui_submitted, ui_text_edit,
 };
 
 /// Guest-owned state, like every mini-app's.
@@ -25,6 +25,8 @@ struct State {
     name: String,
     greeted: Option<String>,
     size: u32,
+    /// The badge, as `image-load` numbered it.
+    badge: Option<u32>,
 }
 
 static STATE: Mutex<State> = Mutex::new(State {
@@ -33,6 +35,7 @@ static STATE: Mutex<State> = Mutex::new(State {
     name: String::new(),
     greeted: None,
     size: 0,
+    badge: None,
 });
 
 const SIZES: [&str; 3] = ["Small", "Medium", "Large"];
@@ -40,7 +43,13 @@ const SIZES: [&str; 3] = ["Small", "Medium", "Large"];
 struct Gallery;
 
 impl Guest for Gallery {
-    fn init() {}
+    /// The image is handed over once; every frame after draws it by number.
+    fn init() {
+        match image_load(include_bytes!("../assets/badge.png")) {
+            Ok(handle) => STATE.lock().unwrap().badge = Some(handle),
+            Err(why) => log(&format!("gallery: no badge: {why}")),
+        }
+    }
 
     fn update() {
         let mut s = STATE.lock().unwrap();
@@ -87,6 +96,13 @@ impl Guest for Gallery {
         s.size = ui_choice(&options, s.size);
         ui_label(&format!("Size: {}", SIZES[s.size as usize]));
         ui_progress((s.size + 1) as f32 / SIZES.len() as f32);
+        ui_end();
+
+        ui_begin("section");
+        ui_heading("Images", 2);
+        if let Some(badge) = s.badge {
+            ui_image(badge);
+        }
         ui_end();
 
         ui_separator();

@@ -336,6 +336,10 @@ check_absent "and not on every key before it" "Hello, Ada!" \
   $HOST gallery --input "1:0=Ada" --frames 3
 check "groups nested past the limit are drawn flat, not refused" '"deep"' \
   $HOST mini-apps/runaway/runaway.component.wasm --script "1:4" --frames 2
+check "an image is handed over once and drawn by number" "image : 48x48" \
+  $HOST gallery --frames 1
+check "an image that claims to be huge is refused from its header" "the most is 4096 on a side" \
+  $HOST mini-apps/runaway/runaway.component.wasm --script "1:5" --frames 2
 
 echo
 echo "==> frames on request"

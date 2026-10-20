@@ -22,6 +22,8 @@ wasmtime-wasi = "47"
 dirs = "6"
 # Registry pins: a component's SHA-256 is checked before it is compiled.
 sha2 = "0.10"
+# `image-load`: PNG and JPEG, decoded on the host. Pure Rust.
+image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
 # What a component says about itself, and who signed it (ADR-1).
 nimadir-manifest = { path = "../crates/manifest" }
 # The webview (module 1). Only `wry` — NOT Tauri: Tauri brings its own

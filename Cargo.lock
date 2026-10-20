@@ -2495,6 +2495,7 @@ dependencies = [
  "dirs",
  "eframe",
  "gtk",
+ "image",
  "jni 0.21.1",
  "nimadir-manifest",
  "serde",
@@ -2648,6 +2649,8 @@ dependencies = [
  "num-traits",
  "png",
  "tiff",
+ "zune-core",
+ "zune-jpeg",
 ]
 
 [[package]]
