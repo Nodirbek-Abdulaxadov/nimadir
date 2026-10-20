@@ -148,8 +148,9 @@ guest side from it, `wasmtime::component::bindgen!` the host side.
   `ui-heading`, `ui-search-field`, `ui-tile`, `now-millis`, `list-apps`,
   `open-app`, `request-frame`, `storage-get` / `-set` / `-remove` / `-keys`,
   `ui-begin` / `ui-end`, `ui-checkbox`, `ui-choice`, `ui-separator`,
-  `ui-progress`, `ui-submitted`, `image-load`, `ui-image`, plus the
-  `app-entry` record.
+  `ui-progress`, `ui-submitted`, `image-load`, `ui-image`, `fetch`,
+  `fetch-poll`, `locale`, plus the `app-entry`, `http-request` and
+  `http-response` records.
 - `world mini-app` — imports `host-api`, exports `init` and `update`.
 
 The last two are what let the start page be an app instead of host code: a guest
@@ -337,6 +338,20 @@ thread and passes it to `MiniApp::load` — and is memory-only otherwise.
 `tick` runs after every frame: it writes out at most every 250 ms, and when a
 write is waiting it asks for a frame so an idle app's last change is not held
 until the next tap. `Drop` writes whatever is left when the app is left.
+
+### `host/src/net.rs` — the network, for guests (ADR-3)
+`Net`, one per app: the origins its manifest declared (`origin_of` normalises
+`scheme://host[:port]`), the ones the user allowed — remembered in
+`<data>/apps/<id>/grants.json` for a signed app — and the requests, each
+`Waiting` (on the user), `Flying` (on a thread) or `Done`. `fetch` checks TLS,
+the declaration, a refusal, 8 MiB and 8 in flight before anything leaves;
+`poll` hands an answer over once. The agent follows **no redirects**: one
+would take a request to an origin nobody checked, so a 3xx goes back to the
+app. While a request is flying the app gets frames every 50 ms to poll from;
+while one waits on the user it gets none — the answer arrives as input. The
+question is drawn at the top of the chrome on every page
+(`ShellApp::network_question`); headless, `--confirm` answers it and the
+runner waits out requests between frames (`settle`).
 
 ### `host/src/images.rs` — what an app shows
 `Images::load` decodes PNG or JPEG on the host, reading the size from the

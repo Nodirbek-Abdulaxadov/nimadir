@@ -128,6 +128,38 @@ interface host-api {
     /// scaled down to fit where there is not, never up. A number that is not
     /// an image draws nothing.
     ui-image: func(handle: u32);
+
+    /// A request for `fetch`. `method` is GET, POST, …; `body` may be empty.
+    record http-request {
+        method: string,
+        url: string,
+        headers: list<tuple<string, string>>,
+        body: list<u8>,
+    }
+
+    /// What came back: any status at all, not only success.
+    record http-response {
+        status: u16,
+        headers: list<tuple<string, string>>,
+        body: list<u8>,
+    }
+
+    /// Start a request and return at once with its number (ADR-3). Only to an
+    /// origin the app's manifest lists under "network", over https — plain
+    /// http only to this machine — and only once the user has allowed it: the
+    /// first request to an origin is asked about in the chrome, and a signed
+    /// app's yes is remembered. At most 8 in flight; 8 MiB of body each way.
+    fetch: func(request: http-request) -> result<u32, string>;
+
+    /// A request's answer, once it has one: `none` while it is under way (or
+    /// waiting on the user), then the response, or why there is none. Each
+    /// answer is given once.
+    fetch-poll: func(request: u32) -> option<result<http-response, string>>;
+
+    /// The user's language and region, BCP 47 — "uz-UZ", "ru-RU", "en-US" —
+    /// so an app can pick its words and formats. "en-US" when the system does
+    /// not say.
+    locale: func() -> string;
 }
 
 /// A mini-app. It may import (call) everything in `host-api` — that interface IS

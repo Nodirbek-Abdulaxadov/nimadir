@@ -39,7 +39,8 @@ welcome if you find a way they are worse than described here:
   an entry with no pin, is run as received — TLS is all that protects it.
   A component may be signed (ADR-1), and an entry may require its publisher;
   the hosted registry does not require signatures yet.
-- **Permissions are coarse.** Every mini-app gets the whole `host-api`.
-  `open-app` to an address the registry does not list needs the user's
-  confirmation; storage persists only for a signed app that asks. Network
-  access for guests does not exist yet, and will be per-origin (`S6-2`).
+- **Permissions are per capability, not per call.** The network is
+  declared per origin and allowed by the user (ADR-3); storage persists only
+  for a signed app that asks; `open-app` to an unlisted address needs the
+  user's yes. The rest of `host-api` — UI, the clock, the registry list,
+  locale — every app has.

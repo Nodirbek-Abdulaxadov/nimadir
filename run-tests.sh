@@ -110,7 +110,7 @@ HOST=./target/debug/host
 echo "==> building"
 # Mini-apps first: the host carries the store inside it when the store exists
 # at the time it is built.
-if [[ ! -f mini-apps/store/store.component.wasm || ! -f mini-apps/runaway/runaway.component.wasm || ! -f mini-apps/future/future.component.wasm ]]; then
+if [[ ! -f mini-apps/store/store.component.wasm || ! -f mini-apps/runaway/runaway.component.wasm || ! -f mini-apps/future/future.component.wasm || ! -f mini-apps/fetcher/fetcher.component.wasm ]]; then
   echo "    mini-apps missing; running build-mini-apps.sh"
   ./build-mini-apps.sh >/dev/null || { red "mini-app build failed"; echo; exit 1; }
 fi
@@ -342,6 +342,13 @@ check "an image that claims to be huge is refused from its header" "the most is 
   $HOST mini-apps/runaway/runaway.component.wasm --script "1:5" --frames 2
 
 echo
+echo "==> what an app may know"
+check "an app learns the user's language and region" "locale uz-UZ" \
+  bash -c "LC_ALL= LC_MESSAGES= LANG=uz_UZ.UTF-8 $HOST mini-apps/fetcher/fetcher.component.wasm --frames 1"
+check "and a default when the system does not say" "locale en-US" \
+  bash -c "LC_ALL= LC_MESSAGES= LANG=C $HOST mini-apps/fetcher/fetcher.component.wasm --frames 1"
+
+echo
 echo "==> frames on request"
 # The window draws only when something happens; an app showing time passing
 # has to ask. One that asks for nothing must not be given frames anyway.
@@ -501,6 +508,40 @@ JSON
     check "with the network gone, the saved copy of the registry is used" "(saved copy)" \
       bash -c "cd '$HOSTED_AT' && NIMADIR_HOSTED_REGISTRY='$B/registry/apps.json' '$ABS_HOST' --list"
     rm -rf "$HOSTED_AT"
+
+    # Network for apps (ADR-3): declared in the manifest, allowed by the user.
+    # The server is gone by now (the saved-copy case stopped it), so start
+    # another on the next port.
+    PORT2=$((PORT + 1))
+    (cd "$FIXTURES" && exec python3 -m http.server $PORT2 --bind 127.0.0.1) >/dev/null 2>&1 &
+    SRV=$!
+    B2="http://127.0.0.1:$PORT2"
+    for _ in $(seq 1 40); do
+      curl -sf --noproxy '*' -o /dev/null "$B2/page.html" && break
+      sleep 0.25
+    done
+    NET=$(mktemp -d)
+    $PACK keygen "$NET/key" >/dev/null
+    printf '{"name":"fetcher","version":"1.0.0","permissions":[{"network":["%s"]}]}\n' "$B2" > "$NET/m.json"
+    $PACK pack mini-apps/fetcher/fetcher.component.wasm "$NET/m.json" "$NET/signed.wasm" --key "$NET/key" >/dev/null
+    $PACK pack mini-apps/fetcher/fetcher.component.wasm "$NET/m.json" "$NET/unsigned.wasm" >/dev/null
+    FETCH=(--input "1:0=$B2/page.html" --script "2:0" --frames 4)
+    check "an app's first request to an origin asks the user" "wants to connect to $B2" \
+      $HOST "$(native "$NET/unsigned.wasm")" "${FETCH[@]}"
+    check "without a yes it gets nothing" "the user did not allow connecting to $B2" \
+      $HOST "$(native "$NET/unsigned.wasm")" "${FETCH[@]}"
+    check "with one, it gets its answer" "status 200" \
+      $HOST "$(native "$NET/signed.wasm")" "${FETCH[@]}" --confirm
+    check_absent "and a signed app is not asked again" "wants to connect" \
+      $HOST "$(native "$NET/signed.wasm")" "${FETCH[@]}"
+    check "an origin its manifest does not list is refused at once" "is not among the origins" \
+      $HOST "$(native "$NET/signed.wasm")" --input "1:0=http://127.0.0.1:9/x" --script "2:0" --frames 3
+    # python's server answers a directory without its slash with a 301.
+    check "a redirect is handed back to the app, not followed" "status 301" \
+      $HOST "$(native "$NET/signed.wasm")" --input "1:0=$B2/registry" --script "2:0" --frames 4
+    check "an app with no manifest reaches nothing" "declares no network access" \
+      $HOST mini-apps/fetcher/fetcher.component.wasm "${FETCH[@]}"
+    rm -rf "$NET"
   fi
 fi
 

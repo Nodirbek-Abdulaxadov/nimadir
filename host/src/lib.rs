@@ -10,6 +10,7 @@ pub mod diag;
 pub mod gui;
 pub mod host;
 pub mod images;
+mod net;
 pub mod paths;
 pub mod registry;
 pub mod resolve;
@@ -35,6 +36,19 @@ pub fn wit_package() -> &'static str {
         .lines()
         .find_map(|l| l.trim().strip_prefix("package "))
         .map_or("unknown", |p| p.trim_end_matches(';'))
+}
+
+/// The user's language and region as BCP 47 — `uz_UZ.UTF-8` in `LANG` is
+/// `uz-UZ` — from the variables a Unix system sets; `en-US` when none says
+/// (Windows, a phone, `C`, `POSIX`).
+pub fn locale() -> String {
+    ["LC_ALL", "LC_MESSAGES", "LANG"]
+        .iter()
+        .filter_map(|v| std::env::var(v).ok())
+        .find(|v| !v.is_empty())
+        .map(|v| v.split(['.', '@']).next().unwrap_or("").replace('_', "-"))
+        .filter(|v| !v.is_empty() && v != "C" && v != "POSIX")
+        .unwrap_or_else(|| "en-US".to_string())
 }
 
 /// The Wasmtime engine, with compiled components cached on disk and guest

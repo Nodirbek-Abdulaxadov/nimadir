@@ -19,6 +19,7 @@ use wasmtime::{Engine, ResourceLimiter, Store, Trap};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
 use crate::images::Images;
+use crate::net::{self, Net};
 use crate::registry::AppEntry;
 use crate::storage::Storage;
 use crate::ui::{Container, FrameInput, UiCmd};
@@ -36,7 +37,9 @@ mod bindings {
     });
 }
 
-use bindings::nimadir::shell::host_api::{AppEntry as WitAppEntry, Host};
+use bindings::nimadir::shell::host_api::{
+    AppEntry as WitAppEntry, Host, HttpRequest, HttpResponse,
+};
 use bindings::MiniApp as MiniAppWorld;
 
 /// How often the engine's epoch advances. Every limit on guest *time* below is
@@ -196,10 +199,26 @@ pub struct HostState {
     storage: Storage,
     /// What it loaded with `image-load`.
     images: Images,
+    /// Its requests, and what the user allowed (ADR-3).
+    net: Net,
+}
+
+/// What the shell decided about an app before starting it, from what it said
+/// about itself (ADR-1) — the guest has no say in any of it.
+#[derive(Default)]
+pub struct Standing {
+    /// The identity its storage is kept under (ADR-2): signed, and asked for
+    /// `storage`. `None` is storage that ends with the app.
+    pub keep_as: Option<String>,
+    /// Its identity when signed, under which the user's network grants are
+    /// remembered.
+    pub identity: Option<String>,
+    /// The origins its manifest declares under `network`.
+    pub network: Vec<String>,
 }
 
 impl HostState {
-    fn new(apps: Vec<AppEntry>, storage: Storage) -> Self {
+    fn new(apps: Vec<AppEntry>, standing: &Standing) -> Self {
         HostState {
             ui: Vec::new(),
             input: FrameInput::default(),
@@ -216,8 +235,9 @@ impl HostState {
             table: ResourceTable::new(),
             limits: GuestLimits::default(),
             sent: Sent::default(),
-            storage,
+            storage: Storage::open(standing.keep_as.as_deref()),
             images: Images::default(),
+            net: Net::new(&standing.network, standing.identity.as_deref()),
         }
     }
 
@@ -508,6 +528,43 @@ impl Host for HostState {
         Ok(())
     }
 
+    /// Charged like anything else the host keeps of a guest's; the policy
+    /// is `Net`'s (ADR-3).
+    fn fetch(&mut self, request: HttpRequest) -> wasmtime::Result<Result<u32, String>> {
+        let size = request.url.len()
+            + request.method.len()
+            + request.body.len()
+            + request
+                .headers
+                .iter()
+                .map(|(k, v)| k.len() + v.len())
+                .sum::<usize>();
+        self.spend_n(1 + request.headers.len(), size)?;
+        Ok(self.net.fetch(net::Request {
+            method: request.method,
+            url: request.url,
+            headers: request.headers,
+            body: request.body,
+        }))
+    }
+
+    fn fetch_poll(
+        &mut self,
+        request: u32,
+    ) -> wasmtime::Result<Option<Result<HttpResponse, String>>> {
+        Ok(self.net.poll(request).map(|answer| {
+            answer.map(|r| HttpResponse {
+                status: r.status,
+                headers: r.headers,
+                body: r.body,
+            })
+        }))
+    }
+
+    fn locale(&mut self) -> wasmtime::Result<String> {
+        Ok(crate::locale())
+    }
+
     /// The earliest request in a frame wins, and none is sooner than
     /// `MIN_FRAME_MS`. Kept, not accumulated, like `open_app`.
     fn request_frame(&mut self, after_ms: u32) -> wasmtime::Result<()> {
@@ -536,13 +593,13 @@ impl MiniApp {
     /// type this touches is `Send`, so the finished app can simply be handed
     /// over when it is ready.
     ///
-    /// `keep_as` is the identity whose storage the app gets (ADR-2): `None`
-    /// gives it storage that ends with it.
+    /// `standing` is what the shell decided about the app from its manifest
+    /// and signature: where its storage is kept, what network it declared.
     pub fn load(
         engine: &Engine,
         wasm: &[u8],
         apps: Vec<AppEntry>,
-        keep_as: Option<&str>,
+        standing: &Standing,
     ) -> Result<Self> {
         let component = Component::from_binary(engine, wasm)?;
         if let Some(missing) = newer_than_us(engine, &component) {
@@ -567,7 +624,7 @@ impl MiniApp {
         // the Rust mini-apps import none of it.
         wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
 
-        let mut store = Store::new(engine, HostState::new(apps, Storage::open(keep_as)));
+        let mut store = Store::new(engine, HostState::new(apps, standing));
         store.limiter(|s| &mut s.limits);
         // Set before instantiation, not just before `init`: a component can run
         // code while it is being instantiated, and with epoch interruption on,
@@ -606,6 +663,12 @@ impl MiniApp {
         for _ in 0..st.depth.min(MAX_NESTING) {
             st.ui.push(UiCmd::End);
         }
+        // Requests out on the network are polled from frames; there have to
+        // be some.
+        if st.net.flying() {
+            let ms = 50;
+            st.frame_after = Some(st.frame_after.map_or(ms, |m| m.min(ms)));
+        }
         // Storage written now, or a frame asked for when it is due.
         if let Some(ms) = st.storage.tick() {
             let ms = ms.max(MIN_FRAME_MS);
@@ -630,6 +693,21 @@ impl MiniApp {
     /// while this app was running.
     pub fn set_apps(&mut self, apps: Vec<AppEntry>) {
         self.store.data_mut().apps = apps;
+    }
+
+    /// The origin the user is being asked whether the app may reach.
+    pub fn network_question(&self) -> Option<String> {
+        self.store.data().net.asking().map(str::to_string)
+    }
+
+    pub fn answer_network(&mut self, allow: bool) {
+        self.store.data_mut().net.answer(allow);
+    }
+
+    /// Wait for the app's requests under way — the headless runner's way of
+    /// keeping a run deterministic.
+    pub fn settle_network(&mut self) {
+        self.store.data_mut().net.settle(Duration::from_secs(30));
     }
 
     /// When the guest wants its next frame, in milliseconds, if it asked.

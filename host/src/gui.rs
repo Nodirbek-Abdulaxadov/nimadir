@@ -637,7 +637,15 @@ impl ShellApp {
     /// built-in fallback list is host UI and keeps its address bar, or a failed
     /// store would leave the shell with nowhere to type at all.
     fn chrome(&mut self, ui: &mut egui::Ui) -> bool {
+        // Whether an app may reach an origin (ADR-3). Above everything, and on
+        // every page — the start page included, which has no other chrome —
+        // since a request waits on it.
+        let asked = self.network_question(ui);
+
         if self.shell.is_start_page() {
+            if asked {
+                return true;
+            }
             // An error still has to surface somewhere, and on this page there
             // is nowhere else.
             if self.shell.status_is_error && !self.shell.status.is_empty() {
@@ -770,6 +778,29 @@ impl ShellApp {
         }
         if let Some(n) = nav {
             self.navigate(n);
+        }
+        true
+    }
+
+    /// The question an app's first request to an origin raises, and the
+    /// buttons that answer it. Returns whether it drew.
+    fn network_question(&mut self, ui: &mut egui::Ui) -> bool {
+        let Some((app, origin)) = self.shell.network_question() else {
+            return false;
+        };
+        let mut answer = None;
+        ui.horizontal_wrapped(|ui| {
+            ui.label(egui::RichText::new(format!("{app} wants to connect to {origin}")).strong());
+            if ui.button("Allow").clicked() {
+                answer = Some(true);
+            }
+            if ui.button("Don't allow").clicked() {
+                answer = Some(false);
+            }
+        });
+        if let Some(allow) = answer {
+            self.shell.answer_network(allow);
+            self.redraw = true;
         }
         true
     }

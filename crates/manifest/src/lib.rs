@@ -65,6 +65,18 @@ impl Manifest {
         Ok(())
     }
 
+    /// The origins listed under `network`, all of them.
+    pub fn network(&self) -> Vec<String> {
+        self.permissions
+            .iter()
+            .filter_map(|p| match p {
+                Permission::Network { network } => Some(network.iter().cloned()),
+                Permission::Named(_) => None,
+            })
+            .flatten()
+            .collect()
+    }
+
     pub fn wants(&self, permission: &str) -> bool {
         self.permissions
             .iter()

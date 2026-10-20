@@ -414,6 +414,15 @@ fn run_headless(mut shell: Shell, h: &Harness) -> Result<()> {
         if let Some(ms) = shell.take_frame_request() {
             println!("   [next frame in {ms} ms]");
         }
+        // An app asked to reach an origin: the window would ask the user;
+        // here `--confirm` answers. Then its requests are waited for, so the
+        // next frame's poll finds them done.
+        if let Some((app, origin)) = shell.network_question() {
+            println!("   [asks] {app} wants to connect to {origin}");
+            shell.answer_network(confirm);
+            println!("   [{}]", if confirm { "allowed" } else { "not allowed" });
+        }
+        shell.settle_network();
         // An app asked to open somewhere unlisted: the window would ask the
         // user; here `--confirm` answers yes, and its absence no.
         if let Some(ask) = shell.asking() {

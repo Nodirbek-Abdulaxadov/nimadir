@@ -153,6 +153,10 @@ keep and the caches, with clearing; drawn but not yet seen on a screen.
 S4-6: `--kept`, `--clear`, `--clear-cache`, `--confirm`; `NIMADIR_HOME` is the
 data directory.
 
+**Sprint 6 progress (2026-10-20), on `sprint-6`:** S6-1 (ADR-3) and S6-2 —
+`fetch`, declared and granted, with S4-2's grant machinery; S6-3 `locale`
+(time zone still to do). 99 assertions.
+
 **Sprint 5 closed (2026-10-20), 90 assertions.** S5-4: images, by handle,
 size-checked from the header. Earlier in the sprint: S5-1 groups (row, column,
 section, scroll; nesting capped at 32), S5-2 checkbox, choice, separator,

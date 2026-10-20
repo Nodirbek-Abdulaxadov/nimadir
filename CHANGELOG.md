@@ -24,6 +24,10 @@ beta is `docs/ROADMAP.md`.
   past that the guest is stopped and the reason names the limit.
 
 ### Added
+- **Network for apps** (ADR-3): `fetch` / `fetch-poll`, to origins an app's
+  manifest declares, once the user allows — asked in the chrome, remembered
+  for a signed app. HTTPS only, no redirects followed, 8 in flight, 8 MiB.
+- `locale()`: the user's language and region, BCP 47.
 - **More to build with**: groups (`ui-begin` / `ui-end`: row, column,
   section, scroll), `ui-checkbox`, `ui-choice`, `ui-separator`,
   `ui-progress`, and `ui-submitted` for acting when typing is done. The new

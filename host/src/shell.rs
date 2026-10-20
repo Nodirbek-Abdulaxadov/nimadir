@@ -22,7 +22,7 @@ use wasmtime::Engine;
 
 use nimadir_manifest::{Inspected, SignedBy};
 
-use crate::host::MiniApp;
+use crate::host::{MiniApp, Standing};
 use crate::registry::AppEntry;
 use crate::resolve::{self, Target};
 use crate::ui::{FrameInput, UiCmd};
@@ -352,18 +352,12 @@ impl Shell {
                         // Before anything is compiled: a component whose
                         // signature does not hold never reaches Cranelift.
                         let info = vouch(&address, &wasm, publisher.as_deref())?;
-                        // Storage that outlives the app is for one with an
-                        // identity that asked for it (ADR-2).
-                        let keep_as = info
-                            .identity()
-                            .filter(|_| info.manifest.as_ref().is_some_and(|m| m.wants("storage")));
-                        MiniApp::load(&engine, &wasm, apps, keep_as.as_deref()).map(|app| {
-                            Landed::App {
-                                app: Box::new(app),
-                                bytes: wasm.len(),
-                                cached: f.cached,
-                                info,
-                            }
+                        let standing = standing(&info);
+                        MiniApp::load(&engine, &wasm, apps, &standing).map(|app| Landed::App {
+                            app: Box::new(app),
+                            bytes: wasm.len(),
+                            cached: f.cached,
+                            info,
                         })
                     }
                     Target::WebPage => Ok(Landed::WebPage),
@@ -617,6 +611,28 @@ impl Shell {
         }
     }
 
+    /// The origin the running app wants to reach, waiting on the user's yes
+    /// or no — with the app's title, for the question.
+    pub fn network_question(&self) -> Option<(String, String)> {
+        match &self.view {
+            View::App { app, title, .. } => app.network_question().map(|o| (title.clone(), o)),
+            _ => None,
+        }
+    }
+
+    pub fn answer_network(&mut self, allow: bool) {
+        if let View::App { app, .. } = &mut self.view {
+            app.answer_network(allow);
+        }
+    }
+
+    /// Wait for the running app's requests under way: the headless runner's.
+    pub fn settle_network(&mut self) {
+        if let View::App { app, .. } = &mut self.view {
+            app.settle_network();
+        }
+    }
+
     /// The running app's identity, `<publisher>/<name>` — `None` for an app
     /// that is unsigned or has no manifest, which runs as unverified.
     pub fn identity(&self) -> Option<String> {
@@ -653,6 +669,22 @@ fn vouch(src: &str, wasm: &[u8], publisher: Option<&str>) -> Result<Inspected> {
         }
     }
     Ok(info)
+}
+
+/// What an app may do, decided from what it said about itself and who signed
+/// it. Storage that outlives it is for an identity that asked for it (ADR-2);
+/// network is whatever origins it declared, granted or not by the user, with
+/// a signed app's grants remembered (ADR-3).
+fn standing(info: &Inspected) -> Standing {
+    let identity = info.identity();
+    let manifest = info.manifest.as_ref();
+    Standing {
+        keep_as: identity
+            .clone()
+            .filter(|_| manifest.is_some_and(|m| m.wants("storage"))),
+        network: manifest.map(|m| m.network()).unwrap_or_default(),
+        identity,
+    }
 }
 
 /// What a landed app said about itself, for the status line.
