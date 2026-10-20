@@ -398,6 +398,15 @@ impl eframe::App for ShellApp {
         // in the background. A webview's GTK loop is pumped from here, so a
         // page keeps the frames coming.
         let wanted = self.shell.take_frame_request();
+        // Hidden — minimized, covered, or an app sent to the background — a
+        // guest's own clock waits: nobody would see the frame it asked for, and
+        // on a phone it is battery. Showing the window wakes egui by itself,
+        // and the guest asks again from that frame.
+        let hidden = ui.ctx().input(|i| {
+            let v = i.viewport();
+            v.minimized == Some(true) || v.occluded == Some(true)
+        });
+        let wanted = wanted.filter(|_| !hidden);
         // A registry on its way is polled rather than spun on: it can take
         // seconds, and nothing on screen moves while it does.
         let registry = self.shell.refreshing().then_some(250);

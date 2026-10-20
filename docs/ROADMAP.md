@@ -124,8 +124,8 @@ on Android. From here on, an item is done only when it works on both.
 S3-1 (Gradle + `cargo-ndk`, API 36, AAB — but still NativeActivity, see S3-4),
 S3-2, S3-3, S3-5 (Back; no Forward yet), S3-7, S3-8 (webview desktop-only for
 beta), S3-9 (`tools/android-smoke.sh`, written). **Waiting on a device:** the
-smoke test itself, S3-6 (with the redraw policy nothing should draw in the
-background; unmeasured), and every Android claim since the spike. **Open:**
+smoke test itself, S3-6 (the redraw policy draws nothing unasked, and a guest's
+`request-frame` now waits while the window is hidden; unmeasured on a phone), and every Android claim since the spike. **Open:**
 S3-4 — winit 0.30 drops IME text events, so GameActivity would break typing;
 it needs a winit upgrade or patch before predictions and non-ASCII can work.
 

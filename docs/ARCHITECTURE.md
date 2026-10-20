@@ -349,7 +349,9 @@ Splits the window into two zones, and keeping them apart is the security story:
 - **Redraw policy**, at the end of `ui`: another frame only when the next one
   will differ — `redraw` (a click or an edit this frame that the guest hears
   about next frame), a load in flight, a webview page (its GTK loop is pumped
-  from here), or the guest's `request-frame`. Input wakes egui by itself. See
+  from here), or the guest's `request-frame` — which waits while the window is
+  minimized or occluded (or the app is in the background), since nobody would
+  see the frame. Input wakes egui by itself. See
   §4.11 for what the old unconditional `request_repaint` cost.
 - `Body::of` picks the renderer for the area below the chrome. It reads the
   discriminant into a local first: the arms take `&mut self`, so the match
