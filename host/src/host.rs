@@ -16,6 +16,7 @@ use std::time::Duration;
 use anyhow::{anyhow, Result};
 use wasmtime::component::{Component, HasSelf, Linker, ResourceTable};
 use wasmtime::{Engine, ResourceLimiter, Store, Trap};
+use wasmtime_wasi::p2::pipe::MemoryOutputPipe;
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
 use crate::images::Images;
@@ -90,6 +91,10 @@ pub const MIN_FRAME_MS: u32 = 16;
 /// renderer walks groups recursively, and a guest is not trusted with the
 /// depth of the host's stack.
 pub const MAX_NESTING: u32 = 32;
+
+/// What a guest may write to stderr over its life: 64 KiB. Past it the stream
+/// is closed to the guest, which a runtime takes as a full pipe.
+const STDERR_CAPACITY: usize = 64 << 10;
 
 /// Start the clock that guest time limits are measured against.
 ///
@@ -189,9 +194,15 @@ pub struct HostState {
     /// …) import the `wasi:*` interfaces even for a headless reactor, so the
     /// host must provide them; the Rust mini-apps import none, so this stays
     /// dormant for them. The context is deliberately minimal — no filesystem or
-    /// network preopens — a sandboxed default (only stderr is inherited, for
-    /// runtime diagnostics).
+    /// network preopens, and stderr into `stderr` below rather than the
+    /// shell's own.
     wasi: WasiCtx,
+    /// What the guest wrote to stderr — a runtime's diagnostics — held here,
+    /// bounded, and moved into `logs` (escaped) after each call. It used to be
+    /// the shell's stderr, where a guest's bytes reached the terminal raw.
+    stderr: MemoryOutputPipe,
+    /// How much of `stderr` has been moved into `logs` already.
+    stderr_seen: usize,
     table: ResourceTable,
     limits: GuestLimits,
     sent: Sent,
@@ -219,6 +230,7 @@ pub struct Standing {
 
 impl HostState {
     fn new(apps: Vec<AppEntry>, standing: &Standing) -> Self {
+        let stderr = MemoryOutputPipe::new(STDERR_CAPACITY);
         HostState {
             ui: Vec::new(),
             input: FrameInput::default(),
@@ -231,13 +243,30 @@ impl HostState {
             apps,
             pending_open: None,
             frame_after: None,
-            wasi: WasiCtxBuilder::new().inherit_stderr().build(),
+            wasi: WasiCtxBuilder::new().stderr(stderr.clone()).build(),
+            stderr,
+            stderr_seen: 0,
             table: ResourceTable::new(),
             limits: GuestLimits::default(),
             sent: Sent::default(),
             storage: Storage::open(standing.keep_as.as_deref()),
             images: Images::default(),
             net: Net::new(&standing.network, standing.identity.as_deref()),
+        }
+    }
+
+    /// Move what the guest wrote to stderr since last time into its logs, a
+    /// line at a time, escaped like `log`.
+    fn drain_stderr(&mut self) {
+        let written = self.stderr.contents();
+        if written.len() <= self.stderr_seen {
+            return;
+        }
+        let new = String::from_utf8_lossy(&written[self.stderr_seen..]).into_owned();
+        self.stderr_seen = written.len();
+        for line in new.lines().filter(|l| !l.trim().is_empty()) {
+            self.logs
+                .push(format!("stderr: {}", crate::text::visible(line)));
         }
     }
 
@@ -280,9 +309,11 @@ impl WasiView for HostState {
 /// Each method returns `wasmtime::Result`, and an `Err` is a trap in the guest.
 /// Anything that keeps what the guest sends goes through `spend` first.
 impl Host for HostState {
+    /// Escaped on the way in: every reader of a guest's log — a terminal, the
+    /// log file — is one where control characters would be commands.
     fn log(&mut self, msg: String) -> wasmtime::Result<()> {
         self.spend(msg.len())?;
-        self.logs.push(msg);
+        self.logs.push(crate::text::visible(&msg));
         Ok(())
     }
 
@@ -633,6 +664,7 @@ impl MiniApp {
 
         let started = MiniAppWorld::instantiate(&mut store, &component, &linker)
             .and_then(|world| world.call_init(&mut store).map(|()| world));
+        store.data_mut().drain_stderr();
         let world = started.map_err(|e| explain(e, &store, "start", INIT_BUDGET_TICKS))?;
 
         Ok(MiniApp { store, world })
@@ -654,9 +686,9 @@ impl MiniApp {
             st.input = input;
         }
         self.store.set_epoch_deadline(FRAME_BUDGET_TICKS);
-        self.world
-            .call_update(&mut self.store)
-            .map_err(|e| explain(e, &self.store, "finish a frame", FRAME_BUDGET_TICKS))?;
+        let updated = self.world.call_update(&mut self.store);
+        self.store.data_mut().drain_stderr();
+        updated.map_err(|e| explain(e, &self.store, "finish a frame", FRAME_BUDGET_TICKS))?;
         let st = self.store.data_mut();
         // Close what the guest left open, so a backend always sees groups
         // balanced.

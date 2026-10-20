@@ -361,6 +361,13 @@ refuses past `MAX_IMAGE_SIDE` (4096) or the app's `MAX_APP_PIXELS` (8 MP). A
 every frame, and an `id` unique across apps, which `gui.rs` caches its
 textures by (`ShellApp::textures`), dropping any not drawn in a frame.
 
+### `host/src/text.rs` — guest text, made safe to show
+`visible` escapes control characters and bidi formatting characters. Every
+place a guest's words leave the page goes through it: `log` (and WASI stderr,
+now captured per app rather than inherited), the shell's log file
+(`diag::line`), and the chrome's questions, where an override could make an
+address read as a different one. See `docs/SECURITY-REVIEW.md`.
+
 ### `host/src/settings.rs` — what the shell keeps on disk
 `kept` (each app's storage, by identity, with its size), `clear` (one app's —
 the identity checked before it becomes a path, so `../` cannot escape),

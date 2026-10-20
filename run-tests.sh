@@ -134,6 +134,10 @@ check "a second component runs on the same host" "Hello from a *different* mini-
   $HOST hello --frames 1
 check "logs cross the boundary" "[wasm log]" \
   $HOST counter --frames 1
+# A terminal takes escape sequences as commands; a guest's log must not reach
+# one raw. The fuzz fixture logs "\0\n\t" and a right-to-left override.
+check "a guest's control characters reach the terminal escaped" '\u{202e}' \
+  bash -c "set -o pipefail; $HOST mini-apps/fuzz/fuzz.component.wasm --frames 30 | tr -d '\\000'"
 # Polyglot, on the host that was never told which language it is running.
 # Skipped rather than failed when the optional toolchain is absent — the same
 # treatment `build-mini-apps.sh` gives it.
@@ -559,6 +563,9 @@ JSON
       curl -sf --noproxy '*' -o /dev/null "$B2/page.html" && break
       sleep 0.25
     done
+    # The suite's server is on this machine, which apps may not reach unless
+    # this says they may.
+    export NIMADIR_ALLOW_LOCAL_NETWORK=1
     NET=$(mktemp -d)
     $PACK keygen "$NET/key" >/dev/null
     printf '{"name":"fetcher","version":"1.0.0","permissions":[{"network":["%s"]}]}\n' "$B2" > "$NET/m.json"
@@ -580,6 +587,9 @@ JSON
       $HOST "$(native "$NET/signed.wasm")" --input "1:0=$B2/registry" --script "2:0" --frames 4
     check "an app with no manifest reaches nothing" "declares no network access" \
       $HOST mini-apps/fetcher/fetcher.component.wasm "${FETCH[@]}"
+    check "and without leave, no app reaches this machine or its network" "which apps may not reach" \
+      env -u NIMADIR_ALLOW_LOCAL_NETWORK $HOST "$(native "$NET/signed.wasm")" "${FETCH[@]}"
+    unset NIMADIR_ALLOW_LOCAL_NETWORK
     rm -rf "$NET"
 
     # Asked only when asked for; here, against releases the suite serves.

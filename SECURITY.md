@@ -30,6 +30,10 @@ Before the first beta, only the `main` branch is supported; fixes land there.
 
 ## Known gaps
 
+The pre-beta review, with what it fixed and what it accepted, is
+`docs/SECURITY-REVIEW.md`.
+
+
 These are planned work, not vulnerabilities — reports about them are still
 welcome if you find a way they are worse than described here:
 

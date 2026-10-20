@@ -812,9 +812,11 @@ impl ShellApp {
         // chrome, which the app cannot draw over or click for the user.
         let mut answer = None;
         if let Some(ask) = self.shell.asking() {
+            // Escaped: a bidi override in an address would make the question
+            // show somewhere other than where the answer goes.
             let question = t(self.lang, Text::WantsToOpen)
-                .replace("{app}", &ask.from)
-                .replace("{address}", &ask.address);
+                .replace("{app}", &crate::text::visible(&ask.from))
+                .replace("{address}", &crate::text::visible(&ask.address));
             let lang = self.lang;
             ui.horizontal_wrapped(|ui| {
                 ui.label(egui::RichText::new(question).strong());
@@ -862,8 +864,8 @@ impl ShellApp {
         let mut answer = None;
         ui.horizontal_wrapped(|ui| {
             let question = t(lang, Text::WantsToConnect)
-                .replace("{app}", &app)
-                .replace("{origin}", &origin);
+                .replace("{app}", &crate::text::visible(&app))
+                .replace("{origin}", &crate::text::visible(&origin));
             ui.label(egui::RichText::new(question).strong());
             if ui.button(t(lang, Text::Allow)).clicked() {
                 answer = Some(true);

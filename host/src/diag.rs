@@ -44,9 +44,14 @@ pub fn init() {
     ));
 }
 
-/// One line in the log, stamped with the time in UTC.
+/// One line in the log, stamped with the time in UTC. Escaped: what is logged
+/// often carries an address or a reason that came from a guest, and a newline
+/// in it would be a forged entry.
 pub fn line(msg: &str) {
-    write(&mut LOG.lock().unwrap_or_else(|e| e.into_inner()), msg);
+    write(
+        &mut LOG.lock().unwrap_or_else(|e| e.into_inner()),
+        &crate::text::visible(msg),
+    );
 }
 
 fn write(log: &mut Option<File>, msg: &str) {

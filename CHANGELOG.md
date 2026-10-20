@@ -8,6 +8,12 @@ beta is `docs/ROADMAP.md`.
 ## [Unreleased]
 
 ### Security
+- A pre-beta review of the boundary (`docs/SECURITY-REVIEW.md`) fixed four
+  things: guest logs and WASI stderr reached the terminal raw (escape
+  sequences are terminal commands); a newline from a guest could forge a line
+  in the shell's log; a bidi override could disguise the address in the
+  chrome's questions; and an app could ask to reach this machine or its local
+  network. All four are closed, three of them tested.
 - An app can open an app the registry lists, but opening any other address
   needs the user's yes, asked in the chrome where no app can answer for them.
 - **Signed apps** (ADR-1). A component may carry a manifest and its

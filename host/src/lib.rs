@@ -19,6 +19,7 @@ pub mod resolve;
 pub mod settings;
 pub mod shell;
 mod storage;
+pub mod text;
 pub mod ui;
 pub mod update;
 #[cfg(feature = "webview")]

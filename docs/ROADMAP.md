@@ -162,7 +162,8 @@ without a panic.
 **Sprint 8 progress:** S8-1 installers: a `.deb` built and checked here (the
 shell starts from it with the store inside), AppImage failing in linuxdeploy on
 this machine, Windows and macOS untried until CI runs them; release workflow
-written, signing from secrets (D2 still open for Apple). S8-5 Reload; S8-4 the window in Uzbek, Russian and
+written, signing from secrets (D2 still open for Apple). S8-6: the review,
+`docs/SECURITY-REVIEW.md` — four findings fixed, residual risks listed. S8-5 Reload; S8-4 the window in Uzbek, Russian and
 English (Android's locale read over JNI); S8-3 store cards labelled for screen
 readers — Android accessibility waits on GameActivity, with S3-4. Images have
 no alternative text yet: that needs a WIT function, after beta.

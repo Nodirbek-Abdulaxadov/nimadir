@@ -86,6 +86,11 @@ impl Net {
     pub fn fetch(&mut self, request: Request) -> Result<u32, String> {
         crate::resolve::require_tls(&request.url).map_err(|e| e.to_string())?;
         let origin = origin_of(&request.url)?;
+        if is_local(&origin) && std::env::var_os("NIMADIR_ALLOW_LOCAL_NETWORK").is_none() {
+            return Err(format!(
+                "{origin} is this machine or its local network, which apps may not reach"
+            ));
+        }
         if self.declared.is_empty() {
             return Err("this app declares no network access in its manifest".into());
         }
@@ -250,6 +255,38 @@ pub fn origin_of(url: &str) -> Result<String, String> {
         return Err(format!("{url} has no host"));
     }
     Ok(format!("{scheme}://{host}"))
+}
+
+/// Whether an origin names this machine or a private network by address —
+/// `localhost`, loopback, RFC 1918, link-local, unique-local. An app reaching
+/// those with one "Allow" could talk to a developer's database or a router's
+/// admin page. `NIMADIR_ALLOW_LOCAL_NETWORK` lifts it, for the test suite and
+/// for someone writing an app against a server on their own machine.
+///
+/// By name only: a public name that resolves to a private address is not
+/// caught here (see docs/SECURITY-REVIEW.md).
+fn is_local(origin: &str) -> bool {
+    let host = origin.split_once("://").map_or(origin, |(_, h)| h);
+    let host = match host.strip_prefix('[') {
+        Some(v6) => v6.split(']').next().unwrap_or(""),
+        None => host.rsplit_once(':').map_or(host, |(h, _)| h),
+    };
+    if host == "localhost" || host.ends_with(".localhost") {
+        return true;
+    }
+    match host.parse::<std::net::IpAddr>() {
+        Ok(std::net::IpAddr::V4(ip)) => {
+            ip.is_loopback() || ip.is_private() || ip.is_link_local() || ip.is_unspecified()
+        }
+        Ok(std::net::IpAddr::V6(ip)) => {
+            let first = ip.segments()[0];
+            ip.is_loopback()
+                || ip.is_unspecified()
+                || (first & 0xfe00) == 0xfc00
+                || (first & 0xffc0) == 0xfe80
+        }
+        Err(_) => false,
+    }
 }
 
 fn spawn(request: Request) -> Receiver<Answer> {
