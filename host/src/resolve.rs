@@ -92,7 +92,10 @@ fn remote(url: &str) -> Result<Target> {
     // server labels it badly — see the octet-stream note below.
     let named_wasm = extension(url_path(url)).as_deref() == Some("wasm");
 
-    let resp = http().get(url).call().with_context(|| format!("GET {url}"))?;
+    let resp = http()
+        .get(url)
+        .call()
+        .with_context(|| format!("GET {url}"))?;
 
     // Headers must be read before `into_reader` consumes the response. Only the
     // mime type matters; `; charset=utf-8` and friends are dropped.
@@ -112,7 +115,12 @@ fn remote(url: &str) -> Result<Target> {
 
     // Refused up front when the server is honest about the size, and cut off
     // at the cap when it is not (or sends no length at all).
-    let too_big = || format!("{url} is larger than {} MiB, the most the shell will download", MAX_DOWNLOAD >> 20);
+    let too_big = || {
+        format!(
+            "{url} is larger than {} MiB, the most the shell will download",
+            MAX_DOWNLOAD >> 20
+        )
+    };
     if resp
         .header("Content-Length")
         .and_then(|n| n.trim().parse::<u64>().ok())

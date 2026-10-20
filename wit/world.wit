@@ -63,6 +63,14 @@ interface host-api {
     /// own `update`, so navigation always happens between frames, not during
     /// one. The caller keeps running until then.
     open-app: func(source: string);
+
+    /// Ask for another frame in `after-ms` milliseconds, whatever happens
+    /// meanwhile. Without it the shell draws only when something happens — a
+    /// tap, a key, a load — so an app with nothing to animate costs nothing,
+    /// which on a phone is battery. An app that shows time passing asks again
+    /// from each frame for the next. The earliest request in a frame wins, and
+    /// nothing comes sooner than one frame (16 ms).
+    request-frame: func(after-ms: u32);
 }
 
 /// A mini-app. It may import (call) everything in `host-api` — that interface IS

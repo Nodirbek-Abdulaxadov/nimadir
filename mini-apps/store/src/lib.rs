@@ -37,7 +37,10 @@ struct Store;
 
 impl Guest for Store {
     fn init() {
-        log(&format!("store: {} apps in the registry", list_apps().len()));
+        log(&format!(
+            "store: {} apps in the registry",
+            list_apps().len()
+        ));
     }
 
     fn update() {

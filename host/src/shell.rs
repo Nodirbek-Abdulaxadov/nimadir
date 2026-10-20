@@ -28,6 +28,18 @@ use crate::ui::{FrameInput, UiCmd};
 /// The registry name of the app that serves as the start page.
 pub const STORE_APP: &str = "store";
 
+/// The most places `back` remembers. A guest can navigate once per frame, so
+/// an unbounded list is memory a page could grow forever.
+const HISTORY_LIMIT: usize = 100;
+
+/// A place the shell has been, to go back to. Only the address: leaving an
+/// app destroys it, so going back opens it afresh — a browser reloading a page,
+/// not one restored from memory.
+struct Visit {
+    src: String,
+    title: String,
+}
+
 /// Which "page" the shell is on.
 ///
 /// `title`/`src` are chrome, so only the window backend reads them; the
@@ -84,6 +96,9 @@ enum Origin {
     /// The start page, on the way home. A failure falls back to the built-in
     /// list, and success says nothing — you are simply home.
     Home,
+    /// `back`. The one navigation that does not add the page it leaves to the
+    /// history, or going back twice would return you where you started.
+    Back,
 }
 
 pub struct Shell {
@@ -101,6 +116,8 @@ pub struct Shell {
     /// can tell "the UI changed because the app changed" from "the UI changed
     /// because the app redrew". Read-and-clear.
     navigated: bool,
+    /// Where `back` goes, most recent last.
+    history: Vec<Visit>,
 }
 
 // `is_home`/`go_home` are navigation, which only the window backend performs.
@@ -115,7 +132,54 @@ impl Shell {
             status: String::new(),
             status_is_error: false,
             navigated: false,
+            history: Vec::new(),
         }
+    }
+
+    /// Where the shell is, as `(title, address)` — `None` on the built-in
+    /// list, which is a fallback and not a place.
+    pub fn location(&self) -> Option<(&str, &str)> {
+        match &self.view {
+            View::Home => None,
+            View::App { title, src, .. } => Some((title, src)),
+            View::WebPage { title, url } => Some((title, url)),
+        }
+    }
+
+    /// Remember where the shell is before it goes somewhere else.
+    fn record(&mut self) {
+        let Some((title, src)) = self.location() else {
+            return;
+        };
+        let visit = Visit {
+            src: src.to_string(),
+            title: title.to_string(),
+        };
+        if self.history.len() == HISTORY_LIMIT {
+            self.history.remove(0);
+        }
+        self.history.push(visit);
+    }
+
+    /// Whether `back` would go anywhere — anywhere but out of the shell.
+    pub fn can_go_back(&self) -> bool {
+        !self.history.is_empty() || !(self.is_start_page() || self.is_home())
+    }
+
+    /// Go back to where the shell was before, opening it afresh.
+    ///
+    /// With no history, back from an app is the start page — an app opened
+    /// straight from the command line still has somewhere to go back to. From
+    /// the start page itself there is nowhere: that returns `false`, which a
+    /// phone reads as "leave the app" and a desktop ignores.
+    pub fn back(&mut self) -> bool {
+        match self.history.pop() {
+            Some(v) if v.title == STORE_APP => self.go_start(),
+            Some(v) => self.start_as(&v.src, &v.title, Origin::Back),
+            None if self.is_start_page() || self.is_home() => return false,
+            None => self.go_start(),
+        }
+        true
     }
 
     /// What is being loaded right now, if anything. The window backend draws a
@@ -198,10 +262,12 @@ impl Shell {
         // nobody is asking any more goes nowhere.
         std::thread::spawn(move || {
             let landed = resolve::classify(&address).and_then(|target| match target {
-                Target::WasmApp(wasm) => MiniApp::load(&engine, &wasm, apps).map(|app| Landed::App {
-                    app: Box::new(app),
-                    bytes: wasm.len(),
-                }),
+                Target::WasmApp(wasm) => {
+                    MiniApp::load(&engine, &wasm, apps).map(|app| Landed::App {
+                        app: Box::new(app),
+                        bytes: wasm.len(),
+                    })
+                }
                 Target::WebPage => Ok(Landed::WebPage),
             });
             let _ = tx.send(landed);
@@ -219,10 +285,9 @@ impl Shell {
         let Some(p) = self.pending.take() else {
             return;
         };
-        let result = p
-            .rx
-            .recv()
-            .unwrap_or_else(|_| Err(anyhow::anyhow!("the loader thread died")));
+        let result =
+            p.rx.recv()
+                .unwrap_or_else(|_| Err(anyhow::anyhow!("the loader thread died")));
         self.finish(p, result);
     }
 
@@ -280,6 +345,11 @@ impl Shell {
     /// pointing at a half-loaded page. Nothing expensive happens in here; the
     /// work was done before this was ever called.
     fn arrive(&mut self, landed: Landed, p: &Pending) -> Result<String> {
+        // Recorded here, on arrival, not when the navigation starts: one that
+        // fails leaves you where you were, and there is nothing to go back to.
+        if !matches!(p.origin, Origin::Back) {
+            self.record();
+        }
         let (title, src) = (p.title.clone(), p.src.clone());
         match landed {
             Landed::App { app, bytes } => {
@@ -291,7 +361,10 @@ impl Shell {
                 Ok(format!("loaded {bytes} bytes of wasm from {src}"))
             }
             Landed::WebPage => {
-                self.view = View::WebPage { title, url: src.clone() };
+                self.view = View::WebPage {
+                    title,
+                    url: src.clone(),
+                };
                 // Honest in both builds: without the webview feature there is
                 // nothing to render the page with, and saying so beats a status
                 // line that claims success over a blank area.
@@ -313,7 +386,17 @@ impl Shell {
     /// other, written against the same WIT, replaceable without touching the
     /// host. A missing or broken store falls back to the built-in list rather
     /// than leaving the shell with nowhere to go.
+    ///
+    /// Home is a navigation like any other, so the page it leaves is
+    /// remembered: back from the start page returns to it.
     pub fn go_home(&mut self) {
+        self.record();
+        self.go_start();
+    }
+
+    /// `go_home` without remembering where it came from — for `back`, and for
+    /// starting up, where there is nowhere to remember.
+    fn go_start(&mut self) {
         self.view = View::Home;
         self.status.clear();
         self.status_is_error = false;
@@ -364,6 +447,15 @@ impl Shell {
         // `cmds` describes the app that just asked to leave. Drawing it now
         // would paint a frame of an app the shell has already dropped.
         Ok(Vec::new())
+    }
+
+    /// When the current mini-app wants its next frame, in milliseconds, if it
+    /// asked during the last one (`request-frame`).
+    pub fn take_frame_request(&mut self) -> Option<u32> {
+        match &mut self.view {
+            View::App { app, .. } => app.take_frame_request(),
+            View::Home | View::WebPage { .. } => None,
+        }
     }
 
     /// Drain log lines from the current mini-app.

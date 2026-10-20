@@ -68,7 +68,12 @@ pub fn load_from(source: &str) -> (Vec<AppEntry>, String) {
 
 fn fetch(url: &str) -> Option<String> {
     // `into_string` caps the body at 10 MB itself; the agent bounds the wait.
-    crate::resolve::http().get(url).call().ok()?.into_string().ok()
+    crate::resolve::http()
+        .get(url)
+        .call()
+        .ok()?
+        .into_string()
+        .ok()
 }
 
 /// Read the default manifests: `apps.json`, then `apps.list`, then the built-in
@@ -170,7 +175,8 @@ pub fn builtin() -> Vec<AppEntry> {
         AppEntry {
             name: "counter-cs".into(),
             src: "mini-apps/counter-cs/counter-cs.component.wasm".into(),
-            description: "The counter written in C# (.NET NativeAOT) — same WIT, no host change.".into(),
+            description: "The counter written in C# (.NET NativeAOT) — same WIT, no host change."
+                .into(),
         },
     ]
 }

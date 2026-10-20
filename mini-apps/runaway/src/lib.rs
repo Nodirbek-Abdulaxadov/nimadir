@@ -1,7 +1,8 @@
-//! `runaway` — a **test fixture**, not an app. It does the two things an
+//! `runaway` — a **test fixture**, not an app. It does the three things an
 //! untrusted guest must not be able to do to the shell: never return from
-//! `update`, and grow its memory without end. `run-tests.sh` clicks each button
-//! and checks that the host stops the guest and says which limit it hit.
+//! `update`, grow its memory without end, and send the host more UI than it can
+//! hold. `run-tests.sh` clicks each button and checks that the host stops the
+//! guest and says which limit it hit.
 //!
 //! It is deliberately left out of `apps.json`: nothing about it belongs on a
 //! start page. Open it by path.
@@ -41,6 +42,16 @@ impl Guest for Runaway {
         if ui_button("Eat memory") {
             loop {
                 black_box(core::arch::wasm32::memory_grow(0, 1024));
+            }
+        }
+
+        // Button 2: one megabyte, sent again and again. The guest holds it
+        // once; the host would keep a copy per call, so it is the host's
+        // memory this spends, and the guest's memory cap never sees it.
+        if ui_button("Flood the shell") {
+            let big = "x".repeat(1 << 20);
+            loop {
+                ui_label(&big);
             }
         }
     }

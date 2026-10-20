@@ -17,11 +17,24 @@ ureq = "2"
 # same parser reads a local file and a remote one.
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-eframe = { version = "0.35", optional = true }
 wasmtime-wasi = "47"
 # The webview (module 1). Only `wry` — NOT Tauri: Tauri brings its own
 # application framework, which would fight the host loop nimadir already owns.
 wry = { version = "0.56", optional = true }
+
+# The window (`gui`). Default features on the desktop. On Android: no X11 or
+# Wayland, and no `accesskit`, which eframe refuses to combine with
+# NativeActivity — see docs/spikes/android.md.
+[target.'cfg(not(target_os = "android"))'.dependencies]
+eframe = { version = "0.35", optional = true }
+
+[target.'cfg(target_os = "android")'.dependencies]
+eframe = { version = "0.35", optional = true, default-features = false, features = ["wgpu", "default_fonts", "android-native-activity"] }
+# Only to name `AndroidApp`, which eframe takes but does not re-export. The
+# version eframe already uses.
+winit = { version = "0.30", optional = true, features = ["android-native-activity"] }
+# To read the window insets (`android.rs`), which winit does not report.
+jni = { version = "0.21", optional = true }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 # On Linux wry is WebKitGTK, which lives in GTK's event loop; the host has to
@@ -34,7 +47,7 @@ gtk = { version = "0.18", optional = true }
 # libraries needed) and can be verified in CI. The real native window is the
 # `gui` feature: `cargo run --features gui -- <app.wasm>`.
 default = []
-gui = ["dep:eframe"]
+gui = ["dep:eframe", "dep:winit", "dep:jni"]
 # Kept separate from `gui` because it needs system libraries that `gui` does
 # not: WebKitGTK on Linux (libwebkit2gtk-4.1-dev), WebView2 on Windows. Folding
 # it into `gui` would make the windowed build stop working on machines that

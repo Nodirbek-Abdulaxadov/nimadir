@@ -1,6 +1,9 @@
 [workspace]
 resolver = "2"
-members = ["host", "tools/componentize"]
+members = ["host", "tools/componentize", "android"]
+# `android` is built with `cargo apk`, for an Android target; a plain
+# `cargo build` stays exactly what it was.
+default-members = ["host", "tools/componentize"]
 # Mini-apps compile to `wasm32-unknown-unknown` and are turned into WASM
 # components; they import host functions that only exist at runtime, so they must
 # NOT be built for the native host target. They are standalone crates, excluded

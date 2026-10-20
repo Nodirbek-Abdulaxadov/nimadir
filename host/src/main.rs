@@ -21,27 +21,18 @@
 //! through the capability table in `host.rs`. Swapping the .wasm runs a
 //! different mini-app with no host rebuild — the "browser-like" part.
 
-mod host;
-mod registry;
-mod resolve;
-mod shell;
-mod ui;
-#[cfg(feature = "gui")]
-mod gui;
-#[cfg(feature = "webview")]
-mod webview;
-
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
 
 use anyhow::Result;
 
-use crate::shell::Shell;
-use crate::ui::{FrameInput, UiCmd};
+use host::registry;
+use host::shell::Shell;
+use host::ui::{FrameInput, UiCmd};
 
 const USAGE: &str = "usage: host [<address> | <listed-app-name>] \
 [--list] [--headless] [--frames N] [--script \"frame:btn,...\"] \
-[--input \"frame:field=text\"] [--registry <path-or-url>]\n\
+[--input \"frame:field=text\"] [--back \"frame,...\"] [--registry <path-or-url>]\n\
 an address is a .wasm component (path or URL) or a web page URL";
 
 fn main() -> Result<()> {
@@ -55,6 +46,7 @@ fn main() -> Result<()> {
     // Repeatable rather than comma-separated: typed text is free-form, and a
     // separator inside a search term should not silently truncate it.
     let mut inputs: Vec<String> = Vec::new();
+    let mut backs = String::new();
     let mut registry_src: Option<String> = None;
 
     let mut i = 1;
@@ -80,6 +72,10 @@ fn main() -> Result<()> {
                     inputs.push(v.clone());
                 }
             }
+            "--back" => {
+                i += 1;
+                backs = args.get(i).cloned().unwrap_or_default();
+            }
             "--registry" => {
                 i += 1;
                 registry_src = args.get(i).cloned();
@@ -102,7 +98,7 @@ fn main() -> Result<()> {
         return Ok(());
     }
 
-    let mut shell = Shell::new(engine()?, apps);
+    let mut shell = Shell::new(host::engine()?, apps);
 
     // An argument means "navigate straight there", skipping the home screen. It
     // may be a listed app's name (a bookmark) or any path/URL.
@@ -115,7 +111,7 @@ fn main() -> Result<()> {
     if !headless {
         // A failed --  open leaves the shell on home with the error shown there,
         // so the window still comes up. Nothing to do but run.
-        return gui::run(shell);
+        return host::gui::run(shell);
     }
 
     #[cfg(not(feature = "gui"))]
@@ -142,38 +138,9 @@ fn main() -> Result<()> {
             if shell.is_web_page() {
                 return Ok(());
             }
-            run_headless(shell, frames, &script, &inputs)
+            run_headless(shell, frames, &script, &inputs, &backs)
         }
     }
-}
-
-/// The Wasmtime engine, with compiled components cached on disk and guest
-/// running time bounded.
-///
-/// Compiling is the expensive half of opening a mini-app, and it scales with
-/// the runtime the guest brought: nothing for a 19 KB Rust component, seconds
-/// for the 18 MB Python one. Caching means that cost is paid once per component
-/// per machine instead of once per visit.
-///
-/// A cache that cannot be set up is not fatal — it is an optimisation, and a
-/// shell that refuses to start because a directory is unwritable would be
-/// trading a real feature for a missing one.
-fn engine() -> Result<wasmtime::Engine> {
-    let mut config = wasmtime::Config::new();
-    match wasmtime::Cache::from_file(None) {
-        Ok(cache) => {
-            config.cache(Some(cache));
-        }
-        Err(e) => eprintln!("(no compilation cache: {e})"),
-    }
-    // Guest time limits (see `host::start_epoch_ticker`). Compiled code checks
-    // the epoch only when this is on, so it has to be decided here, for every
-    // component the engine will ever compile.
-    config.epoch_interruption(true);
-    // wasmtime re-exports its own `Error` type, distinct from ours.
-    let engine = wasmtime::Engine::new(&config).map_err(|e| anyhow::anyhow!("{e}"))?;
-    host::start_epoch_ticker(&engine);
-    Ok(engine)
 }
 
 /// Print the registry — the text form of the home screen.
@@ -219,13 +186,25 @@ fn parse_input(s: &str) -> Option<(usize, u32, String)> {
 
 /// Run the current mini-app for N frames, injecting scripted clicks, printing
 /// each frame's UI. No display needed — this is how the boundary is verified.
-fn run_headless(mut shell: Shell, frames: usize, script: &str, inputs: &[String]) -> Result<()> {
+fn run_headless(
+    mut shell: Shell,
+    frames: usize,
+    script: &str,
+    inputs: &[String],
+    backs: &str,
+) -> Result<()> {
     for l in shell.take_logs() {
         println!("[wasm log] {l}");
     }
 
     let script = parse_script(script);
     let typed: Vec<(usize, u32, String)> = inputs.iter().filter_map(|s| parse_input(s)).collect();
+    // `"4,6"` => press Back before frames 4 and 6 — the system Back key on a
+    // phone, the Back button in the window's chrome.
+    let backs: HashSet<usize> = backs
+        .split(',')
+        .filter_map(|f| f.trim().parse().ok())
+        .collect();
 
     // Text fields keep their contents between frames, the way the window
     // backend's live buffers do; `--input` sets a value at a frame and it
@@ -235,6 +214,21 @@ fn run_headless(mut shell: Shell, frames: usize, script: &str, inputs: &[String]
     println!("\n=== headless run: {frames} frames ===");
 
     for frame in 0..frames {
+        if backs.contains(&frame) {
+            // The page left behind takes its text fields with it, as in the
+            // window: what was typed belonged to an instance that is gone.
+            edits.clear();
+            if shell.back() {
+                shell.wait();
+                match shell.location() {
+                    Some((title, _)) => println!("\n[back] now at {title}"),
+                    None => println!("\n[back] {}", shell.status),
+                }
+            } else {
+                println!("\n[back] nothing to go back to");
+            }
+        }
+
         for (_, field, value) in typed.iter().filter(|(f, _, _)| *f == frame) {
             edits.insert(*field, value.clone());
         }
@@ -276,6 +270,11 @@ fn run_headless(mut shell: Shell, frames: usize, script: &str, inputs: &[String]
         }
         for l in shell.take_logs() {
             println!("   [wasm log] {l}");
+        }
+        // The window would wait this long before drawing again unasked; here
+        // frames come at once, so it is only reported.
+        if let Some(ms) = shell.take_frame_request() {
+            println!("   [next frame in {ms} ms]");
         }
         // A guest that asked to navigate has already been replaced by the app
         // it asked for; say so, or the next frame's different UI looks like a

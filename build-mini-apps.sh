@@ -30,13 +30,16 @@ done
 # optional: skipped cleanly when `dotnet` isn't on PATH, so the Rust apps still
 # build everywhere. Needs the .NET 10 SDK; its toolchain (NativeAOT-LLVM + the
 # WASI SDK) is downloaded and cached on the first build (a few minutes once).
-if command -v dotnet >/dev/null 2>&1; then
+#
+# The SDK version is checked, not just `dotnet`: CI images and many machines
+# carry an older SDK, which would fail the build outright rather than skip it.
+if command -v dotnet >/dev/null 2>&1 && dotnet --list-sdks 2>/dev/null | grep -q '^10\.'; then
   echo "==> building mini-app: counter-cs (C#, componentize-dotnet)"
   dotnet build -c Release mini-apps/counter-cs/counter-cs.csproj
   cp mini-apps/counter-cs/bin/Release/net10.0/wasi-wasm/publish/counter_cs.wasm \
      mini-apps/counter-cs/counter-cs.component.wasm
 else
-  echo "==> skipping counter-cs (C#): 'dotnet' not found on PATH"
+  echo "==> skipping counter-cs (C#): no .NET 10 SDK found on PATH"
 fi
 
 # The Python mini-app is built by componentize-py (`pip install componentize-py`),

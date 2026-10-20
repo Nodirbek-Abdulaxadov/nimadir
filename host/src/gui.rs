@@ -27,6 +27,11 @@ use crate::registry;
 use crate::shell::{Shell, View};
 use crate::ui::{FrameInput, UiCmd};
 
+/// What `run_android` is handed, re-exported so the Android crate need not
+/// depend on winit itself just to name it.
+#[cfg(target_os = "android")]
+pub use winit::platform::android::activity::AndroidApp;
+
 /// Where a home-screen interaction wants to navigate.
 enum Nav {
     /// A link from the registry — already a real source.
@@ -35,7 +40,25 @@ enum Nav {
     Typed(String),
 }
 
-pub fn run(mut shell: Shell) -> Result<()> {
+pub fn run(shell: Shell) -> Result<()> {
+    run_with(shell, eframe::NativeOptions::default())
+}
+
+/// The Android front door: the same window, handed the activity it lives in.
+/// eframe needs the `AndroidApp` to build its event loop; everything after
+/// that is the desktop path unchanged.
+#[cfg(target_os = "android")]
+pub fn run_android(shell: Shell, app: AndroidApp) -> Result<()> {
+    run_with(
+        shell,
+        eframe::NativeOptions {
+            android_app: Some(app),
+            ..Default::default()
+        },
+    )
+}
+
+fn run_with(mut shell: Shell, native_options: eframe::NativeOptions) -> Result<()> {
     // The window's start page is the store mini-app, not the shell's built-in
     // list — `go_home` decides which, and falls back if the store is missing.
     // Only when the CLI did not already navigate somewhere.
@@ -51,7 +74,9 @@ pub fn run(mut shell: Shell) -> Result<()> {
     #[cfg(feature = "webview")]
     let web_unavailable = crate::webview::init().err().map(|e| e.to_string());
 
-    let native_options = eframe::NativeOptions::default();
+    #[cfg(target_os = "android")]
+    let android_app = native_options.android_app.clone();
+
     eframe::run_native(
         "wasm-shell",
         native_options,
@@ -62,6 +87,10 @@ pub fn run(mut shell: Shell) -> Result<()> {
             #[cfg(feature = "webview")]
             {
                 app.web_unavailable = web_unavailable;
+            }
+            #[cfg(target_os = "android")]
+            {
+                app.safe_area = android_app.map(crate::android::SafeArea::new);
             }
             Ok(Box::new(app) as Box<dyn eframe::App>)
         }),
@@ -186,6 +215,15 @@ fn install_theme(ctx: &egui::Context) {
         style.spacing.button_padding = egui::vec2(12.0, 6.0);
         style.visuals.selection.stroke.width = 1.0;
 
+        // A finger is not a pointer. On a phone every control is at least 48
+        // points tall — Android's minimum touch target, since a point there is
+        // a dp — where the desktop's were about 32.
+        #[cfg(target_os = "android")]
+        {
+            style.spacing.interact_size.y = 48.0;
+            style.spacing.button_padding = egui::vec2(16.0, 12.0);
+        }
+
         // egui makes every label selectable by default, which puts a text
         // caret over all of a mini-app's UI and makes ordinary labels feel
         // like a document. An app's text is not a document — it is a
@@ -225,6 +263,13 @@ struct ShellApp {
     /// times a second, and cleared on navigation so the next page may differ.
     #[cfg(feature = "webview")]
     web_error: Option<String>,
+    /// Where the system's bars are not. Set once the window exists, from the
+    /// activity eframe was handed.
+    #[cfg(target_os = "android")]
+    safe_area: Option<crate::android::SafeArea>,
+    /// Something done in this frame shows only in the next — a click or an
+    /// edit the guest has not been told about yet — so ask for one.
+    redraw: bool,
 }
 
 impl ShellApp {
@@ -242,7 +287,52 @@ impl ShellApp {
             web_unavailable: None,
             #[cfg(feature = "webview")]
             web_error: None,
+            #[cfg(target_os = "android")]
+            safe_area: None,
+            redraw: false,
         }
+    }
+
+    /// Back, from the chrome's button or the system's key.
+    ///
+    /// With nowhere left to go back to, a phone leaves the app, as every
+    /// Android app does on Back from its first screen. A desktop window does
+    /// not close itself because a mouse button was pressed.
+    fn go_back(&mut self, ctx: &egui::Context) {
+        // Input aimed at the page being left goes nowhere.
+        self.pending_clicks.clear();
+        self.field_values.clear();
+        let nowhere = !self.shell.back();
+        #[cfg(target_os = "android")]
+        if nowhere {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        }
+        #[cfg(not(target_os = "android"))]
+        let _ = (nowhere, ctx);
+    }
+
+    /// The part of the window nothing of the system's covers — everything,
+    /// chrome included, is laid out inside it.
+    ///
+    /// On a phone the window runs under the status bar and the navigation bar,
+    /// and a tap on either goes to the system: laid out over the whole window,
+    /// the Home button sat under the clock where it could not be pressed. A
+    /// small gutter keeps fields off the screen's edges too. On the desktop
+    /// there is nothing to avoid and this is the whole window.
+    fn safe_rect(&mut self, ui: &egui::Ui) -> egui::Rect {
+        let full = ui.max_rect();
+        #[cfg(target_os = "android")]
+        if let Some(area) = self.safe_area.as_mut() {
+            /// Side margin on a phone, in points, where the bars leave none.
+            const GUTTER: f32 = 12.0;
+            let px = area.insets((full.width(), full.height()));
+            let ppp = ui.ctx().pixels_per_point();
+            return egui::Rect::from_min_max(
+                full.min + egui::vec2((px.left / ppp).max(GUTTER), px.top / ppp),
+                full.max - egui::vec2((px.right / ppp).max(GUTTER), px.bottom / ppp),
+            );
+        }
+        full
     }
 }
 
@@ -267,31 +357,55 @@ impl eframe::App for ShellApp {
         // nothing is in flight.
         self.shell.poll();
 
+        // The system Back key on a phone, a mouse's back button on a desktop:
+        // both go where the chrome's Back button goes.
+        if ui.ctx().input(|i| i.key_pressed(egui::Key::BrowserBack)) {
+            self.go_back(ui.ctx());
+        }
+
         self.sync_window_title(ui);
-        // A separator under nothing is just a line across the top of the page,
-        // so the start page — which draws no chrome — gets none.
-        let drew = self.chrome(ui);
-        let loading = self.loading_bar(ui);
-        if drew || loading {
-            ui.separator();
-        }
 
-        // Read the discriminant first: the arms take `&mut self`, so the match
-        // cannot hold a borrow of `self.shell.view` across them.
-        match Body::of(&self.shell) {
-            Body::Home => {
-                self.close_web();
-                self.home(ui);
+        let safe = self.safe_rect(ui);
+        ui.scope_builder(egui::UiBuilder::new().max_rect(safe), |ui| {
+            // A separator under nothing is just a line across the top of the
+            // page, so the start page — which draws no chrome — gets none.
+            let drew = self.chrome(ui);
+            let loading = self.loading_bar(ui);
+            if drew || loading {
+                ui.separator();
             }
-            Body::App => {
-                self.close_web();
-                self.page(ui);
-            }
-            Body::WebPage => self.web_page(ui, frame),
-        }
 
-        // Immediate-mode: keep redrawing so button clicks are picked up promptly.
-        ui.ctx().request_repaint();
+            // Read the discriminant first: the arms take `&mut self`, so the
+            // match cannot hold a borrow of `self.shell.view` across them.
+            match Body::of(&self.shell) {
+                Body::Home => {
+                    self.close_web();
+                    self.home(ui);
+                }
+                Body::App => {
+                    self.close_web();
+                    self.page(ui);
+                }
+                Body::WebPage => self.web_page(ui, frame),
+            }
+        });
+
+        // Draw again only when the next frame will differ. Input already wakes
+        // egui up; what it cannot know is that a click or an edit made in this
+        // frame reaches the guest only in the next one, that a load is in
+        // flight, or that the guest asked for a frame of its own. Redrawing
+        // unconditionally kept a core busy on an idle page — on a phone, even
+        // in the background. A webview's GTK loop is pumped from here, so a
+        // page keeps the frames coming.
+        let wanted = self.shell.take_frame_request();
+        let busy = self.shell.loading().is_some()
+            || (cfg!(feature = "webview") && self.shell.is_web_page());
+        if std::mem::take(&mut self.redraw) || busy {
+            ui.ctx().request_repaint();
+        } else if let Some(ms) = wanted {
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_millis(ms.into()));
+        }
     }
 }
 
@@ -363,14 +477,25 @@ impl ShellApp {
             View::WebPage { title, url } => (title.clone(), url.clone()),
         };
         let at_home = self.shell.is_home();
+        let can_back = self.shell.can_go_back();
 
         // Follow navigation, like a browser's bar does: whatever you arrived at
         // is what it shows. Only on an actual change, so typing is never eaten.
-        if src != self.synced_src {
-            self.address = src.clone();
-            self.synced_src = src.clone();
+        // A listed app shows as its name — what you would type to open it —
+        // not where the registry keeps it, which on a phone is a path deep in
+        // the app's private storage.
+        let shown = self
+            .shell
+            .apps
+            .iter()
+            .find(|e| e.src == src)
+            .map_or_else(|| src.clone(), |e| e.name.clone());
+        if shown != self.synced_src {
+            self.address = shown.clone();
+            self.synced_src = shown.clone();
         }
 
+        let mut go_back = false;
         let mut go_home = false;
         let mut nav: Option<Nav> = None;
         // Submitted with nothing typed — needs to say so, or the button looks dead.
@@ -378,19 +503,32 @@ impl ShellApp {
 
         let mut addr = std::mem::take(&mut self.address);
         ui.horizontal(|ui| {
+            // A word, not an arrow: egui's bundled fonts have no arrow glyphs.
+            if can_back && ui.button("Back").clicked() {
+                go_back = true;
+            }
             if !at_home {
                 if ui.button("Home").clicked() {
                     go_home = true;
                 }
                 ui.separator();
             }
+            // 520 pt where there is room, and otherwise what is left beside the
+            // Open button: a fixed width pushed the button off a phone's screen.
+            let open = egui::WidgetText::from("Open").into_galley(
+                ui,
+                None,
+                f32::INFINITY,
+                egui::TextStyle::Button,
+            );
+            let reserve =
+                open.size().x + ui.spacing().button_padding.x * 2.0 + ui.spacing().item_spacing.x;
             let resp = ui.add(
                 egui::TextEdit::singleline(&mut addr)
-                    .desired_width(520.0)
+                    .desired_width((ui.available_width() - reserve).clamp(80.0, 520.0))
                     .hint_text("counter   |   path/to/app.wasm   |   https://example.com"),
             );
-            let entered =
-                resp.lost_focus() && ui.ctx().input(|i| i.key_pressed(egui::Key::Enter));
+            let entered = resp.lost_focus() && ui.ctx().input(|i| i.key_pressed(egui::Key::Enter));
             if ui.button("Open").clicked() || entered {
                 if addr.trim().is_empty() {
                     submitted_empty = true;
@@ -403,15 +541,14 @@ impl ShellApp {
 
         // Opened straight from the address bar, the title *is* the address, and
         // the bar above is already showing it.
-        if !at_home && title != src {
+        if !at_home && title != shown {
             ui.horizontal(|ui| {
                 ui.strong(title.as_str());
             });
         }
 
         if submitted_empty {
-            self.shell.status =
-                "type a .wasm path, a URL, or the name of a listed app".to_string();
+            self.shell.status = "type a .wasm path, a URL, or the name of a listed app".to_string();
             self.shell.status_is_error = true;
         }
 
@@ -425,6 +562,9 @@ impl ShellApp {
             }
         }
 
+        if go_back {
+            self.go_back(ui.ctx());
+        }
         if go_home {
             // Drop any input aimed at the app we just left.
             self.pending_clicks.clear();
@@ -567,12 +707,7 @@ impl ShellApp {
     /// The bounds are recomputed every frame from the space egui has left, so
     /// the page follows a window resize without any resize plumbing of its own.
     #[cfg(feature = "webview")]
-    fn show_web(
-        &mut self,
-        frame: &eframe::Frame,
-        url: &str,
-        ui: &egui::Ui,
-    ) -> anyhow::Result<()> {
+    fn show_web(&mut self, frame: &eframe::Frame, url: &str, ui: &egui::Ui) -> anyhow::Result<()> {
         // A webview that cannot exist here will not start existing on the next
         // frame; report the reason instead of thrashing.
         if let Some(reason) = self.web_unavailable.as_ref().or(self.web_error.as_ref()) {
@@ -620,6 +755,7 @@ impl ShellApp {
 
     /// The page area: purely whatever the guest described this frame.
     fn page(&mut self, ui: &mut egui::Ui) {
+        let fields_before = self.field_values.clone();
         let input = FrameInput {
             clicked: std::mem::take(&mut self.pending_clicks),
             edits: self.field_values.clone(),
@@ -661,6 +797,11 @@ impl ShellApp {
 
         for l in self.shell.take_logs() {
             eprintln!("[wasm log] {l}");
+        }
+
+        // The guest hears about these next frame, so there has to be one.
+        if !self.pending_clicks.is_empty() || self.field_values != fields_before {
+            self.redraw = true;
         }
     }
 
@@ -707,7 +848,7 @@ impl ShellApp {
                 let mut edited = false;
                 ui.vertical_centered(|ui| {
                     let resp = ui.add_sized(
-                        [width, 32.0],
+                        [width, ui.spacing().interact_size.y.max(32.0)],
                         egui::TextEdit::singleline(&mut value)
                             // Same reason as the plain field below: the id is
                             // the guest's index, never egui's draw order.
@@ -790,7 +931,10 @@ fn tile(ui: &mut egui::Ui, title: &str, subtitle: &str) -> bool {
     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
 
     let (fill, stroke) = if resp.hovered() {
-        (palette::ACCENT_WASH, egui::Stroke::new(1.0, palette::ACCENT))
+        (
+            palette::ACCENT_WASH,
+            egui::Stroke::new(1.0, palette::ACCENT),
+        )
     } else {
         (palette::CARD, egui::Stroke::new(1.0, palette::BORDER))
     };

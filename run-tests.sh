@@ -170,6 +170,26 @@ check "a guest navigation that fails says so" "[nav failed] could not open nowhe
   $HOST store --input "1:0=nowhere/missing.wasm" --script "2:0" --frames 3
 
 echo
+echo "==> navigation history"
+# Back reopens the page it returns to — leaving an app destroyed it.
+check "back from an app the store opened returns to the store" "[back] now at store" \
+  $HOST store --input "1:0=hell" --script "2:0" --back 4 --frames 6
+check "back from an app opened directly goes to the start page" "[back] now at store" \
+  $HOST counter --back 1 --frames 2
+# On a phone this is what closes the app.
+check "back from the start page has nowhere to go" "[back] nothing to go back to" \
+  $HOST store --back 1 --frames 2
+
+echo
+echo "==> frames on request"
+# The window draws only when something happens; an app showing time passing
+# has to ask. One that asks for nothing must not be given frames anyway.
+check "a guest can ask for its next frame" "[next frame in 1000 ms]" \
+  $HOST hello --frames 1
+check_absent "a guest that asks for nothing is given no frames" "[next frame" \
+  $HOST counter --frames 2
+
+echo
 echo "==> address classification"
 check "a local .wasm is a component" "loaded $COUNTER_BYTES bytes" \
   $HOST mini-apps/counter/counter.component.wasm --frames 1
@@ -191,6 +211,11 @@ check_fails "a guest that never returns from a frame is stopped" "did not finish
   $HOST $RUNAWAY --script "1:0" --frames 3
 check_fails "a guest that grows its memory without end is stopped" "more than 512 MiB of memory" \
   $HOST $RUNAWAY --script "1:1" --frames 3
+# The guest's memory cap does not cover what it hands the host: each label is a
+# copy in the host's own memory. Bounded per frame, or one buffer sent in a loop
+# fills the host.
+check_fails "a guest that floods the host with UI is stopped" "in one frame and was stopped" \
+  $HOST $RUNAWAY --script "1:2" --frames 3
 check "and a guest that behaves is untouched by either" "Eat memory" \
   $HOST $RUNAWAY --frames 3
 
@@ -219,7 +244,8 @@ else
   printf '<!doctype html><title>t</title><p>hello\n' > "$FIXTURES/page.html"
   printf 'not a component and not a page\n'          > "$FIXTURES/notes.txt"
   # Sparse: 65 MiB by its length, no disk behind it. Only the size is tested.
-  truncate -s 65M "$FIXTURES/huge.wasm"
+  # Python rather than `truncate`, which macOS does not ship.
+  python3 -c "import sys; open(sys.argv[1], 'wb').truncate(65 << 20)" "$FIXTURES/huge.wasm"
   cat > "$FIXTURES/catalogue.json" <<JSON
 [{"name":"hello","source":"mini-apps/hello/hello.component.wasm","description":"served"}]
 JSON
