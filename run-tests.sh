@@ -347,6 +347,24 @@ check_absent "a guest that asks for nothing is given no frames" "[next frame" \
   $HOST counter --frames 2
 
 echo
+echo "==> scale"
+# 500 apps in the registry: every tile is drawn every frame, and the whole lot
+# has to stay inside a frame's output limits. How fast is reported, not judged
+# here — timings depend on the machine (docs/ARCHITECTURE.md §1 has numbers).
+BIG=$(mktemp -d)
+{
+  printf '{"apps":['
+  for n in $(seq 1 500); do
+    [[ $n -gt 1 ]] && printf ','
+    printf '{"name":"app-%03d","source":"mini-apps/hello/hello.component.wasm","description":"Sample entry %d."}' "$n" "$n"
+  done
+  printf ']}\n'
+} > "$BIG/apps.json"
+check "a store of 500 apps draws them all within a frame's limits" '"500 apps"' \
+  $HOST --registry "$(native "$BIG/apps.json")" store --frames 2 --timing
+rm -rf "$BIG"
+
+echo
 echo "==> address classification"
 check "a local .wasm is a component" "loaded $COUNTER_BYTES bytes" \
   $HOST mini-apps/counter/counter.component.wasm --frames 1

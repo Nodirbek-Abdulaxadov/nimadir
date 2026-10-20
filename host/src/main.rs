@@ -32,7 +32,7 @@ use host::ui::{FrameInput, UiCmd};
 const USAGE: &str = "usage: host [<address> | <listed-app-name>] \
 [--list] [--headless] [--frames N] [--script \"frame:btn,...\"] \
 [--input \"frame:field=text\"] [--submit \"frame:field,...\"] [--back \"frame,...\"] [--confirm] \
-[--registry <path-or-url>] [--version]\n\
+[--registry <path-or-url>] [--timing] [--version]\n\
        host --kept | --clear <publisher>/<name> | --clear-cache\n\
 an address is a .wasm component (path or URL) or a web page URL";
 
@@ -50,6 +50,7 @@ fn main() -> Result<()> {
     let mut backs = String::new();
     let mut submits = String::new();
     let mut confirm = false;
+    let mut timing = false;
     let mut registry_src: Option<String> = None;
 
     let mut i = 1;
@@ -107,6 +108,7 @@ fn main() -> Result<()> {
                 }
             }
             "--confirm" => confirm = true,
+            "--timing" => timing = true,
             "--submit" => {
                 i += 1;
                 submits = args.get(i).cloned().unwrap_or_default();
@@ -202,7 +204,16 @@ fn main() -> Result<()> {
             if shell.is_web_page() {
                 return Ok(());
             }
-            run_headless(shell, frames, &script, &inputs, &submits, &backs, confirm)
+            let opts = Harness {
+                frames,
+                script: &script,
+                inputs: &inputs,
+                submits: &submits,
+                backs: &backs,
+                confirm,
+                timing,
+            };
+            run_headless(shell, &opts)
         }
     }
 }
@@ -250,15 +261,31 @@ fn parse_input(s: &str) -> Option<(usize, u32, String)> {
 
 /// Run the current mini-app for N frames, injecting scripted clicks, printing
 /// each frame's UI. No display needed — this is how the boundary is verified.
-fn run_headless(
-    mut shell: Shell,
+/// What the headless runner is told to do.
+struct Harness<'a> {
     frames: usize,
-    script: &str,
-    inputs: &[String],
-    submits: &str,
-    backs: &str,
+    script: &'a str,
+    inputs: &'a [String],
+    submits: &'a str,
+    backs: &'a str,
     confirm: bool,
-) -> Result<()> {
+    /// Print how long the guest's frames took, after the run.
+    timing: bool,
+}
+
+fn run_headless(mut shell: Shell, h: &Harness) -> Result<()> {
+    let Harness {
+        frames,
+        script,
+        inputs,
+        submits,
+        backs,
+        confirm,
+        timing,
+    } = *h;
+    // Each frame's call into the guest and back, UI collected — the
+    // boundary's cost, without a renderer's.
+    let mut took = Vec::with_capacity(frames);
     for l in shell.take_logs() {
         println!("[wasm log] {l}");
     }
@@ -305,11 +332,13 @@ fn run_headless(
         // To tell a navigation that failed during this frame from an error
         // that was already showing before it.
         let status_before = shell.status.clone();
+        let started = std::time::Instant::now();
         let cmds = shell.frame(FrameInput {
             clicked: clicks.clone(),
             edits: edits.clone(),
             submitted: submits.get(&frame).cloned().unwrap_or_default(),
         })?;
+        took.push(started.elapsed());
         // A guest that asked to navigate started a load on another thread.
         // There are no frames to draw while it flies, so block for it here and
         // the run stays exactly as deterministic as it was.
@@ -412,6 +441,16 @@ fn run_headless(
             // for nothing.
             println!("   [nav failed] {}", shell.status);
         }
+    }
+
+    if timing && !took.is_empty() {
+        took.sort_unstable();
+        let median = took[took.len() / 2];
+        let max = took[took.len() - 1];
+        println!(
+            "\n[timing] {} frames: median {median:.2?}, max {max:.2?} per frame in the guest",
+            took.len()
+        );
     }
 
     Ok(())

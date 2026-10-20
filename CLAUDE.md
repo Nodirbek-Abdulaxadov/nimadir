@@ -103,7 +103,9 @@ Headless flags: `--frames N`, `--script "frame:tap,…"` (inject taps: buttons, 
 checkboxes share one index space), `--submit "frame:field,…"` (Enter on a field),
 `--input "frame:field=text"` (repeatable; set a value: text, or a choice's option
 number), `--back "frame,…"`
-(press Back before those frames), `--registry <path-or-url>`.
+(press Back before those frames), `--confirm` (say yes when an app asks to open an
+unlisted address), `--timing` (how long the guest's frames took),
+`--registry <path-or-url>`.
 
 Frames count from 0 (default 8). Widget indices are handed out per frame in call
 order, and each counter is shared by two widgets: `ui-button` + `ui-tile` for

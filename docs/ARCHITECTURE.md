@@ -66,6 +66,18 @@ purpose — see §4.10):
 | `-- mini-apps/runaway/runaway.component.wasm --frames 3` | untouched when it behaves |
 | `…/huge.wasm` (65 MiB, served) | refused before the body is read: "larger than 64 MiB" |
 
+**Scale** — a registry of 500 apps, the store drawing every tile each frame,
+`--timing` (the call into the guest and back, UI collected; no renderer):
+
+| Build | Unfiltered (500 tiles) | Filtered (100 tiles) |
+|---|---|---|
+| release | median 244 µs, max 1.65 ms | median 199 µs, max 253 µs |
+| debug | median 3.2 ms, max 9.2 ms | median 2.3 ms, max 6.9 ms |
+
+About 1.5 % of a 60 Hz frame in release, on this desktop (2026-10-20). Not
+measured: egui laying out 500 cards, and any of it on a phone — `S5-7`'s
+budget is a phone's, so the retained-tree question stays open until then.
+
 **The window**, run under Xvfb with Mesa's software Vulkan and openbox, driven
 with `xdotool` and screenshotted at each step:
 
