@@ -235,6 +235,28 @@ check_fails "an app signed by another publisher than its listing says is refused
 rm -rf "$SIGNED"
 
 echo
+echo "==> storage"
+# ADR-2: kept between visits for an app signed and asking for it; otherwise
+# it ends with the app, like the rest of its state.
+KEPT=$(mktemp -d)
+$PACK keygen "$KEPT/key" >/dev/null
+printf '{"name":"counter","version":"1.0.0","permissions":["storage"]}\n' > "$KEPT/asks.json"
+printf '{"name":"counter","version":"1.0.0"}\n' > "$KEPT/silent.json"
+$PACK pack mini-apps/counter/counter.component.wasm "$KEPT/asks.json" "$KEPT/kept.wasm" --key "$KEPT/key" >/dev/null
+$PACK pack mini-apps/counter/counter.component.wasm "$KEPT/silent.json" "$KEPT/silent.wasm" --key "$KEPT/key" >/dev/null
+$HOST "$(native "$KEPT/kept.wasm")" --script "1:0,2:0" --frames 4 >/dev/null
+check "a signed app that asks for storage finds it on the next visit" '"Count: 2"' \
+  $HOST "$(native "$KEPT/kept.wasm")" --frames 1
+$HOST "$(native "$KEPT/silent.wasm")" --script "1:0,2:0" --frames 4 >/dev/null
+check "one that does not ask starts afresh" '"Count: 0"' \
+  $HOST "$(native "$KEPT/silent.wasm")" --frames 1
+check "and an unsigned app keeps nothing" '"Count: 0"' \
+  bash -c "$HOST counter --script 1:0 --frames 3 >/dev/null && $HOST counter --frames 1"
+check "storage past the quota is refused, with the reason, not a trap" "storage is full" \
+  $HOST mini-apps/runaway/runaway.component.wasm --script "1:3" --frames 3
+rm -rf "$KEPT"
+
+echo
 echo "==> trusted downloads"
 # What crosses the network unencrypted could have been swapped on the way.
 check_fails "plain http to another machine is refused, before any request" "plain http" \

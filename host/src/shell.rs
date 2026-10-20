@@ -321,11 +321,18 @@ impl Shell {
                         // Before anything is compiled: a component whose
                         // signature does not hold never reaches Cranelift.
                         let info = vouch(&address, &wasm, publisher.as_deref())?;
-                        MiniApp::load(&engine, &wasm, apps).map(|app| Landed::App {
-                            app: Box::new(app),
-                            bytes: wasm.len(),
-                            cached: f.cached,
-                            info,
+                        // Storage that outlives the app is for one with an
+                        // identity that asked for it (ADR-2).
+                        let keep_as = info
+                            .identity()
+                            .filter(|_| info.manifest.as_ref().is_some_and(|m| m.wants("storage")));
+                        MiniApp::load(&engine, &wasm, apps, keep_as.as_deref()).map(|app| {
+                            Landed::App {
+                                app: Box::new(app),
+                                bytes: wasm.len(),
+                                cached: f.cached,
+                                info,
+                            }
                         })
                     }
                     Target::WebPage => Ok(Landed::WebPage),

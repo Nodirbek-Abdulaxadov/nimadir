@@ -14,7 +14,7 @@ wit_bindgen::generate!({
 
 use std::hint::black_box;
 
-use nimadir::shell::host_api::{log, ui_button, ui_label};
+use nimadir::shell::host_api::{log, storage_set, ui_button, ui_label};
 
 struct Runaway;
 
@@ -52,6 +52,15 @@ impl Guest for Runaway {
             let big = "x".repeat(1 << 20);
             loop {
                 ui_label(&big);
+            }
+        }
+
+        // Button 3: keep more than an app may. Not a trap — `storage-set`
+        // answers with why, and the app carries on.
+        if ui_button("Overfill storage") {
+            match storage_set("big", &"x".repeat(2 << 20)) {
+                Ok(()) => log("runaway: stored 2 MiB"),
+                Err(why) => log(&format!("runaway: {why}")),
             }
         }
     }

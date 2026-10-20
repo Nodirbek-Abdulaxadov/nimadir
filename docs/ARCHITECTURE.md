@@ -134,7 +134,8 @@ guest side from it, `wasmtime::component::bindgen!` the host side.
 - `interface host-api` — the **capability table**, and the entire list of things
   a mini-app can reach: `log`, `ui-label`, `ui-button`, `ui-text-edit`,
   `ui-heading`, `ui-search-field`, `ui-tile`, `now-millis`, `list-apps`,
-  `open-app`, `request-frame`, plus the `app-entry` record.
+  `open-app`, `request-frame`, `storage-get` / `-set` / `-remove` / `-keys`,
+  plus the `app-entry` record.
 - `world mini-app` — imports `host-api`, exports `init` and `update`.
 
 The last two are what let the start page be an app instead of host code: a guest
@@ -294,6 +295,16 @@ The browser-shaped layer above a single mini-app. Knows nothing about drawing.
   `Shell::identity` is what per-app state will be keyed by.
 - Fetching itself now lives in `resolve.rs`, since classification and loading
   are the same request.
+
+### `host/src/storage.rs` — what an app keeps (ADR-2)
+`Storage` behind the `storage-*` capabilities: a map of strings, 1 MiB per app
+(`STORAGE_QUOTA`). `Storage::open(identity)` reads
+`<data>/apps/<publisher>/<name>/storage.json` for an app that is signed and
+asks for `storage` in its manifest — the shell decides that on the loader
+thread and passes it to `MiniApp::load` — and is memory-only otherwise.
+`tick` runs after every frame: it writes out at most every 250 ms, and when a
+write is waiting it asks for a frame so an idle app's last change is not held
+until the next tap. `Drop` writes whatever is left when the app is left.
 
 ### `host/src/registry.rs` — the bookmarks
 - `struct AppEntry` — `name`, `src`, `description`, and an optional
@@ -818,7 +829,9 @@ on a phone, and invariant 8 means the phone's numbers are the ones that count.
 1. **The WIT is the contract.** Add to it; do not reshape what exists. Both
    sides regenerate from the same file.
 2. **Chrome is host-only.** Navigation must never be reachable by guest code.
-3. **Leaving an app destroys it.** Do not add state that outlives the `Store`.
+3. **Leaving an app destroys it.** Nothing of it stays in host memory. What it
+   kept under its identity is on disk, held by the host and given back only to
+   that identity (ADR-2); nothing else may outlive the `Store`.
 4. **Headless is the default feature set.** The host must keep building and
    running with no system GUI libraries; that is what makes it verifiable in CI.
    Every new system dependency goes behind a feature flag.

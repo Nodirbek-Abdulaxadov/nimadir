@@ -22,6 +22,10 @@ beta is `docs/ROADMAP.md`.
   past that the guest is stopped and the reason names the limit.
 
 ### Added
+- **Storage** (ADR-2): `storage-get` / `-set` / `-remove` / `-keys`. Kept
+  between visits for an app that is signed and asks for `storage`, under its
+  identity; memory-only for any other. 1 MiB per app. `counter` keeps its
+  count this way when it is signed.
 - The shell opens on a start page from any directory: the store is built
   into the binary, and the registry is looked for in `NIMADIR_REGISTRY` and
   the user's config directory, not only the working directory.

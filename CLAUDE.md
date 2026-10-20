@@ -162,7 +162,8 @@ extra function, standing in for an app newer than the host. Both stay out of
 - `open-app` is a **request**, drained after `call_update` returns — a guest cannot
   be dropped from inside its own frame. A frame that navigated returns no commands.
 - Leaving an app **destroys** it (`Store` + linear memory). Reopening starts fresh;
-  that is the sandbox working, not lost state.
+  that is the sandbox working, not lost state. The one exception is `storage-*`,
+  kept on disk by the host for an app that is signed and asks for it (ADR-2).
 - A guest's **time and memory are bounded** (`host.rs`): an epoch deadline of ~1 s
   per `update` and ~10 s for instantiate + `init`, 512 MiB of linear memory,
   16 MiB / 65 536 widgets of output per frame, and 64 MiB / 30 s of silence per

@@ -146,6 +146,7 @@ may do.
 **Progress (2026-10-20), on branch `sprint-4`.** S4-1: manifests and
 signatures are read, verified and enforced (`crates/manifest`,
 `nimadir-pack`, `Shell::identity`); showing them in the store is still to do.
+S4-4: `storage-*` (ADR-2), kept for signed apps that ask, 1 MiB each.
 
 ## Sprint 5 — UI vocabulary for real apps
 

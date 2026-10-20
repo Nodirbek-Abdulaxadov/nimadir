@@ -19,6 +19,7 @@ use wasmtime::{Engine, ResourceLimiter, Store, Trap};
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
 use crate::registry::AppEntry;
+use crate::storage::Storage;
 use crate::ui::{FrameInput, UiCmd};
 
 /// Generated bindings for the `mini-app` world, kept in a submodule so the
@@ -177,10 +178,12 @@ pub struct HostState {
     table: ResourceTable,
     limits: GuestLimits,
     sent: Sent,
+    /// The app's `storage-*` strings (ADR-2).
+    storage: Storage,
 }
 
 impl HostState {
-    fn new(apps: Vec<AppEntry>) -> Self {
+    fn new(apps: Vec<AppEntry>, storage: Storage) -> Self {
         HostState {
             ui: Vec::new(),
             input: FrameInput::default(),
@@ -194,6 +197,7 @@ impl HostState {
             table: ResourceTable::new(),
             limits: GuestLimits::default(),
             sent: Sent::default(),
+            storage,
         }
     }
 
@@ -348,6 +352,25 @@ impl Host for HostState {
         Ok(())
     }
 
+    fn storage_get(&mut self, key: String) -> wasmtime::Result<Option<String>> {
+        Ok(self.storage.get(&key))
+    }
+
+    /// Charged to the frame like anything else the host keeps of a guest's.
+    fn storage_set(&mut self, key: String, value: String) -> wasmtime::Result<Result<(), String>> {
+        self.spend(key.len() + value.len())?;
+        Ok(self.storage.set(key, value))
+    }
+
+    fn storage_remove(&mut self, key: String) -> wasmtime::Result<()> {
+        self.storage.remove(&key);
+        Ok(())
+    }
+
+    fn storage_keys(&mut self) -> wasmtime::Result<Vec<String>> {
+        Ok(self.storage.keys())
+    }
+
     /// The earliest request in a frame wins, and none is sooner than
     /// `MIN_FRAME_MS`. Kept, not accumulated, like `open_app`.
     fn request_frame(&mut self, after_ms: u32) -> wasmtime::Result<()> {
@@ -375,7 +398,15 @@ impl MiniApp {
     /// off the UI thread (see `Shell::start`) rather than inside a frame: every
     /// type this touches is `Send`, so the finished app can simply be handed
     /// over when it is ready.
-    pub fn load(engine: &Engine, wasm: &[u8], apps: Vec<AppEntry>) -> Result<Self> {
+    ///
+    /// `keep_as` is the identity whose storage the app gets (ADR-2): `None`
+    /// gives it storage that ends with it.
+    pub fn load(
+        engine: &Engine,
+        wasm: &[u8],
+        apps: Vec<AppEntry>,
+        keep_as: Option<&str>,
+    ) -> Result<Self> {
         let component = Component::from_binary(engine, wasm)?;
         if let Some(missing) = newer_than_us(engine, &component) {
             return Err(anyhow!(
@@ -399,7 +430,7 @@ impl MiniApp {
         // the Rust mini-apps import none of it.
         wasmtime_wasi::p2::add_to_linker_sync(&mut linker)?;
 
-        let mut store = Store::new(engine, HostState::new(apps));
+        let mut store = Store::new(engine, HostState::new(apps, Storage::open(keep_as)));
         store.limiter(|s| &mut s.limits);
         // Set before instantiation, not just before `init`: a component can run
         // code while it is being instantiated, and with epoch interruption on,
@@ -429,6 +460,12 @@ impl MiniApp {
         self.world
             .call_update(&mut self.store)
             .map_err(|e| explain(e, &self.store, "finish a frame", FRAME_BUDGET_TICKS))?;
+        // Storage written now, or a frame asked for when it is due.
+        let st = self.store.data_mut();
+        if let Some(ms) = st.storage.tick() {
+            let ms = ms.max(MIN_FRAME_MS);
+            st.frame_after = Some(st.frame_after.map_or(ms, |m| m.min(ms)));
+        }
         Ok(self.store.data().ui.clone())
     }
 

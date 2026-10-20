@@ -6,6 +6,10 @@
 //! canonical ABI moves the strings/bools across the boundary. The app logic is
 //! identical — the count lives here, inside the guest; the host only renders the
 //! labels/buttons this app describes and routes clicks back.
+//!
+//! The count is also kept in `storage`, so a counter that is signed and asks
+//! for storage in its manifest picks up where it left off. Unsigned — as it is
+//! built — its storage ends with it, and every visit starts at 0.
 
 use std::sync::atomic::{AtomicI32, Ordering};
 
@@ -15,7 +19,7 @@ wit_bindgen::generate!({
 });
 
 // The generated host imports — our capability set — as ordinary functions.
-use nimadir::shell::host_api::{log, now_millis, ui_button, ui_label};
+use nimadir::shell::host_api::{log, now_millis, storage_get, storage_set, ui_button, ui_label};
 
 /// App state, owned by the guest.
 static COUNT: AtomicI32 = AtomicI32::new(0);
@@ -27,6 +31,9 @@ impl Guest for Counter {
     fn init() {
         let now = now_millis();
         log(&format!("counter mini-app: init at host-time {now}"));
+        if let Some(kept) = storage_get("count").and_then(|v| v.parse().ok()) {
+            COUNT.store(kept, Ordering::Relaxed);
+        }
     }
 
     /// Called once per frame. Describe the UI; react to clicks.
@@ -36,13 +43,19 @@ impl Guest for Counter {
 
         // Button index 0.
         if ui_button("Increment") {
-            COUNT.fetch_add(1, Ordering::Relaxed);
+            keep(COUNT.fetch_add(1, Ordering::Relaxed) + 1);
         }
         // Button index 1.
         if ui_button("Reset") {
             COUNT.store(0, Ordering::Relaxed);
+            keep(0);
         }
     }
+}
+
+/// A count is a few bytes; the storage quota cannot be what refuses it.
+fn keep(count: i32) {
+    let _ = storage_set("count", &count.to_string());
 }
 
 export!(Counter);

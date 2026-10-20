@@ -13,6 +13,7 @@ pub mod paths;
 pub mod registry;
 pub mod resolve;
 pub mod shell;
+mod storage;
 pub mod ui;
 #[cfg(feature = "webview")]
 mod webview;

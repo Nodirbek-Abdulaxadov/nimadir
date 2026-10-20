@@ -77,6 +77,16 @@ interface host-api {
     /// Exists only in this fixture's copy of the contract: what a capability
     /// added after this host was built looks like to it.
     from-the-future: func();
+
+    /// The app's own small store of strings. It is kept between visits for an
+    /// app that is signed and asks for `storage` in its manifest — its
+    /// identity is what the data is kept under. Any other app's lasts only
+    /// until it is left, like the rest of its state. 1 MiB per app, keys and
+    /// values together; a `storage-set` past that fails, saying so.
+    storage-get: func(key: string) -> option<string>;
+    storage-set: func(key: string, value: string) -> result<_, string>;
+    storage-remove: func(key: string);
+    storage-keys: func() -> list<string>;
 }
 
 /// A mini-app. It may import (call) everything in `host-api` — that interface IS
