@@ -15,3 +15,4 @@ __pycache__/
 *.wasm
 /mini-apps/store/target
 /mini-apps/runaway/target
+/mini-apps/future/target

@@ -377,6 +377,14 @@ impl MiniApp {
     /// over when it is ready.
     pub fn load(engine: &Engine, wasm: &[u8], apps: Vec<AppEntry>) -> Result<Self> {
         let component = Component::from_binary(engine, wasm)?;
+        if let Some(missing) = newer_than_us(engine, &component) {
+            return Err(anyhow!(
+                "this app needs a newer nimadir: it uses {missing}, which nimadir {} \
+                 (WIT {}) does not have",
+                env!("CARGO_PKG_VERSION"),
+                crate::wit_package()
+            ));
+        }
 
         let mut linker: Linker<HostState> = Linker::new(engine);
         // `HasSelf<HostState>` says "the host data IS the store data" — the getter
@@ -440,6 +448,58 @@ impl MiniApp {
     pub fn take_frame_request(&mut self) -> Option<u32> {
         self.store.data_mut().frame_after.take()
     }
+}
+
+/// What a component asks of `nimadir:shell` that this host does not provide,
+/// named for a person — `None` when everything it asks for is here.
+///
+/// Checked before linking, because the linker's own account of it ("a matching
+/// implementation was not found … the wrong type: function implementation is
+/// missing") is true and tells nobody what to do. The WIT is additive-only, so
+/// an import this host lacks is one added after it was built: the app is newer
+/// than the shell. Other imports (`wasi:*`) are left to the linker.
+fn newer_than_us(engine: &Engine, component: &Component) -> Option<String> {
+    use wasmtime::component::types::ComponentItem;
+
+    let package = crate::wit_package();
+    let (name, version) = package.split_once('@').unwrap_or((package, ""));
+    let ours = format!("{name}/host-api@{version}");
+    let provided = provided_functions();
+
+    let mut missing = Vec::new();
+    let ty = component.component_type();
+    for (import, item) in ty.imports(engine) {
+        if !import.starts_with(&format!("{name}/")) {
+            continue;
+        }
+        if import != ours {
+            missing.push(format!("`{import}`"));
+            continue;
+        }
+        if let ComponentItem::ComponentInstance(instance) = item.ty {
+            // Functions only: an interface exports its types too (`app-entry`),
+            // and a type is not something a host provides or lacks.
+            for (function, export) in instance.exports(engine) {
+                if matches!(export.ty, ComponentItem::ComponentFunc(_))
+                    && !provided.contains(&function)
+                {
+                    missing.push(format!("`{function}`"));
+                }
+            }
+        }
+    }
+    (!missing.is_empty()).then(|| missing.join(", "))
+}
+
+/// The functions `interface host-api` declares, read from the same WIT file
+/// `bindgen!` compiled — so this list cannot drift from what is implemented.
+fn provided_functions() -> Vec<&'static str> {
+    include_str!("../../wit/world.wit")
+        .lines()
+        .map(str::trim)
+        .filter(|l| !l.starts_with("export ") && !l.starts_with("//"))
+        .filter_map(|l| l.split_once(": func(").map(|(name, _)| name))
+        .collect()
 }
 
 /// Turn a guest failure into something worth putting in front of a person.

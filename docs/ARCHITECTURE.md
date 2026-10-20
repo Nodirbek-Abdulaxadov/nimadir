@@ -187,6 +187,11 @@ egui, on stdout, or on a future backend. Any new widget type starts here.
   call `init`. Installs the store's limiter and an epoch deadline of
   `INIT_BUDGET_TICKS` *before* instantiating: a component can run code while it
   is instantiated, and a store with no deadline traps at its first check.
+  Before linking, `newer_than_us` compares what the component imports from
+  `nimadir:shell` with `provided_functions` (read from the WIT file itself) and
+  turns a gap into "this app needs a newer nimadir: it uses `…`" — the linker's
+  own wording is accurate and tells nobody what to do. Functions only: an
+  interface exports types too.
 - `MiniApp::frame` — clear the buffer, set the input, set a deadline of
   `FRAME_BUDGET_TICKS`, `call_update`, return a clone of the collected commands.
 - **The limits** (§4.10): `EPOCH_TICK` (10 ms) is the unit, `FRAME_BUDGET_TICKS`
@@ -457,10 +462,17 @@ Its existence is the argument: the host no longer owns a home screen, it owns a
 touching the shell.
 
 ### `mini-apps/runaway/` — a test fixture, not an app
-Two buttons: one that never returns from `update`, one that grows its memory until
-stopped. `run-tests.sh` clicks each and checks the guest is stopped with the
-limit named. Deliberately **not** in `apps.json` — nothing about it belongs on a
-start page — and opened by path. Built by `build-mini-apps.sh` like the others.
+Three buttons: one that never returns from `update`, one that grows its memory
+until stopped, one that sends the same 1 MiB label until the output cap stops it.
+`run-tests.sh` clicks each and checks the guest is stopped with the limit named.
+Deliberately **not** in `apps.json` — nothing about it belongs on a start page —
+and opened by path. Built by `build-mini-apps.sh` like the others.
+
+### `mini-apps/future/` — a test fixture, not an app
+Built against its own `wit/world.wit`: the real contract plus one function,
+`from-the-future`, which no host has. It stands in for an app made for a newer
+nimadir, so the suite can check that opening one says so. Keep its WIT in step
+with the real one, plus that function.
 
 ### `mini-apps/` — the other guests
 `counter` (Rust, state in an `AtomicI32`), `hello` (Rust, second app to prove

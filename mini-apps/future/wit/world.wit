@@ -1,0 +1,91 @@
+// A copy of wit/world.wit with one function added, standing in for a
+// contract newer than the host's. Test fixture only.
+package nimadir:shell@0.1.0;
+
+/// The complete host <-> mini-app contract, defined ONCE and shared by both
+/// sides. `wit-bindgen` generates the guest bindings from this file; wasmtime's
+/// `bindgen!` generates the host bindings from the very same file. There is no
+/// hand-written `(ptr, len)` ABI on either side any more — the Component Model's
+/// canonical ABI moves the strings and bools across the boundary for us.
+interface host-api {
+    /// One app the shell knows about — the same shape the home screen lists.
+    record app-entry {
+        name: string,
+        /// File path or URL. Whatever `open-app` accepts.
+        source: string,
+        description: string,
+    }
+
+    /// Debug log line, printed by the host.
+    log: func(msg: string);
+
+    /// Draw a text label in the current frame.
+    ui-label: func(text: string);
+
+    /// Draw a button in the current frame; returns true if it was clicked.
+    ui-button: func(text: string) -> bool;
+
+    /// Draw a single-line text field. Pass the value the guest is holding; the
+    /// host returns the value after the user's edits, which the guest stores
+    /// and passes back next frame. Immediate mode, exactly like `ui-button`:
+    /// the guest owns the state, the host owns the widget.
+    ui-text-edit: func(text: string) -> string;
+
+    /// A heading. `level` 1 is the largest — a start page's wordmark — and 2
+    /// and 3 step down; anything else clamps into that range rather than
+    /// failing, since a guest is untrusted and a bad number is not worth a trap.
+    ui-heading: func(text: string, level: u8);
+
+    /// A prominent search field, with placeholder text shown while it is empty.
+    /// Otherwise `ui-text-edit`: the value goes out, the edited value comes
+    /// back, and it **shares the text-field index space** with it — the two are
+    /// the same kind of widget wearing different clothes, and a guest may mix
+    /// them freely.
+    ui-search-field: func(text: string, placeholder: string) -> string;
+
+    /// A clickable card: a title, a line of detail, and a click. **Consecutive
+    /// tiles are laid out by the host as a wrapping grid** — the guest says what
+    /// the tiles are, the host decides how many fit on a row and what a card
+    /// looks like. Shares the button index space with `ui-button`.
+    ///
+    /// This is the one widget that is about *layout*, and it is expressed as a
+    /// thing rather than a coordinate on purpose: a guest that could position
+    /// pixels would be a guest the renderer can no longer be swapped under.
+    ui-tile: func(title: string, subtitle: string) -> bool;
+
+    /// Example host-owned capability: wall-clock time in milliseconds.
+    now-millis: func() -> s64;
+
+    /// The shell's app registry. A mini-app cannot reach the network or the
+    /// disk, so this is how the store learns what there is to list.
+    list-apps: func() -> list<app-entry>;
+
+    /// Ask the shell to open another app. It is a *request*, honoured once the
+    /// current frame returns: a guest cannot be torn down in the middle of its
+    /// own `update`, so navigation always happens between frames, not during
+    /// one. The caller keeps running until then.
+    open-app: func(source: string);
+
+    /// Ask for another frame in `after-ms` milliseconds, whatever happens
+    /// meanwhile. Without it the shell draws only when something happens — a
+    /// tap, a key, a load — so an app with nothing to animate costs nothing,
+    /// which on a phone is battery. An app that shows time passing asks again
+    /// from each frame for the next. The earliest request in a frame wins, and
+    /// nothing comes sooner than one frame (16 ms).
+    request-frame: func(after-ms: u32);
+
+    /// Exists only in this fixture's copy of the contract: what a capability
+    /// added after this host was built looks like to it.
+    from-the-future: func();
+}
+
+/// A mini-app. It may import (call) everything in `host-api` — that interface IS
+/// its capability set, the only thing it can reach outside its own sandbox — and
+/// it must export `init` (one-time setup) and `update` (called once per frame to
+/// describe its immediate-mode UI).
+world mini-app {
+    import host-api;
+
+    export init: func();
+    export update: func();
+}

@@ -106,7 +106,7 @@ HOST=./target/debug/host
 echo "==> building"
 # Mini-apps first: the host carries the store inside it when the store exists
 # at the time it is built.
-if [[ ! -f mini-apps/store/store.component.wasm || ! -f mini-apps/runaway/runaway.component.wasm ]]; then
+if [[ ! -f mini-apps/store/store.component.wasm || ! -f mini-apps/runaway/runaway.component.wasm || ! -f mini-apps/future/future.component.wasm ]]; then
   echo "    mini-apps missing; running build-mini-apps.sh"
   ./build-mini-apps.sh >/dev/null || { red "mini-app build failed"; echo; exit 1; }
 fi
@@ -286,6 +286,11 @@ check_fails "a guest that floods the host with UI is stopped" "in one frame and 
   $HOST $RUNAWAY --script "1:2" --frames 3
 check "and a guest that behaves is untouched by either" "Eat memory" \
   $HOST $RUNAWAY --frames 3
+# Built against a newer WIT: one function this host does not have.
+check_fails "an app built for a newer host says it needs one" "needs a newer nimadir" \
+  $HOST mini-apps/future/future.component.wasm --frames 1
+check_fails "and names what it is missing" "from-the-future" \
+  $HOST mini-apps/future/future.component.wasm --frames 1
 
 echo
 echo "==> address bar guessing"
@@ -383,6 +388,10 @@ if pkg-config --exists webkit2gtk-4.1 2>/dev/null || [[ "$OSTYPE" != linux* ]]; 
 else
   skip "webview build (no WebKitGTK; install libwebkit2gtk-4.1-dev)"
 fi
+# The feature builds above leave a windowed binary at $HOST, which opens a
+# window instead of running headless. Leave the headless one behind, so a case
+# copied out of this file and run by hand does what it does in here.
+cargo build -q -p host
 
 echo
 echo "-----------------------------------------------"
