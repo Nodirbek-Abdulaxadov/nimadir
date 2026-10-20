@@ -1302,6 +1302,16 @@ impl ShellApp {
 /// whole card has to be the click target, not the label inside it.
 fn tile(ui: &mut egui::Ui, title: &str, subtitle: &str) -> bool {
     let (rect, resp) = ui.allocate_exact_size(TILE, egui::Sense::click());
+    // Painted by hand, so nothing tells a screen reader what it is unless this
+    // does: a button, named by what is written on it.
+    resp.widget_info(|| {
+        let name = if subtitle.is_empty() {
+            title.to_string()
+        } else {
+            format!("{title}. {subtitle}")
+        };
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, true, name)
+    });
     // The whole card is the link, so it gets the cursor a link gets.
     let resp = resp.on_hover_cursor(egui::CursorIcon::PointingHand);
 
