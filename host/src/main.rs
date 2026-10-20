@@ -33,6 +33,7 @@ const USAGE: &str = "usage: host [<address> | <listed-app-name>] \
 [--list] [--headless] [--frames N] [--script \"frame:btn,...\"] \
 [--input \"frame:field=text\"] [--back \"frame,...\"] [--confirm] \
 [--registry <path-or-url>] [--version]\n\
+       host --kept | --clear <publisher>/<name> | --clear-cache\n\
 an address is a .wasm component (path or URL) or a web page URL";
 
 fn main() -> Result<()> {
@@ -57,6 +58,29 @@ fn main() -> Result<()> {
             "--list" => list = true,
             "--help" | "-h" => {
                 println!("{USAGE}");
+                return Ok(());
+            }
+            // What apps keep on this machine, and the caches (`settings.rs`) —
+            // the settings page, for the command line.
+            "--kept" => {
+                for k in host::settings::kept() {
+                    println!("{:<44} {}", k.identity, host::settings::human(k.bytes));
+                }
+                println!(
+                    "cache: {}",
+                    host::settings::human(host::settings::cache_bytes())
+                );
+                return Ok(());
+            }
+            "--clear" => {
+                let identity = args.get(i + 1).cloned().unwrap_or_default();
+                host::settings::clear(&identity).map_err(|e| anyhow::anyhow!(e))?;
+                println!("cleared what {identity} kept");
+                return Ok(());
+            }
+            "--clear-cache" => {
+                host::settings::clear_cache().map_err(|e| anyhow::anyhow!(e))?;
+                println!("cleared the cache");
                 return Ok(());
             }
             "--version" | "-V" => {
@@ -326,7 +350,13 @@ fn run_headless(
         // it asked for; say so, or the next frame's different UI looks like a
         // glitch.
         if shell.took_navigation() {
-            println!("   [nav] {}", shell.status);
+            let place = shell.location().map(|(title, _)| title.to_string());
+            let said = if shell.status.is_empty() {
+                format!("now at {}", place.unwrap_or_default())
+            } else {
+                shell.status.clone()
+            };
+            println!("   [nav] {said}");
         } else if shell.status_is_error && shell.status != status_before {
             // A guest asked to go somewhere and it did not load. The window
             // shows this in its status bar; without this line the headless run

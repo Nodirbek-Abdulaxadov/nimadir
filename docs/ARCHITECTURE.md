@@ -312,6 +312,15 @@ thread and passes it to `MiniApp::load` — and is memory-only otherwise.
 write is waiting it asks for a frame so an idle app's last change is not held
 until the next tap. `Drop` writes whatever is left when the app is left.
 
+### `host/src/settings.rs` — what the shell keeps on disk
+`kept` (each app's storage, by identity, with its size), `clear` (one app's —
+the identity checked before it becomes a path, so `../` cannot escape),
+`cache_bytes` / `clear_cache`. The settings page (`View::Settings`, at
+`shell::SETTINGS_PAGE`, `nimadir:settings`) draws them in the window —
+`ShellApp::settings`, read once per visit — and `--kept`, `--clear` and
+`--clear-cache` print them. The store links to the page; a guest can only ask
+for it, never press its buttons.
+
 ### `host/src/registry.rs` — the bookmarks
 - `struct AppEntry` — `name`, `src`, `description`, and an optional
   `sha256` pin (a fourth `|` field in `apps.list`). Knows nothing about WASM;

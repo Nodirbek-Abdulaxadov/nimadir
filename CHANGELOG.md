@@ -24,6 +24,9 @@ beta is `docs/ROADMAP.md`.
   past that the guest is stopped and the reason names the limit.
 
 ### Added
+- **Settings page** (`nimadir:settings`, linked from the store): what each
+  app keeps, the caches, clearing either. `--kept`, `--clear` and
+  `--clear-cache` do the same from the command line.
 - **Storage** (ADR-2): `storage-get` / `-set` / `-remove` / `-keys`. Kept
   between visits for an app that is signed and asks for `storage`, under its
   identity; memory-only for any other. 1 MiB per app. `counter` keeps its

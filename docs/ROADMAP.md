@@ -148,6 +148,10 @@ signatures are read, verified and enforced (`crates/manifest`,
 `nimadir-pack`, `Shell::identity`); showing them in the store is still to do.
 S4-4: `storage-*` (ADR-2), kept for signed apps that ask, 1 MiB each.
 S4-3: `open-app` to an unlisted address asks the user (chrome; `--confirm`).
+S4-5: settings page (`nimadir:settings`, linked from the store) — what apps
+keep and the caches, with clearing; drawn but not yet seen on a screen.
+S4-6: `--kept`, `--clear`, `--clear-cache`, `--confirm`; `NIMADIR_HOME` is the
+data directory.
 
 ## Sprint 5 — UI vocabulary for real apps
 

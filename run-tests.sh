@@ -176,6 +176,10 @@ check "open-app navigates after the frame returns" "[nav] loaded" \
   $HOST store --input "1:0=hell" --script "2:0" --frames 4
 check "the app it asked for actually runs" "Hello from a *different* mini-app!" \
   $HOST store --input "1:0=hell" --script "2:0" --frames 4
+check "the start page links to the settings page" 'button4 : "Settings"' \
+  $HOST store --frames 1
+check "which opens as host UI" "[nav] now at Settings" \
+  $HOST store --script "1:4" --frames 3
 check "a search matching nothing says so" "Nothing matches" \
   $HOST store --input "1:0=zzzz" --frames 2
 # The start page has no address bar over it, so its own field has to take an
@@ -239,7 +243,7 @@ echo "==> storage"
 # ADR-2: kept between visits for an app signed and asking for it; otherwise
 # it ends with the app, like the rest of its state.
 KEPT=$(mktemp -d)
-$PACK keygen "$KEPT/key" >/dev/null
+KEPT_PUBLISHER=$($PACK keygen "$KEPT/key" | awk '{print $2}')
 printf '{"name":"counter","version":"1.0.0","permissions":["storage"]}\n' > "$KEPT/asks.json"
 printf '{"name":"counter","version":"1.0.0"}\n' > "$KEPT/silent.json"
 $PACK pack mini-apps/counter/counter.component.wasm "$KEPT/asks.json" "$KEPT/kept.wasm" --key "$KEPT/key" >/dev/null
@@ -252,6 +256,12 @@ check "one that does not ask starts afresh" '"Count: 0"' \
   $HOST "$(native "$KEPT/silent.wasm")" --frames 1
 check "and an unsigned app keeps nothing" '"Count: 0"' \
   bash -c "$HOST counter --script 1:0 --frames 3 >/dev/null && $HOST counter --frames 1"
+check "--kept lists what each app keeps" "$KEPT_PUBLISHER/counter" \
+  $HOST --kept
+check "--clear removes it, and the next visit starts afresh" '"Count: 0"' \
+  bash -c "$HOST --clear $KEPT_PUBLISHER/counter >/dev/null && $HOST '$(native "$KEPT/kept.wasm")' --frames 1"
+check_fails "--clear refuses anything that is not an identity" "is not an app identity" \
+  $HOST --clear "../../etc"
 check "storage past the quota is refused, with the reason, not a trap" "storage is full" \
   $HOST mini-apps/runaway/runaway.component.wasm --script "1:3" --frames 3
 rm -rf "$KEPT"

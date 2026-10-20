@@ -61,7 +61,14 @@ pub enum View {
     /// An old-style web page. Routing reaches this view today and the backend
     /// draws a placeholder; the webview renders into it in the next stage.
     WebPage { title: String, url: String },
+    /// The shell's own settings: what apps keep, the caches (`settings.rs`).
+    /// Host UI at a host address, `SETTINGS_PAGE`; no guest runs here.
+    Settings,
 }
+
+/// The settings page's address. Not a URL a server answers: the shell
+/// recognises it before anything is fetched.
+pub const SETTINGS_PAGE: &str = "nimadir:settings";
 
 /// A navigation that has been started and has not arrived yet.
 ///
@@ -164,6 +171,7 @@ impl Shell {
     pub fn location(&self) -> Option<(&str, &str)> {
         match &self.view {
             View::Home => None,
+            View::Settings => Some(("Settings", SETTINGS_PAGE)),
             View::App { title, src, .. } => Some((title, src)),
             View::WebPage { title, url } => Some((title, url)),
         }
@@ -293,6 +301,18 @@ impl Shell {
     }
 
     fn start_as(&mut self, src: &str, title: &str, origin: Origin) {
+        // The shell's own page: nothing to fetch, classify or compile.
+        if src == SETTINGS_PAGE {
+            if !matches!(origin, Origin::Back) {
+                self.record();
+            }
+            self.asking = None;
+            self.view = View::Settings;
+            self.status.clear();
+            self.status_is_error = false;
+            self.navigated = matches!(origin, Origin::Guest);
+            return;
+        }
         // Nothing can cancel a compile once it is running: dropping the
         // receiver only means nobody hears the answer, the Cranelift work
         // carries on. So a second request while one is in flight does not
@@ -537,7 +557,7 @@ impl Shell {
                     return Err(e);
                 }
             },
-            View::Home | View::WebPage { .. } => (Vec::new(), None),
+            View::Home | View::WebPage { .. } | View::Settings => (Vec::new(), None),
         };
 
         let Some(src) = requested else {
@@ -593,7 +613,7 @@ impl Shell {
     pub fn take_frame_request(&mut self) -> Option<u32> {
         match &mut self.view {
             View::App { app, .. } => app.take_frame_request(),
-            View::Home | View::WebPage { .. } => None,
+            View::Home | View::WebPage { .. } | View::Settings => None,
         }
     }
 
@@ -602,7 +622,7 @@ impl Shell {
     pub fn identity(&self) -> Option<String> {
         match &self.view {
             View::App { info, .. } => info.identity(),
-            View::Home | View::WebPage { .. } => None,
+            View::Home | View::WebPage { .. } | View::Settings => None,
         }
     }
 
@@ -610,7 +630,7 @@ impl Shell {
     pub fn take_logs(&mut self) -> Vec<String> {
         match &mut self.view {
             View::App { app, .. } => app.take_logs(),
-            View::Home | View::WebPage { .. } => Vec::new(),
+            View::Home | View::WebPage { .. } | View::Settings => Vec::new(),
         }
     }
 }

@@ -96,6 +96,9 @@ cargo run -p host -- --list                      # the registry, as text
 A binary built with `--features gui` opens a **window** unless you pass
 `--headless`; the headless harness is only the default when the feature is off.
 
+Settings from the command line: `--kept`, `--clear <publisher>/<name>`,
+`--clear-cache` (the same functions as the window's settings page).
+
 Headless flags: `--frames N`, `--script "frame:button,…"` (inject clicks),
 `--input "frame:field=text"` (repeatable; set a text field), `--back "frame,…"`
 (press Back before those frames), `--registry <path-or-url>`.

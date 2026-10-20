@@ -26,7 +26,7 @@ wit_bindgen::generate!({
 });
 
 use nimadir::shell::host_api::{
-    list_apps, log, open_app, ui_heading, ui_label, ui_search_field, ui_tile,
+    list_apps, log, open_app, ui_button, ui_heading, ui_label, ui_search_field, ui_tile,
 };
 
 /// The search box's contents. Guest-owned, like every mini-app's state: the
@@ -106,6 +106,7 @@ impl Guest for Store {
             if !typed_address {
                 ui_label("Nothing matches. Clear the search to see everything.");
             }
+            settings_link();
             return;
         }
 
@@ -118,6 +119,16 @@ impl Guest for Store {
                 open_app(&a.source);
             }
         }
+        settings_link();
+    }
+}
+
+/// The way to the shell's settings page. It is host UI at a host address:
+/// asking for it is all a guest can do, and the page's buttons are the
+/// user's to press. The start page has no chrome, so the link lives here.
+fn settings_link() {
+    if ui_button("Settings") {
+        open_app("nimadir:settings");
     }
 }
 

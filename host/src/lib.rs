@@ -12,6 +12,7 @@ pub mod host;
 pub mod paths;
 pub mod registry;
 pub mod resolve;
+pub mod settings;
 pub mod shell;
 mod storage;
 pub mod ui;

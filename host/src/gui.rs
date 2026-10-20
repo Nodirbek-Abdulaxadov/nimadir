@@ -24,7 +24,8 @@ use anyhow::Result;
 use eframe::egui;
 
 use crate::registry;
-use crate::shell::{Shell, View};
+use crate::settings;
+use crate::shell::{Shell, View, SETTINGS_PAGE};
 use crate::ui::{FrameInput, UiCmd};
 
 /// What `run_android` is handed, re-exported so the Android crate need not
@@ -270,6 +271,9 @@ struct ShellApp {
     /// Something done in this frame shows only in the next — a click or an
     /// edit the guest has not been told about yet — so ask for one.
     redraw: bool,
+    /// What the settings page shows, read from disk once per visit rather
+    /// than on every frame it is drawn.
+    settings_seen: Option<(Vec<settings::Kept>, u64)>,
 }
 
 impl ShellApp {
@@ -290,6 +294,73 @@ impl ShellApp {
             #[cfg(target_os = "android")]
             safe_area: None,
             redraw: false,
+            settings_seen: None,
+        }
+    }
+
+    /// The settings page: host UI, at `SETTINGS_PAGE`. What each app keeps,
+    /// with a way to clear it; what the caches hold; and where both live.
+    fn settings(&mut self, ui: &mut egui::Ui) {
+        let (kept, cache) = self
+            .settings_seen
+            .get_or_insert_with(|| (settings::kept(), settings::cache_bytes()));
+
+        let mut clear: Option<String> = None;
+        let mut clear_cache = false;
+        egui::ScrollArea::vertical().show(ui, |ui| {
+            ui.heading("Settings");
+            ui.weak(format!(
+                "nimadir {} — WIT {}",
+                env!("CARGO_PKG_VERSION"),
+                crate::wit_package()
+            ));
+            ui.add_space(12.0);
+
+            ui.strong("What apps keep");
+            if kept.is_empty() {
+                ui.weak("Nothing yet. Only a signed app that asks for storage keeps anything.");
+            }
+            for k in kept.iter() {
+                ui.horizontal_wrapped(|ui| {
+                    ui.label(&k.identity);
+                    ui.weak(settings::human(k.bytes));
+                    if ui.button("Clear data").clicked() {
+                        clear = Some(k.identity.clone());
+                    }
+                });
+            }
+            ui.add_space(12.0);
+
+            ui.strong("Downloads and compiled code");
+            ui.horizontal_wrapped(|ui| {
+                ui.label(settings::human(*cache));
+                if ui.button("Clear cache").clicked() {
+                    clear_cache = true;
+                }
+            });
+            ui.weak("All of it can be fetched or compiled again; the next opens are slower.");
+            ui.add_space(12.0);
+
+            for (what, dir) in [
+                ("Data", crate::paths::data_dir()),
+                ("Cache", crate::paths::cache_dir()),
+            ] {
+                if let Some(dir) = dir {
+                    ui.weak(format!("{what}: {}", dir.display()));
+                }
+            }
+        });
+
+        let done = match (clear, clear_cache) {
+            (Some(identity), _) => Some(settings::clear(&identity)),
+            (None, true) => Some(settings::clear_cache()),
+            (None, false) => None,
+        };
+        if let Some(result) = done {
+            self.shell.status_is_error = result.is_err();
+            self.shell.status = result.err().unwrap_or_default();
+            self.settings_seen = None;
+            self.redraw = true;
         }
     }
 
@@ -387,6 +458,14 @@ impl eframe::App for ShellApp {
                     self.page(ui);
                 }
                 Body::WebPage => self.web_page(ui, frame),
+                Body::Settings => {
+                    self.close_web();
+                    self.settings(ui);
+                }
+            }
+            if !matches!(Body::of(&self.shell), Body::Settings) {
+                // Read afresh on the next visit: an app may have kept more.
+                self.settings_seen = None;
             }
         });
 
@@ -426,6 +505,7 @@ enum Body {
     Home,
     App,
     WebPage,
+    Settings,
 }
 
 impl Body {
@@ -434,6 +514,7 @@ impl Body {
             View::Home => Body::Home,
             View::App { .. } => Body::App,
             View::WebPage { .. } => Body::WebPage,
+            View::Settings => Body::Settings,
         }
     }
 }
@@ -446,6 +527,7 @@ impl ShellApp {
             View::App { title, .. } | View::WebPage { title, .. } => {
                 format!("wasm-shell — {title}")
             }
+            View::Settings => "wasm-shell — Settings".to_string(),
         };
         if want != self.last_title {
             ui.ctx()
@@ -485,6 +567,7 @@ impl ShellApp {
 
         let (title, src) = match &self.shell.view {
             View::Home => ("wasm-shell".to_string(), String::new()),
+            View::Settings => ("Settings".to_string(), SETTINGS_PAGE.to_string()),
             View::App { title, src, .. } => (title.clone(), src.clone()),
             View::WebPage { title, url } => (title.clone(), url.clone()),
         };
