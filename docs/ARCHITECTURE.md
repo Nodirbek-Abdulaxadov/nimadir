@@ -444,7 +444,8 @@ Splits the window into two zones, and keeping them apart is the security story:
   a short last row, which is the row a wrapping layout leaves hanging), and the
   free function `tile` paints one card. Cards are painted, not composed out of
   a button, because the whole card is the click target and egui's button is not
-  a two-line container.
+  a two-line container — and since paint tells a screen reader nothing, `tile`
+  reports itself to AccessKit as a button named by its title and subtitle.
 - `install_fonts` — egui's fonts plus Noto Sans (`host/assets/fonts`, OFL) as
   the last fallback: none of egui's has U+02BB, the ʻ of Uzbek's oʻ and gʻ.
 - `i18n` (`host/src/i18n.rs`) — the window's own words in Uzbek, Russian and

@@ -159,6 +159,11 @@ data directory.
 hand, declined in the suite. S6-5: the `fuzz` fixture, 12 000 awkward calls
 without a panic.
 
+**Sprint 8 progress:** S8-5 Reload; S8-4 the window in Uzbek, Russian and
+English (Android's locale read over JNI); S8-3 store cards labelled for screen
+readers — Android accessibility waits on GameActivity, with S3-4. Images have
+no alternative text yet: that needs a WIT function, after beta.
+
 **Sprint 7 closed (2026-10-20), 109 assertions.** S7-1: each project vendors
 the WIT (`nimadir new`) instead of fetching a package — nothing to publish,
 nothing to resolve. S7-2: templates for Rust, C# and Python; an SDK crate of
