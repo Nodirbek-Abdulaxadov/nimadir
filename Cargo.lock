@@ -2413,6 +2413,7 @@ name = "host"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "dirs",
  "eframe",
  "gtk",
  "jni 0.21.1",

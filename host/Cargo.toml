@@ -18,6 +18,8 @@ ureq = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 wasmtime-wasi = "47"
+# Where config, data and caches live on each platform (`paths.rs`).
+dirs = "6"
 # The webview (module 1). Only `wry` — NOT Tauri: Tauri brings its own
 # application framework, which would fight the host loop nimadir already owns.
 wry = { version = "0.56", optional = true }

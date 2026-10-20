@@ -32,7 +32,8 @@ use host::ui::{FrameInput, UiCmd};
 
 const USAGE: &str = "usage: host [<address> | <listed-app-name>] \
 [--list] [--headless] [--frames N] [--script \"frame:btn,...\"] \
-[--input \"frame:field=text\"] [--back \"frame,...\"] [--registry <path-or-url>]\n\
+[--input \"frame:field=text\"] [--back \"frame,...\"] [--registry <path-or-url>] \
+[--version]\n\
 an address is a .wasm component (path or URL) or a web page URL";
 
 fn main() -> Result<()> {
@@ -56,6 +57,14 @@ fn main() -> Result<()> {
             "--list" => list = true,
             "--help" | "-h" => {
                 println!("{USAGE}");
+                return Ok(());
+            }
+            "--version" | "-V" => {
+                println!(
+                    "nimadir {} (WIT {})",
+                    env!("CARGO_PKG_VERSION"),
+                    host::wit_package()
+                );
                 return Ok(());
             }
             "--frames" => {
@@ -85,6 +94,8 @@ fn main() -> Result<()> {
         }
         i += 1;
     }
+
+    host::diag::init();
 
     // Where the catalogue came from, so `--list` can say so instead of naming
     // a manifest that may not have been the one read.

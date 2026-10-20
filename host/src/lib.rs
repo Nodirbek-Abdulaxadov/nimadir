@@ -5,9 +5,11 @@
 
 #[cfg(all(feature = "gui", target_os = "android"))]
 mod android;
+pub mod diag;
 #[cfg(feature = "gui")]
 pub mod gui;
 pub mod host;
+pub mod paths;
 pub mod registry;
 pub mod resolve;
 pub mod shell;
@@ -16,6 +18,15 @@ pub mod ui;
 mod webview;
 
 use anyhow::Result;
+
+/// The WIT package this host implements, as `wit/world.wit` declares it —
+/// read from the file, so it cannot drift from what `bindgen!` compiled.
+pub fn wit_package() -> &'static str {
+    include_str!("../../wit/world.wit")
+        .lines()
+        .find_map(|l| l.trim().strip_prefix("package "))
+        .map_or("unknown", |p| p.trim_end_matches(';'))
+}
 
 /// The Wasmtime engine, with compiled components cached on disk and guest
 /// running time bounded.
@@ -30,7 +41,14 @@ use anyhow::Result;
 /// trading a real feature for a missing one.
 pub fn engine() -> Result<wasmtime::Engine> {
     let mut config = wasmtime::Config::new();
-    match wasmtime::Cache::from_file(None) {
+    // In the shell's own cache directory rather than wasmtime's default, which
+    // it finds through a config file Android does not have — there, every
+    // open compiled from scratch.
+    let mut cache = wasmtime::CacheConfig::new();
+    if let Some(dir) = paths::cache_dir() {
+        cache.with_directory(dir.join("compiled"));
+    }
+    match wasmtime::Cache::new(cache) {
         Ok(cache) => {
             config.cache(Some(cache));
         }

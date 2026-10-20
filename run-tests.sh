@@ -83,9 +83,15 @@ skip() { printf '  '; dim "SKIP"; echo "  $1"; SKIP=$((SKIP + 1)); }
 cleanup() {
   [[ -n "$SRV" ]] && kill "$SRV" 2>/dev/null
   [[ -n "$FIXTURES" ]] && rm -rf "$FIXTURES"
+  [[ -n "${NIMADIR_HOME:-}" ]] && rm -rf "$NIMADIR_HOME"
   return 0
 }
 trap cleanup EXIT
+
+# The shell reads and writes its config, data and caches under here instead of
+# the real ones of whoever runs the suite — and starts every run empty.
+export NIMADIR_HOME
+NIMADIR_HOME=$(mktemp -d)
 
 HOST=./target/debug/host
 
@@ -168,6 +174,15 @@ check "and clicking that tile navigates" "[nav] loaded" \
   $HOST store --input "1:0=mini-apps/hello/hello.component.wasm" --script "2:0" --frames 3
 check "a guest navigation that fails says so" "[nav failed] could not open nowhere/missing.wasm" \
   $HOST store --input "1:0=nowhere/missing.wasm" --script "2:0" --frames 3
+
+echo
+echo "==> the shell's own record"
+check "--version names the host and the WIT it implements" "(WIT nimadir:shell@0.1.0)" \
+  $HOST --version
+check "navigations are logged in the data directory" "bytes of wasm from mini-apps/runaway/runaway.component.wasm" \
+  bash -c "$HOST mini-apps/runaway/runaway.component.wasm --frames 1 >/dev/null && cat \"\$NIMADIR_HOME/data/nimadir.log\""
+check "a guest that is stopped is logged with the reason" "the app stopped: it did not finish a frame" \
+  bash -c "$HOST mini-apps/runaway/runaway.component.wasm --script 1:0 --frames 3 >/dev/null 2>&1; cat \"\$NIMADIR_HOME/data/nimadir.log\""
 
 echo
 echo "==> navigation history"

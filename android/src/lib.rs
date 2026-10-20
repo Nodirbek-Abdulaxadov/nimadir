@@ -65,10 +65,13 @@ fn android_main(app: AndroidApp) {
 }
 
 fn run(app: AndroidApp) -> Result<()> {
-    let dir = app
+    let base = app
         .internal_data_path()
-        .ok_or_else(|| anyhow!("no internal data path"))?
-        .join("mini-apps");
+        .ok_or_else(|| anyhow!("no internal data path"))?;
+    // Config, data and caches all live in the app's private storage.
+    host::paths::set_root(base.clone());
+    host::diag::init();
+    let dir = base.join("mini-apps");
     std::fs::create_dir_all(&dir)?;
 
     let mut apps = Vec::new();

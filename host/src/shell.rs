@@ -313,6 +313,7 @@ impl Shell {
                 // "loaded 43 196 bytes of wasm from …" is the right thing to
                 // say about a navigation and the wrong thing to leave sitting
                 // on a start page. Arriving home is not news.
+                crate::diag::line(&status);
                 self.status = if matches!(p.origin, Origin::Home) {
                     String::new()
                 } else {
@@ -329,6 +330,7 @@ impl Shell {
             Err(e) => {
                 self.status = format!("could not open {}: {e:#}", p.src);
                 self.status_is_error = true;
+                crate::diag::line(&self.status);
                 if matches!(p.origin, Origin::Home) {
                     let why = std::mem::take(&mut self.status);
                     self.view = View::Home;
@@ -429,6 +431,7 @@ impl Shell {
                     self.view = View::Home;
                     self.status = format!("the app stopped: {e:#}");
                     self.status_is_error = true;
+                    crate::diag::line(&self.status);
                     return Err(e);
                 }
             },
