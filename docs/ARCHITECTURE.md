@@ -532,6 +532,16 @@ in `/usr/bin` on Linux, which an installed shell must not shadow.
 `run_headless` is the project's test suite. There is no `#[test]` anywhere; the
 `--script` flag *is* how the boundary is verified, and it needs no display.
 
+### Installers (`[package.metadata.packager]` in `host/Cargo.toml`)
+`cargo packager` makes a `.deb` and an AppImage on Linux, an NSIS installer on
+Windows and a `.dmg` on macOS, from the window build of `nimadir-shell`, with
+the icons in `host/assets/icons` (drawn by a script, no artwork tools).
+`.github/workflows/release.yml` runs it on every platform for a `v*` tag and
+attaches the results — and the Android APK and AAB — to a draft release.
+Signing comes from secrets when they exist. The `.deb` was built and checked
+here; the AppImage's linuxdeploy failed on this machine (exit 127, before its
+plugins ran) and runs as its own CI step so its failure costs nothing else.
+
 ### `android/` — the Android front door
 A `cdylib` whose `android_main` points `paths` at the app's private storage,
 loads the registry exactly as the desktop does (`registry::load_default`: a

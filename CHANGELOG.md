@@ -24,6 +24,10 @@ beta is `docs/ROADMAP.md`.
   past that the guest is stopped and the reason names the limit.
 
 ### Added
+- **Installers**: `.deb` and AppImage, an NSIS installer for Windows, a
+  `.dmg` for macOS (cargo-packager), with an icon; a release workflow builds
+  them all, and the Android APK and AAB, into a draft release for a version
+  tag.
 - **Check for updates**, on the settings page and as `--check-update`: asked
   only when the user asks, never at start.
 - Store cards tell screen readers what they are (desktop; AccessKit through

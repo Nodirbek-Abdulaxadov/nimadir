@@ -89,6 +89,12 @@ Signing an app (ADR-1 — identity is `<publisher>/<name>`, publisher from the k
 ./target/debug/nimadir inspect out.wasm
 ```
 
+Installers: `cd host && cargo packager --release -f deb` (also `appimage`,
+`nsis`, `dmg` on their platforms; `cargo install cargo-packager`). It builds the
+window build first; the mini-apps must exist, since the store is baked in.
+`.github/workflows/release.yml` builds them all for a `v*` tag, into a draft
+release.
+
 ## Run
 
 ```bash

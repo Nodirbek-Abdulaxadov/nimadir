@@ -63,3 +63,27 @@ gui = ["dep:eframe", "dep:winit", "dep:jni"]
 # it into `gui` would make the windowed build stop working on machines that
 # have no webview runtime, to add a module they may never open.
 webview = ["gui", "dep:wry", "dep:gtk"]
+
+# Installers (`cargo packager --release` from this directory, or
+# tools/package.sh): .deb and AppImage on Linux, an NSIS installer on Windows,
+# a .dmg on macOS. The window build is what is packaged.
+[package.metadata.packager]
+product-name = "nimadir"
+identifier = "dev.nimadir.shell"
+description = "A native shell for sandboxed WebAssembly mini-apps"
+long-description = "nimadir loads small apps compiled to WebAssembly components, runs each in a sandbox, and draws its interface natively, with no web stack in between. It opens on a store of apps from its registry; an app can keep its own data and reach the network only where its manifest says and the user allows."
+homepage = "https://github.com/Nodirbek-Abdulaxadov/nimadir"
+authors = ["Nodirbek Abdulaxadov"]
+publisher = "Nodirbek Abdulaxadov"
+license-file = "../LICENSE"
+category = "Utility"
+before-packaging-command = "cargo build --release -p host --features gui"
+out-dir = "../target/release"
+binaries = [{ path = "nimadir-shell", main = true }]
+icons = ["assets/icons/32x32.png", "assets/icons/128x128.png", "assets/icons/256x256.png", "assets/icons/512x512.png"]
+formats = ["deb", "appimage", "nsis", "dmg"]
+
+# What winit and wgpu load at run time: a keyboard map, X11 or Wayland, and
+# Vulkan (or GL, which wgpu falls back to).
+[package.metadata.packager.deb]
+depends = ["libxkbcommon0", "libwayland-client0", "libx11-6", "libxcursor1", "libxrandr2", "libxi6", "libvulkan1 | libgl1"]
