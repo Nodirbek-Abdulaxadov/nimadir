@@ -31,8 +31,8 @@ use host::ui::{FrameInput, UiCmd};
 
 const USAGE: &str = "usage: host [<address> | <listed-app-name>] \
 [--list] [--headless] [--frames N] [--script \"frame:btn,...\"] \
-[--input \"frame:field=text\"] [--back \"frame,...\"] [--registry <path-or-url>] \
-[--version]\n\
+[--input \"frame:field=text\"] [--back \"frame,...\"] [--confirm] \
+[--registry <path-or-url>] [--version]\n\
 an address is a .wasm component (path or URL) or a web page URL";
 
 fn main() -> Result<()> {
@@ -47,6 +47,7 @@ fn main() -> Result<()> {
     // separator inside a search term should not silently truncate it.
     let mut inputs: Vec<String> = Vec::new();
     let mut backs = String::new();
+    let mut confirm = false;
     let mut registry_src: Option<String> = None;
 
     let mut i = 1;
@@ -80,6 +81,7 @@ fn main() -> Result<()> {
                     inputs.push(v.clone());
                 }
             }
+            "--confirm" => confirm = true,
             "--back" => {
                 i += 1;
                 backs = args.get(i).cloned().unwrap_or_default();
@@ -171,7 +173,7 @@ fn main() -> Result<()> {
             if shell.is_web_page() {
                 return Ok(());
             }
-            run_headless(shell, frames, &script, &inputs, &backs)
+            run_headless(shell, frames, &script, &inputs, &backs, confirm)
         }
     }
 }
@@ -225,6 +227,7 @@ fn run_headless(
     script: &str,
     inputs: &[String],
     backs: &str,
+    confirm: bool,
 ) -> Result<()> {
     for l in shell.take_logs() {
         println!("[wasm log] {l}");
@@ -308,6 +311,16 @@ fn run_headless(
         // frames come at once, so it is only reported.
         if let Some(ms) = shell.take_frame_request() {
             println!("   [next frame in {ms} ms]");
+        }
+        // An app asked to open somewhere unlisted: the window would ask the
+        // user; here `--confirm` answers yes, and its absence no.
+        if let Some(ask) = shell.asking() {
+            println!("   [asks] {} wants to open {}", ask.from, ask.address);
+        }
+        if shell.asking().is_some() {
+            shell.answer(confirm);
+            shell.wait();
+            println!("   [{}]", if confirm { "opened" } else { "declined" });
         }
         // A guest that asked to navigate has already been replaced by the app
         // it asked for; say so, or the next frame's different UI looks like a

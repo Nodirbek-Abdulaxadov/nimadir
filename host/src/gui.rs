@@ -574,6 +574,25 @@ impl ShellApp {
             }
         }
 
+        // An app asking to go somewhere the registry does not list. In the
+        // chrome, which the app cannot draw over or click for the user.
+        let mut answer = None;
+        if let Some(ask) = self.shell.asking() {
+            let question = format!("{} wants to open {}", ask.from, ask.address);
+            ui.horizontal_wrapped(|ui| {
+                ui.label(egui::RichText::new(question).strong());
+                if ui.button("Open").clicked() {
+                    answer = Some(true);
+                }
+                if ui.button("Stay").clicked() {
+                    answer = Some(false);
+                }
+            });
+        }
+        if let Some(open) = answer {
+            self.shell.answer(open);
+        }
+
         if go_back {
             self.go_back(ui.ctx());
         }

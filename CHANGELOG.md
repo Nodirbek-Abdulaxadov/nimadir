@@ -8,6 +8,8 @@ beta is `docs/ROADMAP.md`.
 ## [Unreleased]
 
 ### Security
+- An app can open an app the registry lists, but opening any other address
+  needs the user's yes, asked in the chrome where no app can answer for them.
 - **Signed apps** (ADR-1). A component may carry a manifest and its
   publisher's Ed25519 signature; one changed after signing, or signed by
   someone other than its registry entry names, is refused before it is

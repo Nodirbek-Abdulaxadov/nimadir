@@ -38,5 +38,7 @@ welcome if you find a way they are worse than described here:
   the bytes match. A component opened by address with no registry entry, or
   an entry with no pin, is run as received — TLS is all that protects it.
   Signed components are `S4-1` in `docs/ROADMAP.md`.
-- **No per-app permissions yet.** Every mini-app gets the whole `host-api`,
-  and `open-app` may ask for any address. Policy is `S4-2` and `S4-3`.
+- **Permissions are coarse.** Every mini-app gets the whole `host-api`.
+  `open-app` to an address the registry does not list needs the user's
+  confirmation; storage persists only for a signed app that asks. Network
+  access for guests does not exist yet, and will be per-origin (`S6-2`).

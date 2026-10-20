@@ -300,6 +300,16 @@ check "back from the start page has nowhere to go" "[back] nothing to go back to
   $HOST store --back 1 --frames 2
 
 echo
+echo "==> where an app may send you"
+# A listed app opens on the app's say-so; anywhere else, the user decides.
+check "an app can open an app the registry lists" "[nav] loaded" \
+  $HOST hello --script "1:1" --frames 3
+check "but asks before opening an address the registry does not list" "[asks] hello wants to open https://example.com" \
+  $HOST hello --script "1:2" --frames 3
+check "and without a yes, stays where it is" "[declined]" \
+  $HOST hello --script "1:2" --frames 3
+
+echo
 echo "==> frames on request"
 # The window draws only when something happens; an app showing time passing
 # has to ask. One that asks for nothing must not be given frames anyway.

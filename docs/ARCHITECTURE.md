@@ -287,6 +287,12 @@ The browser-shaped layer above a single mini-app. Knows nothing about drawing.
   from an app is the start page and back from the start page is `false` —
   which a phone reads as "leave". Capped at `HISTORY_LIMIT`, because a guest
   can navigate once per frame.
+- **Where an app may send you.** A guest's `open-app` to an address the
+  registry lists — or anything from the start page, whose field the user
+  typed into — navigates. Anywhere else becomes an `Ask`: the app keeps
+  running, the chrome shows "<app> wants to open <address> [Open] [Stay]"
+  (where no guest can draw or click), and `Shell::answer` acts on the user's
+  choice as if they had typed it. Headless, `--confirm` answers yes.
 - **Vouching** (`vouch`, on the loader thread, before `MiniApp::load`): a
   component whose manifest is malformed or whose signature does not hold is
   refused before Cranelift sees it, and so is one signed by anybody other than

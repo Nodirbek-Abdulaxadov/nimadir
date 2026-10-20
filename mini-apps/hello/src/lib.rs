@@ -12,7 +12,7 @@ wit_bindgen::generate!({
 
 use std::sync::atomic::{AtomicI64, Ordering};
 
-use nimadir::shell::host_api::{log, now_millis, request_frame, ui_button, ui_label};
+use nimadir::shell::host_api::{log, now_millis, open_app, request_frame, ui_button, ui_label};
 
 /// When `init` ran, by the host's clock.
 static STARTED: AtomicI64 = AtomicI64::new(0);
@@ -35,6 +35,14 @@ impl Guest for Hello {
         request_frame(1000);
         if ui_button("Say hi") {
             log("hi from the hello mini-app!");
+        }
+        // Two links: one to an app the registry lists, which simply opens,
+        // and one to an address it does not, which the shell asks about.
+        if ui_button("Open the counter") {
+            open_app("counter");
+        }
+        if ui_button("Open example.com") {
+            open_app("example.com");
         }
     }
 }

@@ -129,6 +129,16 @@ pub struct Shell {
     history: Vec<Visit>,
     /// A fresher registry on its way, fetched off the UI thread.
     registry_rx: Option<Receiver<Vec<AppEntry>>>,
+    /// An app's request the user has not answered yet (`asking`).
+    asking: Option<Ask>,
+}
+
+/// An app asking to open somewhere the registry does not list.
+pub struct Ask {
+    /// The app asking, by its title.
+    pub from: String,
+    pub address: String,
+    title: String,
 }
 
 // `is_home`/`go_home` are navigation, which only the window backend performs.
@@ -145,6 +155,7 @@ impl Shell {
             navigated: false,
             history: Vec::new(),
             registry_rx: None,
+            asking: None,
         }
     }
 
@@ -428,6 +439,8 @@ impl Shell {
         if !matches!(p.origin, Origin::Back) {
             self.record();
         }
+        // A question from the page being left is no longer anyone's to ask.
+        self.asking = None;
         let (title, src) = (p.title.clone(), p.src.clone());
         match landed {
             Landed::App {
@@ -486,6 +499,7 @@ impl Shell {
     /// `go_home` without remembering where it came from — for `back`, and for
     /// starting up, where there is nowhere to remember.
     fn go_start(&mut self) {
+        self.asking = None;
         self.view = View::Home;
         self.status.clear();
         self.status_is_error = false;
@@ -516,6 +530,7 @@ impl Shell {
                     // guest that just trapped *was* the store, going home would
                     // reload it and trap again.
                     self.view = View::Home;
+                    self.asking = None;
                     self.status = format!("the app stopped: {e:#}");
                     self.status_is_error = true;
                     crate::diag::line(&self.status);
@@ -533,10 +548,44 @@ impl Shell {
         // address bar, so the store can list apps by name and not care where
         // they live.
         let (src, title) = crate::registry::resolve(&src, &self.apps);
+
+        // Somewhere the registry lists, or anything the start page sends —
+        // there the address is the user's own, typed into its field. Anywhere
+        // else, a page does not get to take the user somewhere on its own say:
+        // the shell asks, and the app keeps running meanwhile.
+        let listed = self.apps.iter().any(|e| e.src == src);
+        if !listed && !self.is_start_page() {
+            if self.asking.is_none() {
+                let from = self.location().map_or("this app", |(t, _)| t).to_string();
+                crate::diag::line(&format!("{from} asks to open {src}"));
+                self.asking = Some(Ask {
+                    from,
+                    address: src,
+                    title,
+                });
+            }
+            return Ok(cmds);
+        }
+
         self.start_as(&src, &title, Origin::Guest);
         // `cmds` describes the app that just asked to leave. Drawing it now
         // would paint a frame of an app the shell has already dropped.
         Ok(Vec::new())
+    }
+
+    /// An app's request to open an address the registry does not list, until
+    /// the user answers it.
+    pub fn asking(&self) -> Option<&Ask> {
+        self.asking.as_ref()
+    }
+
+    /// The user's answer: open it, as if they had typed it, or stay.
+    pub fn answer(&mut self, open: bool) {
+        if let Some(ask) = self.asking.take() {
+            if open {
+                self.start_as(&ask.address, &ask.title, Origin::User);
+            }
+        }
     }
 
     /// When the current mini-app wants its next frame, in milliseconds, if it
