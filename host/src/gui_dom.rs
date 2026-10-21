@@ -133,9 +133,31 @@ impl Fonts for EguiFonts {
         if !p.wrap {
             return self.measure(p, None).0;
         }
-        // A word wider than the line overflows its row rather than breaking,
-        // so at almost no width each word has a row: the widest is the answer.
-        self.galley(p, Some(1.0)).rect.width().ceil()
+        // The widest word, each measured on its own. Not the galley at no
+        // width: egui breaks inside a word that does not fit, which made that
+        // the widest letter, and a flex item shrank until its label broke.
+        let mut widest = 0.0f32;
+        let mut word = LayoutJob::default();
+        let mut flush = |word: &mut LayoutJob| {
+            if !word.text.is_empty() {
+                let job = std::mem::take(word);
+                let w = self.ctx.fonts_mut(|f| f.layout_job(job)).rect.width();
+                widest = widest.max(w);
+            }
+        };
+        for run in &p.runs {
+            let format = text_format(&run.font, p.line_height);
+            for (i, piece) in run.text.split(char::is_whitespace).enumerate() {
+                if i > 0 {
+                    flush(&mut word);
+                }
+                if !piece.is_empty() {
+                    word.append(piece, 0.0, format.clone());
+                }
+            }
+        }
+        flush(&mut word);
+        widest.ceil()
     }
 
     fn run_at(&self, p: &Paragraph, width: f32, x: f32, y: f32) -> Option<usize> {
@@ -565,11 +587,19 @@ pub fn show(ui: &mut egui::Ui, shell: &mut Shell, view: &mut DomView, reveal: bo
         }
         let mut chosen = None;
         egui::Popup::menu(&tap).width(area.width()).show(|ui| {
-            for (i, label) in options.iter().enumerate() {
-                if ui.selectable_label(i == selected, label).clicked() {
-                    chosen = Some(i);
+            // As wide as the select, each option across all of it: the
+            // popup's width is only where egui starts, and it shrank to the
+            // longest option, a narrow target for a finger.
+            let margin = ui.spacing().menu_margin.sum().x;
+            ui.set_min_width(area.width() - margin);
+            ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+            ui.with_layout(egui::Layout::top_down_justified(egui::Align::LEFT), |ui| {
+                for (i, label) in options.iter().enumerate() {
+                    if ui.selectable_label(i == selected, label).clicked() {
+                        chosen = Some(i);
+                    }
                 }
-            }
+            });
         });
         if let Some(i) = chosen {
             let _ = doc.choose(node, i);

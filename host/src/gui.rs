@@ -208,6 +208,23 @@ mod palette {
     }
 }
 
+/// How the window's scroll areas take a drag. egui turns dragging on once
+/// it has seen a touch, and the frame with the first one was laid out
+/// before that: on a phone the first swipe after launch did not scroll. A
+/// phone is a touch screen from the start; elsewhere a mouse drag selects,
+/// as in a browser, and a touch screen is found the way egui finds it.
+fn scroll_source() -> egui::scroll_area::ScrollSource {
+    use egui::scroll_area::{DragScroll, ScrollSource};
+    ScrollSource {
+        drag: if cfg!(target_os = "android") {
+            DragScroll::Always
+        } else {
+            DragScroll::OnTouch
+        },
+        ..ScrollSource::default()
+    }
+}
+
 /// The window's look: a browser's, in light and in dark, from the two
 /// palettes, following whichever the system asks for.
 ///
@@ -390,6 +407,9 @@ struct ShellApp {
     /// The app the page's scroll position belongs to; another app starts at
     /// the top.
     scrolled_for: String,
+    /// Whether the page was taller than its area at the end of the last
+    /// frame: what egui's scroll area reads, a frame late, to take a drag.
+    page_overflows: bool,
     /// Last title pushed to the OS window, so we only send it on change.
     last_title: String,
     /// The live webview, when a page is open. `None` at every other moment —
@@ -449,6 +469,7 @@ impl ShellApp {
             address: String::new(),
             synced_src: String::new(),
             scrolled_for: String::new(),
+            page_overflows: false,
             last_title: String::new(),
             #[cfg(feature = "webview")]
             web: None,
@@ -494,63 +515,65 @@ impl ShellApp {
                 Err(why) => why,
             });
         }
-        egui::ScrollArea::vertical().show(ui, |ui| {
-            ui.heading(t(self.lang, Text::Settings));
-            ui.weak(format!(
-                "nimadir {} — WIT {}",
-                env!("CARGO_PKG_VERSION"),
-                crate::wit_package()
-            ));
-            ui.add_space(12.0);
+        egui::ScrollArea::vertical()
+            .scroll_source(scroll_source())
+            .show(ui, |ui| {
+                ui.heading(t(self.lang, Text::Settings));
+                ui.weak(format!(
+                    "nimadir {} — WIT {}",
+                    env!("CARGO_PKG_VERSION"),
+                    crate::wit_package()
+                ));
+                ui.add_space(12.0);
 
-            ui.strong(t(self.lang, Text::WhatAppsKeep));
-            if kept.is_empty() {
-                ui.weak(t(self.lang, Text::NothingKept));
-            }
-            for k in kept.iter() {
+                ui.strong(t(self.lang, Text::WhatAppsKeep));
+                if kept.is_empty() {
+                    ui.weak(t(self.lang, Text::NothingKept));
+                }
+                for k in kept.iter() {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.label(&k.identity);
+                        ui.weak(settings::human(k.bytes));
+                        if ui.button(t(self.lang, Text::ClearData)).clicked() {
+                            clear = Some(k.identity.clone());
+                        }
+                    });
+                }
+                ui.add_space(12.0);
+
+                ui.strong(t(self.lang, Text::Caches));
                 ui.horizontal_wrapped(|ui| {
-                    ui.label(&k.identity);
-                    ui.weak(settings::human(k.bytes));
-                    if ui.button(t(self.lang, Text::ClearData)).clicked() {
-                        clear = Some(k.identity.clone());
+                    ui.label(settings::human(*cache));
+                    if ui.button(t(self.lang, Text::ClearCache)).clicked() {
+                        clear_cache = true;
                     }
                 });
-            }
-            ui.add_space(12.0);
+                ui.weak(t(self.lang, Text::CachesRebuild));
+                ui.add_space(12.0);
 
-            ui.strong(t(self.lang, Text::Caches));
-            ui.horizontal_wrapped(|ui| {
-                ui.label(settings::human(*cache));
-                if ui.button(t(self.lang, Text::ClearCache)).clicked() {
-                    clear_cache = true;
+                ui.strong(t(self.lang, Text::Updates));
+                ui.horizontal_wrapped(|ui| {
+                    if self.update_rx.is_some() {
+                        ui.spinner();
+                        ui.weak(t(self.lang, Text::Checking));
+                    } else if ui.button(t(self.lang, Text::CheckForUpdates)).clicked() {
+                        check_update = true;
+                    }
+                });
+                if let Some(said) = &self.update_said {
+                    ui.label(said);
+                }
+                ui.add_space(12.0);
+
+                for (what, dir) in [
+                    (t(self.lang, Text::DataDir), crate::paths::data_dir()),
+                    (t(self.lang, Text::CacheDir), crate::paths::cache_dir()),
+                ] {
+                    if let Some(dir) = dir {
+                        ui.weak(format!("{what}: {}", dir.display()));
+                    }
                 }
             });
-            ui.weak(t(self.lang, Text::CachesRebuild));
-            ui.add_space(12.0);
-
-            ui.strong(t(self.lang, Text::Updates));
-            ui.horizontal_wrapped(|ui| {
-                if self.update_rx.is_some() {
-                    ui.spinner();
-                    ui.weak(t(self.lang, Text::Checking));
-                } else if ui.button(t(self.lang, Text::CheckForUpdates)).clicked() {
-                    check_update = true;
-                }
-            });
-            if let Some(said) = &self.update_said {
-                ui.label(said);
-            }
-            ui.add_space(12.0);
-
-            for (what, dir) in [
-                (t(self.lang, Text::DataDir), crate::paths::data_dir()),
-                (t(self.lang, Text::CacheDir), crate::paths::cache_dir()),
-            ] {
-                if let Some(dir) = dir {
-                    ui.weak(format!("{what}: {}", dir.display()));
-                }
-            }
-        });
 
         if check_update {
             let (tx, rx) = std::sync::mpsc::channel();
@@ -716,12 +739,22 @@ impl eframe::App for ShellApp {
                     let here = here.unwrap_or_default();
                     let mut area = egui::ScrollArea::vertical()
                         .id_salt("page")
+                        .scroll_source(scroll_source())
                         .auto_shrink([false, false]);
                     if here != self.scrolled_for {
                         area = area.vertical_scroll_offset(0.0);
                         self.scrolled_for = here;
                     }
-                    area.show(ui, |ui| self.page(ui));
+                    let out = area.show(ui, |ui| self.page(ui));
+                    // egui lets a drag scroll the page only once a frame has
+                    // ended with it too tall, and this window draws only
+                    // when something happens: without one more frame, the
+                    // first swipe on a page just opened did not scroll it.
+                    let overflows = out.content_size.y > out.inner_rect.height();
+                    if overflows != self.page_overflows {
+                        self.page_overflows = overflows;
+                        ui.ctx().request_repaint();
+                    }
                 }
                 Body::WebPage => self.web_page(ui, frame),
                 Body::Settings => {
@@ -1332,6 +1365,7 @@ impl ShellApp {
                         Container::Scroll => {
                             egui::ScrollArea::vertical()
                                 .id_salt(("guest-scroll", *index))
+                                .scroll_source(scroll_source())
                                 .auto_shrink([false, true])
                                 .show(ui, |ui| self.draw_run(ui, rest))
                                 .inner

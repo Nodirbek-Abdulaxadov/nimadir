@@ -75,6 +75,8 @@ input, textarea {
   padding: 8px 10px; border: 1px solid var(--nimadir-border); border-radius: 8px;
   background: var(--nimadir-field); color: var(--nimadir-text); cursor: text;
 }
+/* As in browsers: a search field set to 100% fits, padding and all. */
+input[type=search] { box-sizing: border-box; }
 input:focus, textarea:focus, select:focus { border-color: var(--nimadir-accent); }
 select {
   padding: 8px 32px 8px 10px; border: 1px solid var(--nimadir-border); border-radius: 8px;

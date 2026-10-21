@@ -307,8 +307,14 @@ over a field). D5 — `set-markup`, the Rust template on the tree, the guide in
 painting), the security review's addendum, 10 000 nodes at ~4 ms styling and
 ~16 ms layout in release, restyle without relayout for what only repaints,
 linear markup. 161 assertions. Then `showcase`, the tree in full, listed in the
-registry (170 assertions). Left for 1.1: the phone, and D6-3 on the owner's
-say.
+registry (170 assertions). Then the phone (a 2412DPC0AG, Android 16): the
+store and `showcase` on the tree — touch scrolling of the page and of a
+scroll container, the keyboard over a field and Back closing it, radios, a
+range by finger, a select's menu, Save. It found what the desktop could
+not: tab labels breaking inside words, a pill's background drawn twice, the
+search field wider than the page, the first swipe after launch not
+scrolling, a select's menu as narrow as its longest option; all fixed (173
+assertions). Left for 1.1: D6-3, on the owner's say.
 
 ### D1 — The tree
 

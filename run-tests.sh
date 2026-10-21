@@ -176,6 +176,8 @@ check "draws a search field" '#5 input#q [type="search"' \
   $HOST store --frames 1
 check "the start page leads with a hero heading" '#3 h1.wordmark' \
   $HOST store --frames 1
+check "on a phone's width the search field fits the page" '{input submit} @16,117 343x47' \
+  $HOST store --frames 1 --boxes --viewport 375x800
 check "filters as you type" '1 of 7 apps matching' \
   $HOST store --type "1:5=hell" --frames 2
 check "hides what does not match, each card keeping its node" '#17 a.tile [href="mini-apps/counter/counter.component.wasm" hidden=""]' \
@@ -431,6 +433,13 @@ check "an overflowing box clips what is in it" '[paint] clip 0,82 800x20' \
   $HOST $PROBE --paint --frames 1 --type '0:2=.box { display: none } ul { overflow: auto; height: 20px }'
 check "a checked checkbox draws its tick" '[paint] check 55,125 18x18 on' \
   $HOST $PROBE --paint --frames 1 --type '0:2=.box { display: none } ul { overflow: auto; height: 20px }'
+# A span's background is behind its text in a line, and on its box when a
+# flex container makes it an item: not both, which drew it twice.
+INLINE='<p>a <span style="background: #123456">b</span></p><div style="display: flex"><span style="background: #654321">c</span></div>'
+check "an inline element's background is drawn behind its text" '"a b" ["b" on #123456]' \
+  $HOST $PROBE --paint --frames 1 --type "0:45=$INLINE"
+check "a flex item's background is its box's, not behind its text" $'[paint] fill 0,427 8x21 r0 #654321\n   [paint] text 0,427 8x21 "c"\n' \
+  $HOST $PROBE --paint --frames 1 --type "0:45=$INLINE"
 check "bounds() answers from the last layout" 'bounds Some(Rect { x: 0.0, y: 82.0, width: 400.0' \
   $HOST $PROBE --click "1:20" --frames 2 --viewport 400x700
 

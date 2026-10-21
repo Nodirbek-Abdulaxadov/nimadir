@@ -206,7 +206,15 @@ impl Item {
                 colors,
                 ..
             } => format!("border {} {}px {}", at(rect), n(widths[0]), colors[0].css()),
-            Item::Text { rect, paragraph } => format!("text {} {:?}", at(rect), paragraph.text()),
+            Item::Text { rect, paragraph } => {
+                let mut line = format!("text {} {:?}", at(rect), paragraph.text());
+                for r in paragraph.runs.iter() {
+                    if !r.font.background.is_transparent() {
+                        line += &format!(" [{:?} on {}]", r.text, r.font.background.css());
+                    }
+                }
+                line
+            }
             Item::Image { rect, handle, .. } => format!("image {} #{handle}", at(rect)),
             Item::Field {
                 rect, node, value, ..
@@ -543,7 +551,7 @@ fn recoloured(doc: &Document, styles: &NodeMap<Style>, p: &Paragraph) -> Paragra
 fn inline_background(doc: &Document, styles: &NodeMap<Style>, mut at: Option<NodeId>) -> Color {
     while let Some(id) = at {
         let Some(s) = styles.get(&id) else { break };
-        if !s.is_inline() {
+        if !flows_inline(doc, styles, id, s) {
             break;
         }
         if !s.background.is_transparent() {
@@ -552,6 +560,32 @@ fn inline_background(doc: &Document, styles: &NodeMap<Style>, mut at: Option<Nod
         at = doc.parent(id);
     }
     Color::TRANSPARENT
+}
+
+/// Whether `id` flows as text in a line. An inline element that floats, is
+/// positioned out of flow, or is an item of a flex or grid container is a
+/// box of its own instead (CSS blockifies it), with its background on the box.
+fn flows_inline(doc: &Document, styles: &NodeMap<Style>, id: NodeId, s: &Style) -> bool {
+    if !s.is_inline()
+        || s.float != st::Float::None
+        || matches!(s.position, st::Position::Absolute | st::Position::Fixed)
+    {
+        return false;
+    }
+    let mut at = doc.parent(id);
+    while let Some(p) = at {
+        match styles.get(&p).map(|ps| ps.display) {
+            Some(st::Display::Contents) => at = doc.parent(p),
+            Some(
+                st::Display::Flex
+                | st::Display::InlineFlex
+                | st::Display::Grid
+                | st::Display::InlineGrid,
+            ) => return false,
+            _ => return true,
+        }
+    }
+    true
 }
 
 fn faded(p: &Paragraph, opacity: f32) -> Paragraph {

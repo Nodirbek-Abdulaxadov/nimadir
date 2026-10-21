@@ -72,6 +72,20 @@ The native DOM (ADR-4, `docs/ROADMAP.md` *Road to 1.1*).
   and CSS, which the host parses and draws itself.
 
 ### Fixed
+- Seen on a phone: a label in a flex item that had to shrink broke inside
+  its words ("Layou/t"). The window measured a paragraph's narrowest width
+  as its widest letter, since egui breaks a word that does not fit; it is
+  now the widest word, as on the web.
+- An inline element made a flex or grid item had its background drawn
+  twice, on its box and behind its text.
+- A search field set to `width: 100%` with padding was wider than the page;
+  it is `border-box`, as in browsers. The store's was, on a phone.
+- On a phone the first swipe after launch did not scroll: egui lets a drag
+  scroll only once it has seen a touch, and the first touch's frame was laid
+  out before that. A page that starts to overflow also gets the frame that
+  lets it be dragged.
+- A select's menu is as wide as the select, each option across all of it,
+  rather than as narrow as its longest option.
 - A build with the webview could not open a web page on a Wayland desktop:
   the window was on Wayland, and a child webview attaches only to X11. It
   now opens on XWayland whenever there is an X server, with GTK kept to the
