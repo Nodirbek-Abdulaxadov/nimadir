@@ -57,7 +57,10 @@ pub enum Text {
     NoMiniApps,
     WebPage,
     WebPageRouted,
+    // Only said where there is no webview to show the page in.
+    #[cfg(not(feature = "webview"))]
     WebPageRebuild,
+    #[cfg(not(feature = "webview"))]
     WebPageNotHere,
     Updates,
     CheckForUpdates,
@@ -158,11 +161,17 @@ pub fn t(lang: Lang, text: Text) -> &'static str {
         (WebPageRouted, En) => {
             "This address is a web page, not a WASM component, so the shell routed it away from the mini-app path."
         }
+        #[cfg(not(feature = "webview"))]
         (WebPageRebuild, Uz) => "Uni shu yerda koʻrish uchun `--features webview` bilan qayta yigʻing.",
+        #[cfg(not(feature = "webview"))]
         (WebPageRebuild, Ru) => "Чтобы показать её здесь, соберите с `--features webview`.",
+        #[cfg(not(feature = "webview"))]
         (WebPageRebuild, En) => "Rebuild with `--features webview` to render it here.",
+        #[cfg(not(feature = "webview"))]
         (WebPageNotHere, Uz) => "Bu qurilmada veb-sahifalar hali koʻrsatilmaydi.",
+        #[cfg(not(feature = "webview"))]
         (WebPageNotHere, Ru) => "На этом устройстве веб-страницы пока не показываются.",
+        #[cfg(not(feature = "webview"))]
         (WebPageNotHere, En) => "Web pages cannot be shown on this device yet.",
         (Updates, Uz) => "Yangilanishlar",
         (Updates, Ru) => "Обновления",

@@ -31,7 +31,9 @@ for app in "${APPS[@]}"; do
   if [[ -f "mini-apps/$app/manifest.json" ]]; then
     sign=()
     [[ -n "${NIMADIR_SIGNING_KEY:-}" ]] && sign=(--key "$NIMADIR_SIGNING_KEY")
-    ./target/release/nimadir pack "$out" "mini-apps/$app/manifest.json" "$out" "${sign[@]}" >/dev/null
+    # `${sign[@]+...}`: macOS's bash 3.2 calls an empty array unbound under
+    # `set -u`, and stopped the build there.
+    ./target/release/nimadir pack "$out" "mini-apps/$app/manifest.json" "$out" ${sign[@]+"${sign[@]}"} >/dev/null
   fi
 done
 
