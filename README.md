@@ -170,7 +170,10 @@ cargo run -p host --features webview -- https://example.com
 The webview is a separate feature from `gui` because it needs system libraries
 `gui` does not — WebKitGTK on Linux (`libwebkit2gtk-4.1-dev`), WebView2 on
 Windows. The default build stays buildable anywhere, which is what keeps the
-headless path honest.
+headless path honest. The installers carry it: the `.deb` depends on
+WebKitGTK, Windows 10 and 11 come with WebView2, macOS with WKWebView. Only the
+AppImage goes without, since WebKitGTK starts its helper processes from
+absolute paths an AppImage cannot bring along.
 
 The rules that fall out of this are worth stating, because they are the reason
 the "no web stack" goal survives having a webview at all:

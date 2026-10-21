@@ -7,6 +7,11 @@ beta is `docs/ROADMAP.md`.
 
 ## [Unreleased]
 
+### Added
+- The installers open web pages: the `.deb`, the Windows installer and the
+  `.dmg` are built with the webview (the `.deb` depends on WebKitGTK). The
+  AppImage is not, since WebKitGTK's helper processes live at absolute paths.
+
 ## [1.1.0-beta.1] — 2026-10-21
 
 The native DOM (ADR-4, `docs/ROADMAP.md` *Road to 1.1*): an app can describe

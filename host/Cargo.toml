@@ -74,9 +74,13 @@ gui = ["dep:eframe", "dep:winit", "dep:jni", "dep:zbus"]
 # have no webview runtime, to add a module they may never open.
 webview = ["gui", "dep:wry", "dep:gtk"]
 
-# Installers (`cargo packager --release` from this directory, or
-# tools/package.sh): .deb and AppImage on Linux, an NSIS installer on Windows,
-# a .dmg on macOS. The window build is what is packaged.
+# Installers (`cargo packager --release` from this directory): .deb and
+# AppImage on Linux, an NSIS installer on Windows, a .dmg on macOS. What is
+# packaged is the window with the webview (S9-3), so web pages open from an
+# installed shell too: WebKitGTK is a dependency of the .deb, WebView2 comes
+# with Windows 10 and 11, WKWebView with macOS. The AppImage is the
+# exception — it is built without it (release.yml), since WebKitGTK finds
+# its helper processes by absolute paths that an AppImage cannot carry.
 [package.metadata.packager]
 product-name = "nimadir"
 identifier = "dev.nimadir.shell"
@@ -87,13 +91,13 @@ authors = ["Nodirbek Abdulaxadov"]
 publisher = "Nodirbek Abdulaxadov"
 license-file = "../LICENSE"
 category = "Utility"
-before-packaging-command = "cargo build --release -p host --features gui"
+before-packaging-command = "cargo build --release -p host --features webview"
 out-dir = "../target/release"
 binaries = [{ path = "nimadir-shell", main = true }]
 icons = ["assets/icons/32x32.png", "assets/icons/128x128.png", "assets/icons/256x256.png", "assets/icons/512x512.png"]
 formats = ["deb", "appimage", "nsis", "dmg"]
 
 # What winit and wgpu load at run time: a keyboard map, X11 or Wayland, and
-# Vulkan (or GL, which wgpu falls back to).
+# Vulkan (or GL, which wgpu falls back to); and WebKitGTK for web pages.
 [package.metadata.packager.deb]
-depends = ["libxkbcommon0", "libwayland-client0", "libx11-6", "libxcursor1", "libxrandr2", "libxi6", "libvulkan1 | libgl1"]
+depends = ["libxkbcommon0", "libwayland-client0", "libx11-6", "libxcursor1", "libxrandr2", "libxi6", "libvulkan1 | libgl1", "libwebkit2gtk-4.1-0"]

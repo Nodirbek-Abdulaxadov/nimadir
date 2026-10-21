@@ -44,7 +44,7 @@ jobs:
         with:
           targets: wasm32-unknown-unknown
       - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev patchelf
+        run: sudo apt-get update && sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.1-dev patchelf
       - uses: Swatinem/rust-cache@v2
       - run: cargo install cargo-packager --locked
       # The store is baked into the shell, so it has to exist first.
@@ -60,12 +60,17 @@ jobs:
         run: cargo packager --release -f ${{ matrix.formats }}
       # AppImage on its own: linuxdeploy has failed on some build machines
       # where the .deb is fine (docs/ROADMAP.md, S8-1). Its failure must not
-      # cost the release its other installers.
+      # cost the release its other installers. It is the window without the
+      # webview: WebKitGTK runs helper processes from absolute paths, which an
+      # AppImage cannot bring along, and linked in it would stop the shell
+      # starting at all on a system without WebKitGTK.
       - if: runner.os == 'Linux'
         id: appimage
         continue-on-error: true
         working-directory: host
-        run: cargo packager --release -f appimage
+        run: |
+          sed -i 's/--features webview"/--features gui"/' Cargo.toml
+          cargo packager --release -f appimage
       - if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:
