@@ -932,6 +932,7 @@ impl ShellApp {
         let at_home = self.shell.is_home();
         let lang = self.lang;
         let can_back = self.shell.can_go_back();
+        let can_forward = self.shell.can_go_forward();
 
         // Follow navigation, like a browser's bar does: whatever you arrived at
         // is what it shows. Only on an actual change, so typing is never eaten.
@@ -950,6 +951,7 @@ impl ShellApp {
         }
 
         let mut go_back = false;
+        let mut go_forward = false;
         let mut go_home = false;
         let mut reload = false;
         let mut nav: Option<Nav> = None;
@@ -963,6 +965,11 @@ impl ShellApp {
             // A word, not an arrow: egui's bundled fonts have no arrow glyphs.
             if can_back && ui.button(t(lang, Text::Back)).clicked() {
                 go_back = true;
+            }
+            // Only once Back has been pressed, as in a browser — and on a
+            // phone, which has a key for Back and none for Forward.
+            if can_forward && ui.button(t(lang, Text::Forward)).clicked() {
+                go_forward = true;
             }
             if !at_home {
                 if ui.button(t(lang, Text::Home)).clicked() {
@@ -1046,6 +1053,13 @@ impl ShellApp {
 
         if go_back {
             self.go_back(ui.ctx());
+        }
+        if go_forward {
+            // Input aimed at the page being left goes nowhere.
+            self.pending_clicks.clear();
+            self.pending_submits.clear();
+            self.field_values.clear();
+            self.shell.forward();
         }
         if reload {
             self.pending_clicks.clear();

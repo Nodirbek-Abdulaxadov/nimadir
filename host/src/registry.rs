@@ -34,6 +34,10 @@ pub struct AppEntry {
     /// signed by anybody else, or by nobody, is refused.
     #[serde(default)]
     pub publisher: Option<String>,
+    /// The version its manifest gave when the registry was published —
+    /// shown, never checked (`app-info`).
+    #[serde(default)]
+    pub version: Option<String>,
 }
 
 /// The JSON catalogue, looked up first.
@@ -188,6 +192,7 @@ fn builtin_store() -> AppEntry {
         // Inside the binary: nothing crossed a network to tamper with.
         sha256: None,
         publisher: None,
+        version: None,
     }
 }
 
@@ -271,6 +276,7 @@ pub fn parse(text: &str) -> Vec<AppEntry> {
             description,
             sha256,
             publisher: None,
+            version: None,
         });
     }
     out

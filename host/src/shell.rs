@@ -82,6 +82,22 @@ struct Pending {
     src: String,
     rx: Receiver<Result<Landed>>,
     origin: Origin,
+    step: Step,
+}
+
+/// What a navigation does to Back and Forward once it lands — not before:
+/// one that fails leaves you where you were, with both as they were.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Step {
+    /// Somewhere new: the page left is Back's, and Forward is forgotten, as
+    /// in a browser.
+    New,
+    /// Back: the page left is Forward's.
+    Back,
+    /// Forward: the page left is Back's again.
+    Forward,
+    /// Reload: the same page, nothing to remember.
+    Same,
 }
 
 /// What comes back off the loader thread: a destination that is **ready**, not
@@ -136,6 +152,8 @@ pub struct Shell {
     navigated: bool,
     /// Where `back` goes, most recent last.
     history: Vec<Visit>,
+    /// Where `forward` goes, most recent last: what Back left.
+    forward: Vec<Visit>,
     /// A fresher registry on its way, fetched off the UI thread.
     registry_rx: Option<Receiver<Vec<AppEntry>>>,
     /// An app's request the user has not answered yet (`asking`).
@@ -163,6 +181,7 @@ impl Shell {
             status_is_error: false,
             navigated: false,
             history: Vec::new(),
+            forward: Vec::new(),
             registry_rx: None,
             asking: None,
         }
@@ -181,17 +200,34 @@ impl Shell {
 
     /// Remember where the shell is before it goes somewhere else.
     fn record(&mut self) {
-        let Some((title, src)) = self.location() else {
-            return;
-        };
-        let visit = Visit {
+        if let Some(v) = self.here() {
+            remember(&mut self.history, v);
+        }
+    }
+
+    /// The page the shell is on, as a place to come back to.
+    fn here(&self) -> Option<Visit> {
+        self.location().map(|(title, src)| Visit {
             src: src.to_string(),
             title: title.to_string(),
-        };
-        if self.history.len() == HISTORY_LIMIT {
-            self.history.remove(0);
+        })
+    }
+
+    /// What a navigation that landed does to Back and Forward.
+    fn take_step(&mut self, step: Step) {
+        match step {
+            Step::New => {
+                self.record();
+                self.forward.clear();
+            }
+            Step::Back => {
+                if let Some(v) = self.here() {
+                    remember(&mut self.forward, v);
+                }
+            }
+            Step::Forward => self.record(),
+            Step::Same => {}
         }
-        self.history.push(visit);
     }
 
     /// Open the page the shell is on afresh — a new instance of the app, as
@@ -221,10 +257,36 @@ impl Shell {
     /// phone reads as "leave the app" and a desktop ignores.
     pub fn back(&mut self) -> bool {
         match self.history.pop() {
-            Some(v) if v.title == STORE_APP => self.go_start(),
+            Some(v) if v.title == STORE_APP => {
+                self.take_step(Step::Back);
+                self.go_start();
+            }
             Some(v) => self.start_as(&v.src, &v.title, Origin::Back),
             None if self.is_start_page() || self.is_home() => return false,
-            None => self.go_start(),
+            None => {
+                self.take_step(Step::Back);
+                self.go_start();
+            }
+        }
+        true
+    }
+
+    /// Whether `forward` would go anywhere: Back was pressed, and nothing
+    /// new opened since.
+    pub fn can_go_forward(&self) -> bool {
+        !self.forward.is_empty()
+    }
+
+    /// Go where Back came from (S3-5), opening it afresh.
+    pub fn forward(&mut self) -> bool {
+        let Some(v) = self.forward.pop() else {
+            return false;
+        };
+        if v.title == STORE_APP {
+            self.take_step(Step::Forward);
+            self.go_start();
+        } else {
+            self.start_stepped(&v.src, &v.title, Origin::User, Step::Forward);
         }
         true
     }
@@ -317,11 +379,18 @@ impl Shell {
     }
 
     fn start_as(&mut self, src: &str, title: &str, origin: Origin) {
+        let step = match origin {
+            Origin::Back => Step::Back,
+            Origin::Reload => Step::Same,
+            _ => Step::New,
+        };
+        self.start_stepped(src, title, origin, step);
+    }
+
+    fn start_stepped(&mut self, src: &str, title: &str, origin: Origin, step: Step) {
         // The shell's own page: nothing to fetch, classify or compile.
         if src == SETTINGS_PAGE {
-            if !matches!(origin, Origin::Back | Origin::Reload) {
-                self.record();
-            }
+            self.take_step(step);
             self.asking = None;
             self.view = View::Settings;
             self.status.clear();
@@ -385,6 +454,7 @@ impl Shell {
             src: src.to_string(),
             rx,
             origin,
+            step,
         });
     }
 
@@ -466,9 +536,7 @@ impl Shell {
     fn arrive(&mut self, landed: Landed, p: &Pending) -> Result<String> {
         // Recorded here, on arrival, not when the navigation starts: one that
         // fails leaves you where you were, and there is nothing to go back to.
-        if !matches!(p.origin, Origin::Back | Origin::Reload) {
-            self.record();
-        }
+        self.take_step(p.step);
         // A question from the page being left is no longer anyone's to ask.
         self.asking = None;
         let (title, src) = (p.title.clone(), p.src.clone());
@@ -522,7 +590,7 @@ impl Shell {
     /// Home is a navigation like any other, so the page it leaves is
     /// remembered: back from the start page returns to it.
     pub fn go_home(&mut self) {
-        self.record();
+        self.take_step(Step::New);
         self.go_start();
     }
 
@@ -540,7 +608,9 @@ impl Shell {
         // Started, not waited on: going home must not freeze the window either,
         // and the registry's store may itself live at a URL. The built-in list
         // is what shows in the meantime, which is also what shows if it fails.
-        self.start_as(&store.src, &store.name, Origin::Home);
+        // Its step for Back and Forward its caller has taken already, while
+        // the page it left was still the one showing.
+        self.start_stepped(&store.src, &store.name, Origin::Home, Step::Same);
     }
 
     /// Run one frame of the current mini-app, then honour any navigation it
@@ -750,4 +820,12 @@ fn describe(info: &Inspected) -> String {
         (SignedBy::Nobody, Some(what)) => format!(" — {what}, unsigned"),
         (SignedBy::Nobody, None) => String::new(),
     }
+}
+
+/// `v` on a Back or Forward list, the oldest dropped past `HISTORY_LIMIT`.
+fn remember(list: &mut Vec<Visit>, v: Visit) {
+    if list.len() == HISTORY_LIMIT {
+        list.remove(0);
+    }
+    list.push(v);
 }

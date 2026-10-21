@@ -39,6 +39,11 @@
       "name": "showcase",
       "source": "mini-apps/showcase/showcase.component.wasm",
       "description": "The element tree in full: a grid of cards, a live form, type and theme - HTML and CSS, drawn natively."
+    },
+    {
+      "name": "todo",
+      "source": "mini-apps/todo/todo.component.wasm",
+      "description": "A to-do list on the element tree: add, tick, delete."
     }
   ]
 }

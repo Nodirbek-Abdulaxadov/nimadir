@@ -23,7 +23,7 @@ wit_bindgen::generate!({
 });
 
 use nimadir::shell::dom;
-use nimadir::shell::host_api::{list_apps, log, open_app, AppEntry};
+use nimadir::shell::host_api::{app_info, list_apps, log, open_app, AppEntry};
 
 const STYLE: &str = "
 .home { max-width: 880px; margin: 0 auto; padding: 48px 16px 24px;
@@ -44,6 +44,7 @@ const STYLE: &str = "
          font-weight: 700; font-size: 15px; }
 .name { font-weight: 600; }
 .about { color: var(--nimadir-muted); font-size: 13px; }
+.meta { color: var(--nimadir-muted); font-size: 11px; }
 .open { width: 100%; max-width: 560px; }
 .open .badge { background: var(--nimadir-accent); }
 .empty { color: var(--nimadir-muted); margin: 8px 0; }
@@ -146,12 +147,13 @@ impl Page {
                 .map_or('?', |c| c.to_ascii_uppercase());
             markup.push_str(&format!(
                 "<a class=\"tile\" href=\"{}\"><span class=\"badge\" aria-hidden=\"true\" style=\"background: {}\">{}</span>\
-                 <span class=\"name\">{}</span><span class=\"about\">{}</span></a>",
+                 <span class=\"name\">{}</span><span class=\"about\">{}</span>{}</a>",
                 escape(&a.source),
                 badge(&a.name),
                 escape(&initial.to_string()),
                 escape(&a.name),
                 escape(&a.description),
+                meta(&a.source),
             ));
         }
         if let Err(why) = dom::set_markup(self.grid, &markup) {
@@ -228,6 +230,24 @@ impl Page {
             open_app(&only.source);
         }
     }
+}
+
+/// What the registry says of an app beyond its entry: its version, and who
+/// signed it — the start of their key's id, which is all a person reads.
+fn meta(source: &str) -> String {
+    let info = app_info(source);
+    let mut parts = Vec::new();
+    if !info.version.is_empty() {
+        parts.push(format!("v{}", info.version));
+    }
+    if !info.publisher.is_empty() {
+        let short: String = info.publisher.chars().take(8).collect();
+        parts.push(format!("signed by {short}…"));
+    }
+    if parts.is_empty() {
+        return String::new();
+    }
+    format!("<span class=\"meta\">{}</span>", escape(&parts.join(" · ")))
 }
 
 fn show(node: u32, visible: bool) {

@@ -166,7 +166,7 @@ echo "==> the store (start page as a mini-app)"
 # — an <a href> the shell follows — counter #17, hello #24; a card offering a
 # typed address (#7); the settings link (#15). Searching hides cards rather
 # than rebuilding them, so a card keeps its node.
-check "lists the registry through list-apps" '"7 apps"' \
+check "lists the registry through list-apps" '"8 apps"' \
   $HOST store --frames 1
 # 8 entries in apps.json, 7 offered: a start page that lists itself is a card
 # that takes you where you already are.
@@ -178,7 +178,7 @@ check "the start page leads with a hero heading" '#3 h1.wordmark' \
   $HOST store --frames 1
 check "on a phone's width the search field fits the page" '{input submit} @16,117 343x47' \
   $HOST store --frames 1 --boxes --viewport 375x800
-check "filters as you type" '1 of 7 apps matching' \
+check "filters as you type" '1 of 8 apps matching' \
   $HOST store --type "1:5=hell" --frames 2
 check "hides what does not match, each card keeping its node" '#17 a.tile [href="mini-apps/counter/counter.component.wasm" hidden=""]' \
   $HOST store --type "1:5=hell" --frames 2
@@ -331,6 +331,31 @@ check "back from the start page has nowhere to go" "[back] nothing to go back to
   $HOST store --back 1 --frames 2
 check "reload starts the app afresh" '"Count: 0"' \
   bash -c "$HOST counter --script 1:0,2:0 --reload 4 --frames 5 | sed -n '/reload/,\$p'"
+check "forward goes where back came from" "[forward] now at counter" \
+  $HOST store --click "1:17" --back 3 --forward 4 --frames 6
+check "somewhere new forgets forward, as in a browser" "[forward] nothing to go forward to" \
+  $HOST store --click "1:17" --back 3 --click "4:24" --forward 6 --frames 7
+
+echo
+echo "==> 1.2: the clock, and what the registry says of an app"
+PROBE_APP=mini-apps/probe/probe.component.wasm
+check "the time zone, by its IANA name" 'probe: time zone "Asia/Tashkent"' \
+  env TZ=Asia/Tashkent $HOST $PROBE_APP --frames 1
+# Windows reads its own zone for the offset, whatever TZ says.
+if [[ "$OSTYPE" == msys* || "$OSTYPE" == cygwin* ]]; then
+  skip "the offset from TZ (Windows reads its own zone)"
+else
+  check "and the offset east of UTC, now" '"Asia/Tashkent", 300 minutes east of UTC' \
+    env TZ=Asia/Tashkent $HOST $PROBE_APP --frames 1
+fi
+INFO=$(mktemp -d)
+printf '[{"name":"counter","source":"%s","version":"2.1.0","publisher":"abcdefghijklmnopqrstuvwxyz"}]\n' \
+  "$(native "$PWD/mini-apps/counter/counter.component.wasm")" > "$INFO/apps.json"
+check "a card shows the version and the signer the registry gives" '"v2.1.0 · signed by abcdefgh…"' \
+  $HOST --registry "$(native "$INFO/apps.json")" store --frames 1
+check_absent "and nothing where it gives neither" 'span.meta' \
+  $HOST store --frames 1
+rm -rf "$INFO"
 
 echo
 echo "==> where an app may send you"

@@ -56,6 +56,24 @@ pub fn set_locale(tag: String) {
     let _ = LOCALE.set(tag);
 }
 
+/// The user's time zone, IANA (`time-zone`, 1.2): `TZ` when it names one —
+/// the suite sets it — else what the system says; "" when it says nothing.
+pub fn time_zone() -> String {
+    if let Ok(tz) = std::env::var("TZ") {
+        let tz = tz.trim_start_matches(':');
+        if tz.contains('/') && !tz.starts_with('/') {
+            return tz.to_string();
+        }
+    }
+    iana_time_zone::get_timezone().unwrap_or_default()
+}
+
+/// Minutes east of UTC in the user's time zone, now (`utc-offset`, 1.2).
+pub fn utc_offset() -> i32 {
+    use chrono::Offset;
+    chrono::Local::now().offset().fix().local_minus_utc() / 60
+}
+
 /// The user's language and region as BCP 47 — `uz_UZ.UTF-8` in `LANG` is
 /// `uz-UZ`. What `set_locale` was told, else the variables a Unix system sets;
 /// `en-US` when nothing says (Windows, `C`, `POSIX`).

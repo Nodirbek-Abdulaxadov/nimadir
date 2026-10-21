@@ -161,6 +161,9 @@ impl Guest for Fuzz {
                 }
                 _ => {
                     locale();
+                    time_zone();
+                    utc_offset();
+                    let _ = app_info(&text());
                 }
             }
         }

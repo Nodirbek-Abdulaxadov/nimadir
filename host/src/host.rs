@@ -41,7 +41,7 @@ mod bindings {
 
 use bindings::nimadir::shell::dom::{Event as WitEvent, Host as DomHost, Rect};
 use bindings::nimadir::shell::host_api::{
-    AppEntry as WitAppEntry, Host, HttpRequest, HttpResponse,
+    AppDetails as WitAppDetails, AppEntry as WitAppEntry, Host, HttpRequest, HttpResponse,
 };
 use bindings::MiniApp as MiniAppWorld;
 
@@ -443,6 +443,14 @@ impl Host for HostState {
             .collect())
     }
 
+    fn app_info(&mut self, source: String) -> wasmtime::Result<WitAppDetails> {
+        let entry = self.apps.iter().find(|e| e.src == source);
+        Ok(WitAppDetails {
+            version: entry.and_then(|e| e.version.clone()).unwrap_or_default(),
+            publisher: entry.and_then(|e| e.publisher.clone()).unwrap_or_default(),
+        })
+    }
+
     /// Record the request; the shell acts on it after this frame. Last call
     /// wins — a guest that asks twice in one frame gets one navigation, which
     /// is the only outcome that makes sense. Kept, not accumulated, so it
@@ -614,6 +622,14 @@ impl Host for HostState {
 
     fn locale(&mut self) -> wasmtime::Result<String> {
         Ok(crate::locale())
+    }
+
+    fn time_zone(&mut self) -> wasmtime::Result<String> {
+        Ok(crate::time_zone())
+    }
+
+    fn utc_offset(&mut self) -> wasmtime::Result<i32> {
+        Ok(crate::utc_offset())
     }
 
     /// The earliest request in a frame wins, and none is sooner than

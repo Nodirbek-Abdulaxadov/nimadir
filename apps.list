@@ -17,3 +17,4 @@ rates      | mini-apps/rates/rates.component.wasm            | Exchange rates fr
 counter-cs | mini-apps/counter-cs/counter-cs.component.wasm  | The counter written in C# (.NET NativeAOT) — same WIT, no host change.
 counter-py | mini-apps/counter-py/counter-py.component.wasm  | The counter in Python — a whole CPython inside the sandbox.
 showcase   | mini-apps/showcase/showcase.component.wasm      | The element tree in full: a grid of cards, a live form, type and theme — HTML and CSS, drawn natively.
+todo       | mini-apps/todo/todo.component.wasm              | A to-do list on the element tree: add, tick, delete.

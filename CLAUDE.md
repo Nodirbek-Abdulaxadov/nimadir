@@ -131,7 +131,7 @@ Settings from the command line: `--kept`, `--clear <publisher>/<name>`,
 Headless flags: `--frames N`, `--script "frame:tap,…"` (inject taps: buttons, tiles,
 checkboxes share one index space), `--submit "frame:field,…"` (Enter on a field),
 `--input "frame:field=text"` (repeatable; set a value: text, or a choice's option
-number), `--back "frame,…"`
+number), `--back "frame,…"`, `--forward "frame,…"`
 (press Back before those frames), `--reload "frame,…"`, `--confirm` (say yes when an app asks to open an
 unlisted address), `--timing` (how long the guest's frames took),
 `--registry <path-or-url>`. For an app on the element tree (ADR-4):
@@ -190,7 +190,7 @@ awkward inputs, 300 frames deep. All stay out of `apps.json`.
 apps built against the old one keep working. Then run
 `tools/sync-fixture-wit.py` (the `future` fixture is the WIT one minor on; the
 suite checks), and update the C# namespace, which carries the version
-(`nimadir.shell.v1_1_0` in `mini-apps/counter-cs/Program.cs` and
+(`nimadir.shell.v1_2_0` in `mini-apps/counter-cs/Program.cs` and
 `tools/nimadir/src/templates.rs`).
 
 ## Architecture in brief
@@ -241,7 +241,7 @@ Adding a Rust mini-app: create the crate, add it to `exclude` in the workspace
 `Cargo.toml`, its `target/` to `.gitignore`, and it to `APPS` in
 `build-mini-apps.sh`. Then list it in both `apps.json` (which takes precedence)
 and `apps.list` (kept in step by hand). The store assertions in `run-tests.sh`
-count the registry (`"7 apps"`, `1 of 7 apps matching`) and name the store's
+count the registry (`"8 apps"`, `1 of 8 apps matching`) and name the store's
 cards by node (counter `#17`, hello `#24`), so a new entry means
 updating them. The entry named `store` is special (`shell::STORE_APP`): Home
 loads it, and `list-apps` filters it out.

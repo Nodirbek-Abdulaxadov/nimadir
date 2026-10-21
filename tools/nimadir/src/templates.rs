@@ -135,7 +135,7 @@ pub const CSHARP_PROGRAM: &str = r#"// {name} — a nimadir mini-app in C#. `wit
 // the shell for; `nimadir build` makes {name}.component.wasm (needs .NET 10).
 
 using MiniAppWorld;
-using static MiniAppWorld.wit.Imports.nimadir.shell.v1_1_0.IHostApiImports;
+using static MiniAppWorld.wit.Imports.nimadir.shell.v1_2_0.IHostApiImports;
 
 public class MiniAppWorldExportsImpl : IMiniAppWorldExports
 {

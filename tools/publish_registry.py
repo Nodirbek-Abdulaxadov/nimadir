@@ -17,17 +17,25 @@ import subprocess
 import sys
 
 
-def publisher(root: pathlib.Path, component: pathlib.Path):
-    """The component's publisher, if it is signed — read by nimadir, so
-    the registry can require it (a copy signed by anyone else is refused)."""
+def inspect(root: pathlib.Path, component: pathlib.Path):
+    """The component's publisher, if it is signed, and its manifest's
+    version, if it has one — read by nimadir. The publisher lets the registry
+    require it (a copy signed by anyone else is refused); the version is
+    shown on the app's card (`app-info`)."""
     pack = root / "target" / "release" / "nimadir"
     if not pack.exists():
-        return None
+        return None, None
     out = subprocess.run([str(pack), "inspect", str(component)], capture_output=True, text=True)
+    signer, version = None, None
     for line in out.stdout.splitlines():
-        if line.strip().startswith("signed by "):
-            return line.strip()[len("signed by "):]
-    return None
+        line = line.strip()
+        if line.startswith("signed by "):
+            signer = line[len("signed by "):]
+        # `manifest  <name> <version>`, or `manifest  none`.
+        words = line.split()
+        if len(words) == 3 and words[0] == "manifest":
+            version = words[2]
+    return signer, version
 
 
 def main() -> None:
@@ -58,9 +66,11 @@ def main() -> None:
             "description": app.get("description", ""),
             "sha256": hashlib.sha256(data).hexdigest(),
         }
-        signer = publisher(root, component)
+        signer, version = inspect(root, component)
         if signer:
             entry["publisher"] = signer
+        if version:
+            entry["version"] = version
         published.append(entry)
 
     catalogue = json.dumps({"apps": published}, indent=2, ensure_ascii=False)

@@ -257,6 +257,10 @@ depend on the manifest and on the user:
 - **Opening another address** (`open-app`): an app the registry lists opens at
   once; anything else asks the user first.
 
+Free to every app, since `1.2`: the user's time zone (`time-zone`, IANA, and
+`utc-offset`, minutes east of UTC now) beside `locale`, and what the registry
+says of a listed app (`app-info`: its version and publisher).
+
 Limits every app runs under, whatever it declares: about a second per frame,
 512 MiB of memory, 16 MiB of output per frame, images up to 4096 pixels a side.
 An app that goes over is stopped, and the shell says which limit it hit.

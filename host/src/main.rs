@@ -31,7 +31,7 @@ use host::ui::{FrameInput, UiCmd};
 
 const USAGE: &str = "usage: nimadir-shell [<address> | <listed-app-name>] \
 [--list] [--headless] [--frames N] [--script \"frame:btn,...\"] \
-[--input \"frame:field=text\"] [--submit \"frame:field,...\"] [--back \"frame,...\"] [--reload \"frame,...\"] [--confirm] \
+[--input \"frame:field=text\"] [--submit \"frame:field,...\"] [--back \"frame,...\"] [--forward \"frame,...\"] [--reload \"frame,...\"] [--confirm] \
 [--click \"frame:node,...\"] [--type \"frame:node=text\"] [--enter \"frame:node,...\"] \
 [--styles] [--boxes] [--paint] [--a11y] [--dark] [--touch] [--viewport WxH] \
 [--registry <path-or-url>] [--timing] [--version]\n\
@@ -50,6 +50,7 @@ fn main() -> Result<()> {
     // separator inside a search term should not silently truncate it.
     let mut inputs: Vec<String> = Vec::new();
     let mut backs = String::new();
+    let mut forwards = String::new();
     let mut reloads = String::new();
     let mut submits = String::new();
     // The element tree's equivalents (ADR-4), by node number rather than
@@ -147,6 +148,10 @@ fn main() -> Result<()> {
             "--back" => {
                 i += 1;
                 backs = args.get(i).cloned().unwrap_or_default();
+            }
+            "--forward" => {
+                i += 1;
+                forwards = args.get(i).cloned().unwrap_or_default();
             }
             // Repeatable, the lists joined: two of them should not mean
             // the second only.
@@ -274,6 +279,7 @@ fn main() -> Result<()> {
                 inputs: &inputs,
                 submits: &submits,
                 backs: &backs,
+                forwards: &forwards,
                 reloads: &reloads,
                 dom_clicks: &dom_clicks,
                 dom_typed: &dom_typed,
@@ -341,6 +347,7 @@ struct Harness<'a> {
     inputs: &'a [String],
     submits: &'a str,
     backs: &'a str,
+    forwards: &'a str,
     reloads: &'a str,
     dom_clicks: &'a str,
     dom_typed: &'a [String],
@@ -363,6 +370,7 @@ fn run_headless(mut shell: Shell, h: &Harness) -> Result<()> {
         inputs,
         submits,
         backs,
+        forwards,
         reloads,
         dom_clicks,
         dom_typed,
@@ -404,6 +412,10 @@ fn run_headless(mut shell: Shell, h: &Harness) -> Result<()> {
         .split(',')
         .filter_map(|f| f.trim().parse().ok())
         .collect();
+    let forwards: HashSet<usize> = forwards
+        .split(',')
+        .filter_map(|f| f.trim().parse().ok())
+        .collect();
 
     // Text fields keep their contents between frames, the way the window
     // backend's live buffers do; `--input` sets a value at a frame and it
@@ -431,6 +443,18 @@ fn run_headless(mut shell: Shell, h: &Harness) -> Result<()> {
                 }
             } else {
                 println!("\n[back] nothing to go back to");
+            }
+        }
+        if forwards.contains(&frame) {
+            edits.clear();
+            if shell.forward() {
+                shell.wait();
+                match shell.location() {
+                    Some((title, _)) => println!("\n[forward] now at {title}"),
+                    None => println!("\n[forward] {}", shell.status),
+                }
+            } else {
+                println!("\n[forward] nothing to go forward to");
             }
         }
 

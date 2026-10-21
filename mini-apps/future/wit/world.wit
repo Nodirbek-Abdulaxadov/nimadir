@@ -1,7 +1,7 @@
 // A copy of wit/world.wit one minor version on, with one function added —
 // standing in for a contract newer than the host's. Test fixture only;
 // regenerate with tools/sync-fixture-wit.py.
-package nimadir:shell@1.2.0;
+package nimadir:shell@1.3.0;
 
 /// The complete host <-> mini-app contract, defined ONCE and shared by both
 /// sides. `wit-bindgen` generates the guest bindings from this file; wasmtime's
@@ -15,6 +15,16 @@ interface host-api {
         /// File path or URL. Whatever `open-app` accepts.
         source: string,
         description: string,
+    }
+
+    /// What the registry says of an app beyond its entry (`app-info`, `1.2`): each ""
+    /// when it does not say. Its own record, since `app-entry` cannot grow.
+    record app-details {
+        /// From the app's manifest, as the registry was published with it.
+        version: string,
+        /// Who signed it, and who must have: a copy signed by anybody else
+        /// is refused.
+        publisher: string,
     }
 
     /// Debug log line, printed by the host.
@@ -161,6 +171,18 @@ interface host-api {
     /// so an app can pick its words and formats. "en-US" when the system does
     /// not say.
     locale: func() -> string;
+
+    /// The user's time zone, IANA — "Asia/Tashkent" — or "" when the system
+    /// does not say (`1.2`).
+    time-zone: func() -> string;
+
+    /// Minutes east of UTC in the user's time zone, now: 300 in Tashkent.
+    /// With `time-zone`, enough to show a time as the user reads it (`1.2`).
+    utc-offset: func() -> s32;
+
+    /// The registry's details of an app, by the `source` `list-apps` gave
+    /// (`1.2`). All "" for an address the registry does not list.
+    app-info: func(source: string) -> app-details;
 }
 
 /// A native element tree, styled with CSS (ADR-4) — what HTML and CSS can say,

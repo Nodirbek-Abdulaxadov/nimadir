@@ -163,8 +163,10 @@ guest side from it, `wasmtime::component::bindgen!` the host side.
   `open-app`, `request-frame`, `storage-get` / `-set` / `-remove` / `-keys`,
   `ui-begin` / `ui-end`, `ui-checkbox`, `ui-choice`, `ui-separator`,
   `ui-progress`, `ui-submitted`, `image-load`, `ui-image`, `fetch`,
-  `fetch-poll`, `locale`, plus the `app-entry`, `http-request` and
-  `http-response` records.
+  `fetch-poll`, `locale`; since `1.2`, `time-zone`, `utc-offset` and
+  `app-info` (a listed app's version and publisher, from the registry —
+  its own `app-details` record, since `app-entry` cannot grow); plus the
+  `app-entry`, `http-request` and `http-response` records.
 - `interface dom` (ADR-4, `1.1.0`) — the **element tree**: `root`,
   `create-element`, `create-text`, `append-child`, `insert-before`, `remove`,
   `release`, `set-text`, `set-attribute` / `remove-attribute` /
@@ -452,16 +454,18 @@ The browser-shaped layer above a single mini-app. Knows nothing about drawing.
   Replaces `view`, which **drops the `MiniApp`, its
   Wasmtime `Store`, and the guest's linear memory**. Reopening an app starts it
   from scratch. That is the sandbox working, not lost state.
-- **History.** `arrive` records the page it is leaving as a `Visit` — an
-  address and a title, nothing more, since leaving destroyed the app — and
-  `back` pops one and opens it afresh, as a browser reloads a page.
-  `Origin::Back` is the one navigation that records nothing, or two Backs
-  would land where you started. `go_home` records (Home is a navigation;
-  Back from the start page returns to the app), and `go_start` is the same
-  thing without recording, for `back` and for startup. With no history, back
-  from an app is the start page and back from the start page is `false` —
-  which a phone reads as "leave". Capped at `HISTORY_LIMIT`, because a guest
-  can navigate once per frame.
+- **History.** A page left is a `Visit` — an address and a title, nothing
+  more, since leaving destroyed the app — and going back or forward opens
+  one afresh, as a browser reloads a page. Each navigation carries a `Step`,
+  taken on arrival (`take_step`), so one that fails changes neither list:
+  `New` puts the page left on Back's list and forgets Forward's, `Back` puts
+  it on Forward's (S3-5), `Forward` on Back's again, `Same` (Reload)
+  nowhere. `go_home` takes `New` itself and `go_start` takes none, for
+  `back`, `forward` and startup, which take theirs while the page they
+  leave is still the one showing. With no history, back from an app is the
+  start page and back from the start page is `false` — which a phone reads
+  as "leave". Both lists are capped at `HISTORY_LIMIT`, because a guest can
+  navigate once per frame.
 - **Where an app may send you.** A guest's `open-app` to an address the
   registry lists — or anything from the start page, whose field the user
   typed into — navigates. Anywhere else becomes an `Ask`: the app keeps
@@ -743,7 +747,7 @@ in `/usr/bin` on Linux, which an installed shell must not shadow.
   `--script`, `--input`, `--back`, `--registry`, plus one positional source). A
   positional argument means "navigate straight there", skipping the home screen.
 - `--back "4,6"` presses Back before those frames and prints `[back] now at …`
-  or `[back] nothing to go back to`; a frame whose guest asked for another
+  or `[back] nothing to go back to`; `--forward` likewise; a frame whose guest asked for another
   prints `[next frame in N ms]`.
 - `parse_script` — `"1:0,2:0"` → `{frame: {button indices}}`.
 - `parse_input` — `"1:0=hell"` → at frame 1, text field 0 holds `hell`. Repeatable

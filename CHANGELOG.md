@@ -8,6 +8,16 @@ beta is `docs/ROADMAP.md`.
 ## [Unreleased]
 
 ### Added
+- **The contract is `nimadir:shell@1.2.0`**, adding to `host-api`:
+  `time-zone` and `utc-offset` (the user's zone, IANA, and the minutes east of
+  UTC now), and `app-info` (a listed app's version and publisher, from the
+  registry). Apps built for `1.0` and `1.1` run unchanged.
+- Forward, in the chrome and headless (`--forward`): where Back came from,
+  until somewhere new is opened (S3-5).
+- A store card shows the app's version and the start of its signer's id when
+  the registry gives them; the published registry carries each manifest's
+  version.
+- `todo` is listed in the registry.
 - A screen reader can read a page on the tree (S9-4): each element has a
   role and a name, from its tag, `role`, `aria-label`, `aria-labelledby`,
   `alt`, its `<label>` or its text, with values, checked states and ranges;

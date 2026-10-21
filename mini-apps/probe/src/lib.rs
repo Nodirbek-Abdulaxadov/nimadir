@@ -53,6 +53,12 @@ struct Probe;
 
 impl Guest for Probe {
     fn init() {
+        // What the host says of the clock (1.2): the suite sets `TZ`.
+        nimadir::shell::host_api::log(&format!(
+            "probe: time zone {:?}, {} minutes east of UTC",
+            nimadir::shell::host_api::time_zone(),
+            nimadir::shell::host_api::utc_offset()
+        ));
         let root = dom::root(); // #1
         let css = el(root, "textarea", &[("id", "css")], ""); // #2
         dom::listen(css, "input");

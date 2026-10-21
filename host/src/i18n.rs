@@ -34,6 +34,7 @@ impl Lang {
 #[derive(Clone, Copy)]
 pub enum Text {
     Back,
+    Forward,
     Home,
     Reload,
     Open,
@@ -76,6 +77,9 @@ pub fn t(lang: Lang, text: Text) -> &'static str {
         (Back, Uz) => "Orqaga",
         (Back, Ru) => "Назад",
         (Back, En) => "Back",
+        (Forward, Uz) => "Oldinga",
+        (Forward, Ru) => "Вперёд",
+        (Forward, En) => "Forward",
         (Home, Uz) => "Bosh sahifa",
         (Home, Ru) => "Домой",
         (Home, En) => "Home",
