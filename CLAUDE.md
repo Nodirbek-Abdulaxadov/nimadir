@@ -233,7 +233,8 @@ Adding a Rust mini-app: create the crate, add it to `exclude` in the workspace
 `Cargo.toml`, its `target/` to `.gitignore`, and it to `APPS` in
 `build-mini-apps.sh`. Then list it in both `apps.json` (which takes precedence)
 and `apps.list` (kept in step by hand). The store assertions in `run-tests.sh`
-count the registry (`"4 apps"`, `1 of 4 apps matching`), so a new entry means
+count the registry (`"6 apps"`, `1 of 6 apps matching`) and name the store's
+cards by node (counter `#17`, hello `#24`), so a new entry means
 updating them. The entry named `store` is special (`shell::STORE_APP`): Home
 loads it, and `list-apps` filters it out.
 

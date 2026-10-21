@@ -162,40 +162,46 @@ check "an unreachable registry falls back and says so" "built-in" \
 
 echo
 echo "==> the store (start page as a mini-app)"
+# Built on the element tree (ADR-4): a search field (node 5), a card per app
+# — an <a href> the shell follows — counter #17, hello #24; a card offering a
+# typed address (#7); the settings link (#15). Searching hides cards rather
+# than rebuilding them, so a card keeps its node.
 check "lists the registry through list-apps" '"6 apps"' \
   $HOST store --frames 1
-# 5 entries in apps.json, 4 offered: a start page that lists itself is a card
+# 7 entries in apps.json, 6 offered: a start page that lists itself is a card
 # that takes you where you already are.
-check_absent "the start page is not one of its own tiles" ': "store"' \
+check_absent "the start page is not one of its own cards" '"store"' \
   $HOST store --frames 1
-check "draws a search field" "search0" \
+check "draws a search field" '#5 input#q [type="search"' \
   $HOST store --frames 1
-check "the start page leads with a hero heading" 'heading1 : "nimadir"' \
+check "the start page leads with a hero heading" '#3 h1.wordmark' \
   $HOST store --frames 1
 check "filters as you type" '1 of 6 apps matching' \
-  $HOST store --input "1:0=hell" --frames 2
-check "renumbers tiles when the list shrinks" 'tile0 : "hello"' \
-  $HOST store --input "1:0=hell" --frames 2
-check "open-app navigates after the frame returns" "[nav] loaded" \
-  $HOST store --input "1:0=hell" --script "2:0" --frames 4
+  $HOST store --type "1:5=hell" --frames 2
+check "hides what does not match, each card keeping its node" '#17 a.tile [href="mini-apps/counter/counter.component.wasm" hidden=""]' \
+  $HOST store --type "1:5=hell" --frames 2
+check "a card navigates after the frame returns" "[nav] loaded" \
+  $HOST store --type "1:5=hell" --click "2:24" --frames 4
 check "the app it asked for actually runs" "Hello from a *different* mini-app!" \
-  $HOST store --input "1:0=hell" --script "2:0" --frames 4
-check "the start page links to the settings page" 'button6 : "Settings"' \
+  $HOST store --type "1:5=hell" --click "2:24" --frames 4
+check "Enter opens the one app that matches" "Hello from a *different* mini-app!" \
+  $HOST store --type "1:5=hell" --enter "2:5" --frames 4
+check "the start page links to the settings page" '#15 a.settings [href="nimadir:settings"]' \
   $HOST store --frames 1
 check "which opens as host UI" "[nav] now at Settings" \
-  $HOST store --script "1:6" --frames 3
+  $HOST store --click "1:15" --frames 3
 check "a search matching nothing says so" "Nothing matches" \
-  $HOST store --input "1:0=zzzz" --frames 2
+  $HOST store --type "1:5=zzzz" --frames 2
 # The start page has no address bar over it, so its own field has to take an
-# address too — offered as a tile, never acted on while you are still typing.
-check "a typed address is offered as a tile" 'tile0 : "Open address"' \
-  $HOST store --input "1:0=example.com" --frames 2
+# address too — offered as a card, never acted on while you are still typing.
+check "a typed address is offered as a card" '#7 a#open.tile.open [href="example.com"]' \
+  $HOST store --type "1:5=example.com" --frames 2
 # A local path, not a web address: this is about the store handing an address
 # to the shell, and it must not depend on reaching the internet.
-check "and clicking that tile navigates" "[nav] loaded" \
-  $HOST store --input "1:0=mini-apps/hello/hello.component.wasm" --script "2:0" --frames 3
+check "and tapping that card navigates" "[nav] loaded" \
+  $HOST store --type "1:5=mini-apps/hello/hello.component.wasm" --click "2:7" --frames 3
 check "a guest navigation that fails says so" "[nav failed] could not open nowhere/missing.wasm" \
-  $HOST store --input "1:0=nowhere/missing.wasm" --script "2:0" --frames 3
+  $HOST store --type "1:5=nowhere/missing.wasm" --click "2:7" --frames 3
 
 echo
 echo "==> outside a checkout"
@@ -203,7 +209,7 @@ echo "==> outside a checkout"
 # still open on a start page, and read its registry from where it lives.
 ELSEWHERE=$(mktemp -d)
 ABS_HOST="$PWD/target/debug/nimadir-shell"
-check "started anywhere, the shell opens the store built into it" 'heading1 : "nimadir"' \
+check "started anywhere, the shell opens the store built into it" '#3 h1.wordmark' \
   bash -c "cd '$ELSEWHERE' && '$ABS_HOST' store --frames 1"
 mkdir -p "$NIMADIR_HOME/config"
 printf '[{"name":"hello","source":"%s","description":"from the config directory"}]\n' \
@@ -311,13 +317,13 @@ echo
 echo "==> navigation history"
 # Back reopens the page it returns to — leaving an app destroyed it.
 check "back from an app the store opened returns to the store" "[back] now at store" \
-  $HOST store --input "1:0=hell" --script "2:0" --back 4 --frames 6
+  $HOST store --type "1:5=hell" --click "2:24" --back 4 --frames 6
 check "back from an app opened directly goes to the start page" "[back] now at store" \
   $HOST counter --back 1 --frames 2
 # The store opens apps by their source; the title is still the app's name,
 # not a path (on a phone, one deep in private storage).
 check "an app the store opened is titled by its name" "[back] now at hello" \
-  $HOST store --script "1:1,3:1" --back 5 --frames 6
+  $HOST store --click "1:24" --script "3:1" --back 5 --frames 6
 # On a phone this is what sends the app to the background.
 check "back from the start page has nowhere to go" "[back] nothing to go back to" \
   $HOST store --back 1 --frames 2
@@ -445,6 +451,18 @@ check_absent "a disabled control answers nothing" '[wasm log] form' \
   $HOST $PROBE --click "1:43" --type "1:43=x" --frames 2
 check "a select is drawn with its choice" '[paint] select #33' \
   $HOST $PROBE --paint --frames 1
+
+echo
+echo "==> markup (ADR-4)"
+MARKUP='<div class="card"><h2>Hi &amp; bye</h2><p>One<br>two</p><img src=3/><input type=checkbox checked><!-- c --><script>evil()</script></div>'
+check "set-markup builds elements, text and entities" '#48 "Hi & bye"' \
+  $HOST $PROBE --frames 1 --type "0:45=$MARKUP"
+check "void and self-closed elements need no closing tag" '#54 input [type="checkbox"] [x]' \
+  $HOST $PROBE --frames 1 --type "0:45=$MARKUP"
+check_absent "a script in markup is dropped, never run" '"evil()"' \
+  $HOST $PROBE --frames 1 --type "0:45=$MARKUP"
+check "markup it cannot read changes nothing and says where" 'markup: `</div>` closes `<p>`, at line 1, column 13' \
+  $HOST $PROBE --frames 1 --type '0:45=<div><p>open</div>'
 
 echo
 echo "==> rates, the first real app"
@@ -653,7 +671,7 @@ JSON
     HOSTED_AT=$(mktemp -d)
     check "a shell with no registry of its own uses the hosted one" "$B/registry/hello.component.wasm" \
       bash -c "cd '$HOSTED_AT' && NIMADIR_HOSTED_REGISTRY='$B/registry/apps.json' '$ABS_HOST' --list"
-    check "its store lists the hosted apps" ': "hello"' \
+    check "its store lists the hosted apps" '"hello"' \
       bash -c "cd '$HOSTED_AT' && NIMADIR_HOSTED_REGISTRY='$B/registry/apps.json' '$ABS_HOST' store --frames 1"
     check "and a hosted app opens, pinned" "Hello from a *different* mini-app!" \
       bash -c "cd '$HOSTED_AT' && NIMADIR_HOSTED_REGISTRY='$B/registry/apps.json' '$ABS_HOST' hello --frames 1"

@@ -283,8 +283,8 @@ natively, on desktop and phone alike, with no web engine anywhere
 
 **1.1 exit criteria:**
 
-1. **Expressive.** The store and the gallery, rewritten on the tree, look like
-   a designer drew them: cards, a grid, a form, a brand colour, dark mode.
+1. **Expressive.** The store, rewritten on the tree, and `todo` look like a
+   designer drew them: cards, a grid, a form, a brand colour, dark mode.
 2. **Equal targets.** Every item works on Android as on desktop; touch
    scrolls what a wheel scrolls.
 3. **Bounded.** The document is capped as a whole; a fuzz fixture drives every
@@ -301,7 +301,9 @@ seen in the window under Xvfb (typing, ticking, deleting, `:hover`, a
 gradient card in a grid, a scrolling list). D4 on the desktop — `select`,
 range, `label`, form `submit`, `disabled`/`readonly`/`maxlength`, focus and
 pointer events; the phone is still to see it (touch scrolling, the keyboard
-over a field). 155 assertions.
+over a field). D5 — `set-markup`, the Rust template on the tree, the guide in
+`docs/APPS.md`, the store rebuilt on the tree (cards in a grid, search by
+`hidden`, Enter). 160 assertions.
 
 ### D1 — The tree
 
@@ -342,7 +344,7 @@ over a field). 155 assertions.
 |---|---|---|
 | D5-1 | `set-markup`, `query-all` | M |
 | D5-2 | A Rust builder in the template; C# and Python regenerate; `docs/APPS.md` gains the tree | M |
-| D5-3 | The store and the gallery rewritten on the tree | M |
+| D5-3 | The store rewritten on the tree. The gallery stays the reference for `ui-*`, which stays in the contract | M |
 
 ### D6 — Bounded and fast
 

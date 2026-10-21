@@ -23,11 +23,13 @@ lto = true
 strip = true
 "#;
 
-pub const RUST_LIB: &str = r#"//! {name} — a nimadir mini-app.
+pub const RUST_LIB: &str = r##"//! {name} — a nimadir mini-app.
 //!
-//! `wit/world.wit` is everything it can ask the shell for. `nimadir build`
-//! turns this crate into `{name}.component.wasm`; `nimadir run` builds it and
-//! opens it.
+//! Its page is a tree of elements styled with CSS, as a web page is, drawn
+//! natively by the shell: `init` builds it from markup and a stylesheet,
+//! `update` answers what the user did. `wit/world.wit` is everything it can
+//! ask the shell for. `nimadir build` turns this crate into
+//! `{name}.component.wasm`; `nimadir run` builds it and opens it.
 
 wit_bindgen::generate!({
     world: "mini-app",
@@ -36,7 +38,25 @@ wit_bindgen::generate!({
 
 use std::sync::atomic::{AtomicU32, Ordering};
 
-use nimadir::shell::host_api::{ui_button, ui_heading, ui_label};
+use nimadir::shell::dom;
+
+const PAGE: &str = r#"
+<main class="app">
+  <h1>{name}</h1>
+  <p>Edit src/lib.rs, then run: nimadir run</p>
+  <button id="tap">Tap me</button>
+  <p id="count">Tapped 0 times.</p>
+</main>
+"#;
+
+/// `--nimadir-*` are the shell's colours: an app that uses them follows the
+/// system's light or dark theme.
+const STYLE: &str = "
+.app { max-width: 480px; margin: 0 auto; padding: 24px 16px;
+       display: flex; flex-direction: column; gap: 12px; }
+#tap { align-self: flex-start; border: none;
+       background: var(--nimadir-accent); color: var(--nimadir-accent-text); }
+";
 
 /// App state lives here, in the app. Leaving the app ends it — keep what has
 /// to outlast a visit with `storage-set` (sign the app and ask for "storage"
@@ -46,21 +66,29 @@ static TAPS: AtomicU32 = AtomicU32::new(0);
 struct App;
 
 impl Guest for App {
-    fn init() {}
+    fn init() {
+        dom::add_stylesheet(STYLE);
+        let _ = dom::set_markup(dom::root(), PAGE);
+        // One listener hears every tap on the page; an event names the
+        // element it happened on.
+        dom::listen(dom::root(), "click");
+    }
 
-    /// Called every frame the shell draws: describe the UI, react to taps.
+    /// Called when there is something to answer: it is in `events()`.
     fn update() {
-        ui_heading("{name}", 1);
-        ui_label("Edit src/lib.rs, then run: nimadir run");
-        if ui_button("Tap me") {
-            TAPS.fetch_add(1, Ordering::Relaxed);
+        for e in dom::events() {
+            if e.kind == "click" && dom::get_attribute(e.target, "id").as_deref() == Some("tap") {
+                let taps = TAPS.fetch_add(1, Ordering::Relaxed) + 1;
+                if let Some(&count) = dom::query_all(dom::root(), "#count").first() {
+                    dom::set_text(count, &format!("Tapped {taps} times."));
+                }
+            }
         }
-        ui_label(&format!("Tapped {} times.", TAPS.load(Ordering::Relaxed)));
     }
 }
 
 export!(App);
-"#;
+"##;
 
 pub const CSHARP_PROJECT: &str = r#"<Project Sdk="Microsoft.NET.Sdk">
 

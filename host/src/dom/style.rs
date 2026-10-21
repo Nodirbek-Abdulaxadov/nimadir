@@ -92,7 +92,9 @@ textarea { min-height: 64px; }
 progress { width: 160px; height: 8px; border-radius: 4px; background: var(--nimadir-surface); color: var(--nimadir-accent); }
 table { border-spacing: 0; }
 td, th { padding: 4px 8px; }
-[hidden] { display: none; }
+/* `hidden` hides, whatever display a sheet gives the element: a browser lets
+   `.card { display: flex }` undo it, which is a trap, not a feature. */
+[hidden] { display: none !important; }
 :disabled { opacity: 0.5; cursor: default; }
 "#;
 

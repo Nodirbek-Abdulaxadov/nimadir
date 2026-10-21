@@ -36,6 +36,15 @@ The native DOM (ADR-4, `docs/ROADMAP.md` *Road to 1.1*).
   and `:focus` follow the pointer and the keyboard; a tap on a link inside a
   paragraph lands on the link. `bounds` answers.
 - Headless `--boxes` and `--paint` print the layout and what would be drawn.
+- **Markup**: `set-markup` reads an HTML-like snippet — elements,
+  attributes, entities, void elements, comments; scripts dropped — and fails,
+  changing nothing, on markup it cannot read, naming line and column.
+- **The start page is built on the tree**: cards in a grid, each an
+  `<a href>`; searching hides what does not match; Enter opens the one match
+  or a typed address.
+- `nimadir new` writes a Rust app built on the tree, from markup and a
+  stylesheet; `docs/APPS.md` has the guide.
+- `[hidden]` hides whatever display a sheet gives the element.
 - **Forms**: `select` with `option`s (a menu when tapped), a range that
   follows the finger, `label` acting for its control, a `button` in a `form`
   submitting it, `disabled`, `readonly` and `maxlength`; `focus` and `blur`

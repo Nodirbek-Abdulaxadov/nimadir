@@ -157,8 +157,7 @@ guest side from it, `wasmtime::component::bindgen!` the host side.
   `get-attribute`, `toggle-class`, `set-style`, `set-markup`, `query-all`,
   `parent`, `children`, `value`, `focus`, `bounds`, `add-stylesheet` /
   `remove-stylesheet`, `listen` / `unlisten`, `events`, plus the `rect` and
-  `event` records. Nodes are `u32`s. `set-markup` answers nothing yet: it
-  arrives with D5 (`docs/ROADMAP.md`).
+  `event` records. Nodes are `u32`s.
 - `world mini-app` — imports `host-api` and `dom`, exports `init` and `update`.
 
 The last two are what let the start page be an app instead of host code: a guest
@@ -225,6 +224,12 @@ key for text fields, read by `ui-submitted` for the field drawn last.
   (`current`). A select's `options` are its `option` children (through
   `optgroup`), `value` attribute or text; `selected` is the one its value
   names, else the first marked `selected`.
+- `set_markup` (`markup.rs`) — an HTML-like snippet read whole, with an
+  explicit stack, before the document is touched: elements, attributes
+  (quoted, unquoted, bare), entities, void and self-closed elements,
+  comments; `script` and `style` dropped with their content. Nesting must be
+  matched (`</div>` closing a `<p>` is an error naming line and column), and
+  past `MAX_DEPTH` is refused.
 - `outline` — the tree as text, a node a line: what the headless runner
   prints after each frame and the suite reads. `outline_styled` adds what
   each element's rules set (`style::describe`).
@@ -795,9 +800,14 @@ Wraps `wit_component::ComponentEncoder`. Does what `wasm-tools component new`
 does, so the repo needs no external CLI on PATH.
 
 ### `mini-apps/store/` — the start page, as a guest
-The catalogue, drawn the way a browser's new-tab page is: a `ui-heading` wordmark,
-one `ui-search-field`, and a grid of `ui-tile` cards for whatever `list-apps`
-returned; picking one calls `open-app`. No privileges the counter lacks.
+The catalogue, built on the element tree (ADR-4) the way a browser's new-tab
+page is: a wordmark, one search field, and a grid of cards (`repeat(auto-fill,
+minmax(196px, 1fr))`) for whatever `list-apps` returned. Each card is an
+`<a href>` the shell follows when tapped; searching hides the cards that do
+not match (`hidden`) rather than rebuilding them, so nodes stay put; Enter
+opens the one match, or a typed address. Registry text is escaped before it
+goes into markup. `update` rebuilds the cards if a fresher registry arrived.
+No privileges the counter lacks.
 Its existence is the argument: the host no longer owns a home screen, it owns a
 *fallback*, and the start page is now a component that can be replaced without
 touching the shell.

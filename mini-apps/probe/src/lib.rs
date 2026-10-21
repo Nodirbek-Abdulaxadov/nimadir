@@ -10,6 +10,9 @@
 //! range, a submit button, a disabled field — logs every `input`, `change`
 //! and `submit` it hears.
 //!
+//! Last, a field (`#markup`) whose text becomes the markup of the `div`
+//! before it (`set-markup`), logging why when it cannot be read.
+//!
 //! Node numbers are fixed by the order `init` makes them, which is the order
 //! below; the suite names them.
 
@@ -39,8 +42,10 @@ fn el(parent: u32, tag: &str, attrs: &[(&str, &str)], text: &str) -> u32 {
     n
 }
 
-/// The form's node number, by the order `init` makes things.
+/// The form's node number, and the markup field's, by the order `init`
+/// makes things.
 const FORM: u32 = 26;
+const MARKUP: u32 = 45;
 
 struct Probe;
 
@@ -100,11 +105,18 @@ impl Guest for Probe {
         for kind in ["input", "change", "submit"] {
             dom::listen(form, kind);
         }
+        el(root, "div", &[("id", "out")], ""); // #44
+        let markup = el(root, "textarea", &[("id", "markup")], ""); // #45
+        dom::listen(markup, "input");
     }
 
     fn update() {
         for e in dom::events() {
-            if e.current == FORM {
+            if e.current == MARKUP {
+                if let Err(why) = dom::set_markup(MARKUP - 1, &e.value) {
+                    nimadir::shell::host_api::log(&format!("markup: {why}"));
+                }
+            } else if e.current == FORM {
                 let line = format!("form {} #{} {:?}", e.kind, e.target, e.value);
                 nimadir::shell::host_api::log(&line);
             } else if e.kind == "click" {

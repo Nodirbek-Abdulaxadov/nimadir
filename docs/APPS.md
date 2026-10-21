@@ -36,7 +36,12 @@ in a registry, or hand it to someone.
 For C# you need the .NET 10 SDK, on Linux or Windows: NativeAOT-LLVM, which
 compiles it, has no macOS build. For Python, `pip install componentize-py`.
 
-## How an app draws
+There are two ways for an app to draw. The Rust template builds **a page of
+elements** styled with CSS (below, `1.1`); the C# and Python templates
+*describe* their UI each frame with `ui-*` calls. An app may use either, or
+both.
+
+## How an app draws, frame by frame
 
 Every frame the shell calls the app's `update`, and the app *describes* its UI
 by calling functions — `ui-label`, `ui-button`, `ui-text-edit`, and so on. It
@@ -78,44 +83,140 @@ shows time passing asks for its next frame: `request-frame(1000)`.
 
 `wit/world.wit` documents each one; that file is the reference.
 
-### Or: a page of elements (`1.1`, being built)
+## A page of elements (`1.1`)
 
-Since `nimadir:shell@1.1.0` an app can instead build a **tree of elements** —
-what a web page is made of, held and drawn by the shell (ADR-4). It builds the
-page once and edits only what changes; what the user does arrives as events.
+Since `nimadir:shell@1.1.0` an app can build its page the way a web page is
+built — a tree of elements, styled with CSS — and the shell lays it out and
+draws it natively, with no browser behind it (ADR-4). `nimadir new` writes a
+Rust app this way. The page is built once and edited where it changes; what
+the user does arrives as events.
 
 ```rust
 use nimadir::shell::dom;
 
+const PAGE: &str = r#"<main class="app">
+  <h1>Notes</h1>
+  <input id="note" placeholder="Write something">
+  <ul id="list"></ul>
+</main>"#;
+
+const STYLE: &str = ".app { max-width: 480px; margin: 0 auto; padding: 24px 16px;
+                            display: flex; flex-direction: column; gap: 12px; }";
+
 fn init() {
-    dom::add_stylesheet(".card { padding: 12px; border-radius: 8px; }");
-    let card = dom::create_element("div");
-    dom::set_attribute(card, "class", "card");
-    let button = dom::create_element("button");
-    dom::set_text(button, "Add");
-    dom::append_child(card, button);
-    dom::append_child(dom::root(), card);
-    dom::listen(button, "click");
+    dom::add_stylesheet(STYLE);
+    let _ = dom::set_markup(dom::root(), PAGE);
+    dom::listen(dom::root(), "submit");          // Enter in the field
 }
 
 fn update() {
-    for e in dom::events() {          // "click", "input", "submit", …
-        if e.kind == "click" { /* … */ }
+    for e in dom::events() {
+        if e.kind == "submit" {
+            let list = dom::query_all(dom::root(), "#list")[0];
+            let li = dom::create_element("li");
+            dom::set_text(li, &e.value);             // the field's text
+            dom::append_child(list, li);
+            dom::set_attribute(e.target, "value", ""); // clear the field
+        }
     }
 }
 ```
 
-The tree, its events, its limits and CSS work today: stylesheets with
-selectors, the cascade, `var()`, `calc()`, `@media` — and the host's own sheet,
-whose `--nimadir-text`, `--nimadir-accent`, `--nimadir-surface`, … follow the
-system's light or dark theme, so an app that uses them does too. The headless
-runner prints the page, each element's computed style (`--styles`), its
-layout (`--boxes`) and what would be drawn (`--paint`), and clicks by node
-(`--click "1:7"`). The window lays it out — block, flex, grid, absolute
-positioning, `calc()` — and draws it natively, scroll containers and
-forms included (`select`, `label`, range, `disabled`). Markup, transitions
-and transforms are still to come (`docs/ROADMAP.md`, *Road to 1.1*). `mini-apps/todo` is a whole app
-written this way.
+### Building and changing the page
+
+| | |
+|---|---|
+| `set-markup(node, html)` | Replace a node's children with markup: elements, attributes, text, entities. Fails, changing nothing, on markup it cannot read. No scripts. |
+| `create-element`, `create-text`, `append-child`, `insert-before`, `remove`, `release` | Build by hand. `remove` keeps a node to put back; `release` forgets it and what is under it. |
+| `query-all(scope, selector)` | Find nodes by CSS selector, in document order. |
+| `set-text`, `set-attribute`, `toggle-class`, `set-style` | Change what changed. `set-style(n, "color", "")` removes one. |
+| `value(node)`, `focus(node)`, `bounds(node)` | A control's value as the user left it; give it the keyboard; where it was drawn. |
+
+Nodes are numbers; one that is gone is ignored. Text that comes from
+outside — a registry, a server — goes in with `set-text`, or escaped
+(`&amp;`, `&lt;`) when it goes into markup.
+
+### Events
+
+`listen(node, kind)` asks for `click`, `input`, `change`, `submit`, `focus`,
+`blur`, `pointerdown` or `pointerup` on a node **and what is under it**: one
+listener on a list hears every item. Each event names `target`, the node it
+happened on, and `current`, the listener. `value` carries a field's text,
+`"true"`/`"false"` for a checkbox, a select's option value, a range's number.
+The shell calls `update` when there are events; read them with `events()`.
+
+A tap on a link (`<a href="counter">`) is followed like `open-app`; on a
+checkbox or radio it flips it; on a `label` it acts for its control; a
+`button` in a `form` sends `submit` to the form. Nothing inside a `disabled`
+element answers.
+
+### What CSS there is
+
+- **Selectors**: type, `.class`, `#id`, `[attr]` with `= ~= |= ^= $= *=`,
+  descendant, `>`, `+`, `~`, and `:hover :active :focus :focus-within
+  :disabled :enabled :checked :root :empty :first-child :last-child
+  :only-child :nth-child() :nth-last-child() :not() :placeholder-shown`. No
+  pseudo-elements (`::before`): a rule with one is skipped.
+- **The cascade** as on the web: specificity, `!important`, inline `style`,
+  inheritance, `inherit`/`initial`/`unset`, custom properties and `var()`.
+- **Values**: `px em rem vw vh vmin vmax pt` and friends, `%`, `calc()`,
+  `min() max() clamp()`, hex, `rgb()`, `hsl()`, named colours.
+- **Layout**: `display: block | flex | grid | inline | inline-block | none |
+  contents`, flex and grid in full (`repeat()`, `minmax()`, `fr`, spans,
+  `auto-fill`), `position: relative | absolute`, `float`, `gap`,
+  `box-sizing`, `aspect-ratio`, `overflow: hidden | auto | scroll` (which
+  scrolls, by wheel and by touch), `z-index`.
+- **Look**: backgrounds and `linear-gradient()`, borders and `border-radius`,
+  `box-shadow` (one), `opacity`, `visibility`, `font-size`, `font-weight`
+  (600 and up is bold), `font-style`, `font-family: monospace`,
+  `line-height`, `text-align`, `text-decoration`, `text-transform`,
+  `letter-spacing`, `white-space`, `text-overflow: ellipsis`, `cursor`,
+  `list-style`, `object-fit`.
+- **`@media`** on `min-`/`max-width` and `-height`, `orientation`,
+  `prefers-color-scheme` and `hover`.
+- What a sheet cannot say is skipped and logged (`css: skipped …`).
+
+Text inside a paragraph flows as one block: an inline element (`span`, `b`,
+`a`) gives its text a look, not a box of its own. No transforms, transitions,
+animations, web fonts or `<canvas>` yet.
+
+**The shell's colours** are variables every element can use, and they follow
+the system's light or dark theme — an app that uses them does too:
+`--nimadir-bg`, `--nimadir-surface`, `--nimadir-border`, `--nimadir-text`,
+`--nimadir-muted`, `--nimadir-accent`, `--nimadir-accent-text`,
+`--nimadir-accent-wash`, `--nimadir-danger`, `--nimadir-field`. Every element
+also starts with the shell's own look — a button looks like a button — until
+a sheet says otherwise.
+
+### Controls
+
+`input` (text, password, search, number, checkbox, radio, range), `textarea`,
+`select` with `option`s, `button`, `label`, `progress`, `img` (its `src` is a
+number from `image-load`, its `alt` kept), `a`. `disabled`, `readonly`,
+`maxlength`, `placeholder`, `checked`, `value`, `min`/`max`/`step` mean what
+they mean in HTML.
+
+### Limits
+
+A page holds at most 65 536 nodes, 32 MiB of text, attributes and styles,
+and 256 levels; an app that goes past one is stopped, saying which. Events
+not read pile up to 1024, then the oldest go.
+
+### Testing a page without a screen
+
+The headless shell prints the page as a tree and acts on it by **node
+number**, which a node keeps from frame to frame:
+
+```bash
+nimadir-shell app.wasm --frames 3 --type "1:7=hello" --enter "1:7" --click "2:12"
+nimadir-shell app.wasm --styles --boxes --viewport 360x640 --dark
+nimadir-shell app.wasm --paint        # what the window would draw
+```
+
+`--styles` adds each element's computed style, `--boxes` its layout (with
+stand-in fonts, so the same on every machine), `--paint` the display list.
+
+An app may still draw `ui-*` widgets too: they follow the tree.
 
 ## What an app may do, and how it asks
 

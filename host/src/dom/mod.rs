@@ -18,6 +18,7 @@ use std::sync::Arc;
 
 pub mod css;
 pub mod layout;
+pub mod markup;
 pub mod paint;
 pub mod select;
 pub mod style;
@@ -455,6 +456,48 @@ impl Document {
             None => {}
         }
         Ok(())
+    }
+
+    /// An element's children replaced by what `src` describes. Markup that
+    /// cannot be read is the inner `Err`, and changes nothing; going past
+    /// the document's limits while building it is the outer one.
+    pub fn set_markup(&mut self, id: NodeId, src: &str) -> Result<Result<(), String>, Limit> {
+        if !self.nodes.get(&id).is_some_and(|n| n.element().is_some()) {
+            return Ok(Err(format!("#{id} is not an element")));
+        }
+        let parsed = match markup::parse(src) {
+            Ok(p) => p,
+            Err(why) => return Ok(Err(why)),
+        };
+        for c in self.children(id) {
+            self.release(c);
+        }
+        // Built from a stack, children in order: a parent's are pushed
+        // reversed, so the first is taken — and its own built — first.
+        let mut work: Vec<(NodeId, markup::Markup)> =
+            parsed.into_iter().rev().map(|m| (id, m)).collect();
+        while let Some((parent, m)) = work.pop() {
+            match m {
+                markup::Markup::Text(t) => {
+                    let n = self.create_text(&t)?;
+                    self.append_child(parent, n)?;
+                }
+                markup::Markup::Element {
+                    tag,
+                    attrs,
+                    children,
+                } => {
+                    let n = self.create_element(&tag)?;
+                    for (k, v) in &attrs {
+                        self.set_attribute(n, k, v)?;
+                    }
+                    self.append_child(parent, n)?;
+                    work.extend(children.into_iter().rev().map(|c| (n, c)));
+                }
+            }
+        }
+        self.changed();
+        Ok(Ok(()))
     }
 
     pub fn set_attribute(&mut self, id: NodeId, name: &str, value: &str) -> Result<(), Limit> {

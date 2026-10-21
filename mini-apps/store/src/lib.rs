@@ -6,134 +6,259 @@
 //! The host stopped owning the start page; it now just runs whichever app is
 //! pointed at it, and one of those apps happens to be the catalogue.
 //!
-//! It needs exactly two capabilities the earlier mini-apps did not:
+//! It is built on the element tree (ADR-4), the way a web page is: markup and
+//! a stylesheet, built once; events answered by editing only what changes.
+//! Each app is a card — an `<a href>` the shell follows when tapped — and the
+//! search hides the cards that do not match rather than rebuilding them, so a
+//! card keeps its node from one keystroke to the next.
 //!
-//! * `list-apps` — a guest can reach neither disk nor network, so the registry
-//!   has to be handed to it. What it gets is a snapshot, not a live handle.
-//! * `open-app` — a *request*. The host cannot tear this app down while it is
-//!   in the middle of `update`, so the navigation happens once this frame
-//!   returns. From in here that is invisible: ask, and the next frame belongs
-//!   to somebody else.
-//!
-//! Search is client-side over that snapshot, which is the right place for it
-//! while the catalogue is small enough to hand over whole.
+//! What it needs that other apps do not: `list-apps`, because a guest can
+//! reach neither disk nor network, so the registry is handed to it.
 
-use std::sync::Mutex;
+use std::cell::RefCell;
 
 wit_bindgen::generate!({
     world: "mini-app",
     path: "../../wit",
 });
 
-use nimadir::shell::host_api::{
-    list_apps, log, open_app, ui_button, ui_heading, ui_label, ui_search_field, ui_tile,
-};
+use nimadir::shell::dom;
+use nimadir::shell::host_api::{list_apps, log, open_app, AppEntry};
 
-/// The search box's contents. Guest-owned, like every mini-app's state: the
-/// host holds the live edit buffer for a frame and hands the value back.
-static QUERY: Mutex<String> = Mutex::new(String::new());
+const STYLE: &str = "
+.home { max-width: 880px; margin: 0 auto; padding: 48px 16px 24px;
+        display: flex; flex-direction: column; align-items: center; gap: 16px; }
+.wordmark { font-size: 44px; margin: 0; letter-spacing: -1px; }
+#q { width: 100%; max-width: 560px; padding: 12px 18px; border-radius: 24px; }
+.count { margin: 0; color: var(--nimadir-muted); font-size: 13px; }
+.grid { width: 100%; display: grid; gap: 12px;
+        grid-template-columns: repeat(auto-fill, minmax(196px, 1fr)); }
+.tile { display: flex; flex-direction: column; gap: 6px; padding: 14px;
+        border-radius: 12px; background: var(--nimadir-surface);
+        border: 1px solid transparent; color: var(--nimadir-text);
+        text-decoration: none; cursor: pointer; }
+.tile:hover { border-color: var(--nimadir-border); background: var(--nimadir-accent-wash); }
+.tile:active { border-color: var(--nimadir-accent); }
+.badge { width: 32px; height: 32px; border-radius: 50%; display: flex;
+         align-items: center; justify-content: center; color: #fff;
+         font-weight: 700; font-size: 15px; }
+.name { font-weight: 600; }
+.about { color: var(--nimadir-muted); font-size: 13px; }
+.open { width: 100%; max-width: 560px; }
+.open .badge { background: var(--nimadir-accent); }
+.empty { color: var(--nimadir-muted); margin: 8px 0; }
+.settings { color: var(--nimadir-muted); font-size: 13px; }
+";
+
+/// One per app badge, by its name: colour is decoration, and also the
+/// fastest way to tell two cards apart before reading either.
+const BADGES: [&str; 8] = [
+    "#1a73e8", "#ea4335", "#34a853", "#f9ab00", "#a142f4", "#12b5cb", "#fa7b17", "#e52592",
+];
+
+/// What the page keeps of its own nodes.
+struct Page {
+    search: u32,
+    count: u32,
+    grid: u32,
+    open: u32,
+    open_label: u32,
+    empty: u32,
+    /// The registry the cards were built from, and each card's node.
+    apps: Vec<AppEntry>,
+    cards: Vec<u32>,
+}
+
+thread_local! {
+    static PAGE: RefCell<Option<Page>> = const { RefCell::new(None) };
+}
 
 struct Store;
 
 impl Guest for Store {
     fn init() {
-        log(&format!(
-            "store: {} apps in the registry",
-            list_apps().len()
-        ));
+        let apps = list_apps();
+        log(&format!("store: {} apps in the registry", apps.len()));
+        dom::add_stylesheet(STYLE);
+        let root = dom::root();
+        let _ = dom::set_markup(
+            root,
+            "<main class=\"home\">\
+             <h1 class=\"wordmark\">nimadir</h1>\
+             <input type=\"search\" id=\"q\" placeholder=\"Search apps, or type an address\">\
+             <p class=\"count\"></p>\
+             <a class=\"tile open\" id=\"open\" hidden><span class=\"badge\">&gt;</span>\
+             <span class=\"name\">Open address</span><span class=\"about\"></span></a>\
+             <div class=\"grid\"></div>\
+             <p class=\"empty\" hidden></p>\
+             <a class=\"settings\" href=\"nimadir:settings\">Settings</a>\
+             </main>",
+        );
+        let one = |sel: &str| dom::query_all(root, sel).first().copied().unwrap_or(0);
+        let mut page = Page {
+            search: one("#q"),
+            count: one(".count"),
+            grid: one(".grid"),
+            open: one("#open"),
+            open_label: one("#open .about"),
+            empty: one(".empty"),
+            apps: Vec::new(),
+            cards: Vec::new(),
+        };
+        dom::listen(page.search, "input");
+        dom::listen(page.search, "submit");
+        page.build(apps);
+        page.filter();
+        PAGE.with(|p| *p.borrow_mut() = Some(page));
     }
 
     fn update() {
-        let apps = list_apps();
-
-        // The shape every browser start page has: a wordmark, one big search
-        // box, and the things you might open as a grid under it. All three are
-        // *described*, never positioned — the host decides what a heading, a
-        // search field and a grid of tiles look like on its renderer.
-        ui_heading("nimadir", 1);
-
-        // Field 0. The value goes out, the edited value comes back.
-        //
-        // Two values come out of it: what was typed, and a folded copy to match
-        // against. Filtering wants the folded one; opening wants the typed one
-        // exactly as typed, because a URL's case is not ours to change.
-        let (raw, query) = {
-            let mut q = QUERY.lock().unwrap();
-            *q = ui_search_field(&q, "Search apps, or type an address");
-            let raw = q.trim().to_string();
-            let folded = raw.to_lowercase();
-            (raw, folded)
-        };
-
-        let matches: Vec<_> = apps
-            .iter()
-            .filter(|a| {
-                query.is_empty()
-                    || a.name.to_lowercase().contains(&query)
-                    || a.description.to_lowercase().contains(&query)
-            })
-            .collect();
-
-        // Level 3: the search's own feedback, not a section of the page.
-        if query.is_empty() {
-            ui_heading(&format!("{} apps", apps.len()), 3);
-        } else {
-            ui_heading(
-                &format!(
-                    "{} of {} apps matching \"{query}\"",
-                    matches.len(),
-                    apps.len()
-                ),
-                3,
-            );
-        }
-
-        // This field is the only place to type on the start page — the host
-        // draws no address bar over it — so it has to accept an address as
-        // readily as a search term. Offered as a card rather than acted on
-        // silently: there is no Enter key in the UI vocabulary, and guessing
-        // that half-typed text is a destination would open pages nobody asked
-        // for. Navigation is still the host's: `open-app` is a request, and
-        // what turns this text into an address is the same resolver the CLI
-        // and the address bar use.
-        let typed_address = looks_like_address(&raw);
-        if typed_address && ui_tile("Open address", &raw) {
-            log(&format!("store: opening typed address {raw}"));
-            open_app(&raw);
-        }
-
-        if matches.is_empty() {
-            if apps.is_empty() {
-                // A registry not fetched yet, or none to fetch: clearing the
-                // search would change nothing, so do not suggest it.
-                ui_label("No apps are listed yet. Type an address above to open one.");
-            } else if !typed_address {
-                ui_label("Nothing matches. Clear the search to see everything.");
+        let events = dom::events();
+        PAGE.with(|p| {
+            let mut p = p.borrow_mut();
+            let Some(page) = p.as_mut() else { return };
+            // A fresher registry can arrive while the page is open.
+            let apps = list_apps();
+            if !same(&apps, &page.apps) {
+                page.build(apps);
+                page.filter();
             }
-            settings_link();
-            return;
-        }
-
-        // One tile per app, in registry order. Tile indices renumber as the
-        // list filters — exactly as the buttons did — so what has to stay
-        // meaningful is the title on the card, not its position.
-        for a in matches {
-            if ui_tile(&a.name, &a.description) {
-                log(&format!("store: opening {}", a.name));
-                open_app(&a.source);
+            for e in events {
+                match e.kind.as_str() {
+                    "input" => page.filter(),
+                    "submit" => page.go(),
+                    _ => {}
+                }
             }
-        }
-        settings_link();
+        });
     }
 }
 
-/// The way to the shell's settings page. It is host UI at a host address:
-/// asking for it is all a guest can do, and the page's buttons are the
-/// user's to press. The start page has no chrome, so the link lives here.
-fn settings_link() {
-    if ui_button("Settings") {
-        open_app("nimadir:settings");
+impl Page {
+    /// A card for each app, in registry order.
+    fn build(&mut self, apps: Vec<AppEntry>) {
+        let mut markup = String::new();
+        for a in &apps {
+            let initial = a
+                .name
+                .chars()
+                .next()
+                .map_or('?', |c| c.to_ascii_uppercase());
+            markup.push_str(&format!(
+                "<a class=\"tile\" href=\"{}\"><span class=\"badge\" style=\"background: {}\">{}</span>\
+                 <span class=\"name\">{}</span><span class=\"about\">{}</span></a>",
+                escape(&a.source),
+                badge(&a.name),
+                escape(&initial.to_string()),
+                escape(&a.name),
+                escape(&a.description),
+            ));
+        }
+        if let Err(why) = dom::set_markup(self.grid, &markup) {
+            log(&format!("store: could not build the cards: {why}"));
+        }
+        self.cards = dom::children(self.grid);
+        self.apps = apps;
     }
+
+    /// Show the cards that match what is typed, and say how many.
+    fn filter(&self) {
+        let raw = dom::value(self.search);
+        let raw = raw.trim();
+        let query = raw.to_lowercase();
+        let mut shown = 0;
+        for (a, &card) in self.apps.iter().zip(&self.cards) {
+            let hit = query.is_empty()
+                || a.name.to_lowercase().contains(&query)
+                || a.description.to_lowercase().contains(&query);
+            show(card, hit);
+            shown += hit as usize;
+        }
+        let total = self.apps.len();
+        let line = if query.is_empty() {
+            format!("{total} apps")
+        } else {
+            format!("{shown} of {total} apps matching \"{raw}\"")
+        };
+        dom::set_text(self.count, &line);
+
+        // This field is the only place to type on the start page — the host
+        // draws no address bar over it — so it has to take an address as
+        // readily as a search. Offered as a card, never acted on while typing.
+        let address = looks_like_address(raw);
+        show(self.open, address);
+        if address {
+            dom::set_attribute(self.open, "href", raw);
+            dom::set_text(self.open_label, raw);
+        }
+
+        let empty = if total == 0 {
+            // A registry not fetched yet, or none to fetch: clearing the
+            // search would change nothing, so do not suggest it.
+            Some("No apps are listed yet. Type an address above to open one.")
+        } else if shown == 0 && !address {
+            Some("Nothing matches. Clear the search to see everything.")
+        } else {
+            None
+        };
+        show(self.empty, empty.is_some());
+        if let Some(text) = empty {
+            dom::set_text(self.empty, text);
+        }
+    }
+
+    /// Enter: the typed address, or the one app that matches.
+    fn go(&self) {
+        let raw = dom::value(self.search);
+        let raw = raw.trim();
+        if looks_like_address(raw) {
+            log(&format!("store: opening typed address {raw}"));
+            open_app(raw);
+            return;
+        }
+        let matching: Vec<&AppEntry> = self
+            .apps
+            .iter()
+            .zip(&self.cards)
+            .filter(|(_, &card)| dom::get_attribute(card, "hidden").is_none())
+            .map(|(a, _)| a)
+            .collect();
+        if let [only] = matching.as_slice() {
+            log(&format!("store: opening {}", only.name));
+            open_app(&only.source);
+        }
+    }
+}
+
+fn show(node: u32, visible: bool) {
+    if visible {
+        dom::remove_attribute(node, "hidden");
+    } else {
+        dom::set_attribute(node, "hidden", "");
+    }
+}
+
+fn same(a: &[AppEntry], b: &[AppEntry]) -> bool {
+    a.len() == b.len()
+        && a.iter().zip(b).all(|(x, y)| {
+            x.name == y.name && x.source == y.source && x.description == y.description
+        })
+}
+
+/// Stable per name, so a card keeps its colour across visits.
+fn badge(name: &str) -> &'static str {
+    let hash = name
+        .bytes()
+        .fold(0u32, |a, b| a.wrapping_mul(31).wrapping_add(b as u32));
+    BADGES[hash as usize % BADGES.len()]
+}
+
+/// Text made safe to put in markup: the registry is data, not markup.
+fn escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
 }
 
 /// Whether typed text is plausibly an address rather than a search term.

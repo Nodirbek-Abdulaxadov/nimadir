@@ -692,8 +692,9 @@ impl DomHost for HostState {
         self.doc(r)
     }
 
-    fn set_markup(&mut self, _item: u32, _markup: String) -> wasmtime::Result<Result<(), String>> {
-        Ok(Err("set-markup is not in this build yet".into()))
+    fn set_markup(&mut self, item: u32, markup: String) -> wasmtime::Result<Result<(), String>> {
+        let r = self.dom.set_markup(item, &markup);
+        self.doc(r)
     }
 
     fn query_all(&mut self, scope: u32, selector: String) -> wasmtime::Result<Vec<u32>> {
