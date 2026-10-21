@@ -354,12 +354,15 @@ check "no more than eight" "[tabs] 8 already: no more" \
 echo
 echo "==> 1.2: the clock, and what the registry says of an app"
 PROBE_APP=mini-apps/probe/probe.component.wasm
-check "the time zone, by its IANA name" 'probe: time zone "Asia/Tashkent"' \
-  env TZ=Asia/Tashkent $HOST $PROBE_APP --frames 1
-# Windows reads its own zone for the offset, whatever TZ says.
+# Git Bash does not hand TZ to a Windows program, and Windows reads its own
+# zone anyway: there the app is only seen to be told one.
 if [[ "$OSTYPE" == msys* || "$OSTYPE" == cygwin* ]]; then
-  skip "the offset from TZ (Windows reads its own zone)"
+  check "the time zone, by its IANA name" 'probe: time zone "' \
+    $HOST $PROBE_APP --frames 1
+  skip "the zone and offset TZ names (Windows reads its own)"
 else
+  check "the time zone, by its IANA name" 'probe: time zone "Asia/Tashkent"' \
+    env TZ=Asia/Tashkent $HOST $PROBE_APP --frames 1
   check "and the offset east of UTC, now" '"Asia/Tashkent", 300 minutes east of UTC' \
     env TZ=Asia/Tashkent $HOST $PROBE_APP --frames 1
 fi
