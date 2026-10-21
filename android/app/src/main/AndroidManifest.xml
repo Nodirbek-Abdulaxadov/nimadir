@@ -6,17 +6,28 @@
     <!-- For remote components and registries, exactly as on the desktop. -->
     <uses-permission android:name="android.permission.INTERNET" />
 
+    <!-- enableOnBackInvokedCallback="false": targeting API 36, Android 16
+         stops sending the Back key to the app and handles Back itself — it
+         finished the activity from any page, and the shell's own Back
+         (page to page, then to the background) never ran. Predictive back
+         needs an OnBackInvokedCallback, which is Java, and there is none
+         here; until then this opts out. -->
     <application
         android:hasCode="false"
+        android:enableOnBackInvokedCallback="false"
         android:label="nimadir"
         android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
 
-        <!-- configChanges: the shell redraws for these itself. Without them
-             Android destroys and recreates the activity — and with it the
-             running mini-app — on rotation or when the keyboard appears. -->
+        <!-- configChanges: every change there is, since the shell handles
+             them all itself (it redraws, and reads the theme from the
+             configuration). Any one left out makes Android destroy the
+             activity to recreate it, and that cannot work here: winit allows
+             one event loop per process and does not end it on destroy, so
+             onDestroy waits on it forever — switching the system to dark
+             mode hung the app. -->
         <activity
             android:name="android.app.NativeActivity"
-            android:configChanges="orientation|screenSize|screenLayout|keyboardHidden|keyboard"
+            android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|density|screenSize|smallestScreenSize|layoutDirection|colorMode|grammaticalGender|fontWeightAdjustment"
             android:exported="true"
             android:launchMode="singleTask">
 

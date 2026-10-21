@@ -38,7 +38,7 @@ What has actually been run against this tree, rather than what it ought to do.
 | `README.md` | local path | error, no network request |
 | `example.com` | — | guessed as `https://example.com`, then classified like any URL (the suite checks the guess against `localhost:9`, offline) |
 
-All of the headless cases below are `./run-tests.sh` — 47 assertions, exit
+All of the headless cases below are `./run-tests.sh` — 119 assertions, exit
 non-zero on failure, repeatable, cleaning up after itself, and needing no
 internet: every network case talks to a server on `127.0.0.1`. It is the suite;
 the tables are what it covers.
@@ -439,8 +439,16 @@ Splits the window into two zones, and keeping them apart is the security story:
   phone is a path inside the app's private storage.
 - `go_back` — the chrome's Back button and the `BrowserBack` key (Android's
   system Back, a mouse's back button) both land here. When `Shell::back`
-  has nowhere to go, Android closes the viewport, which leaves the app; a
-  desktop window ignores it.
+  has nowhere to go, Android sends the task to the background
+  (`android::to_background`, `moveTaskToBack`) — never closes the viewport,
+  which would end the event loop for good (§4.12); a desktop window ignores
+  it.
+- The chrome's **address bar** (`address_bar`) shares the buttons' row while
+  `MIN_ADDRESS` (200 pt) plus Open fits beside them, and takes a row of its own
+  on a phone, where squeezed in it pushed Open off the screen. The title row
+  under it is truncated with an ellipsis: drawn at full length, a long title
+  widened the page past the screen's edge. A one-line field is as tall as a
+  button (`field_margin`), since `TextEdit::min_size` sets only a width.
 - **Redraw policy**, at the end of `ui`: another frame only when the next one
   will differ — `redraw` (a click or an edit this frame that the guest hears
   about next frame), a load in flight, a webview page (its GTK loop is pumped
@@ -450,7 +458,10 @@ Splits the window into two zones, and keeping them apart is the security story:
   §4.11 for what the old unconditional `request_repaint` cost.
 - `Body::of` picks the renderer for the area below the chrome. It reads the
   discriminant into a local first: the arms take `&mut self`, so the match
-  cannot hold a borrow of `shell.view` across them.
+  cannot hold a borrow of `shell.view` across them. A guest's page is drawn
+  inside a vertical `ScrollArea`, as any page scrolls — on a phone there is no
+  making the window taller — back at the top for each app opened
+  (`scrolled_for`); a guest's own `"scroll"` groups scroll inside it.
 - **Page** — `page` walks the guest's `Vec<UiCmd>` and records clicks into
   `pending_clicks` for the *next* frame. It is a `while` loop rather than a
   `for`, because a **run of consecutive `Tile`s is taken as one unit**:
@@ -470,7 +481,13 @@ Splits the window into two zones, and keeping them apart is the security story:
 - `palette` — two `Palette`s, `LIGHT` and `DARK`; everything painted by hand
   reads `palette::of(ui)`. `install_theme` builds both themes' visuals from them
   (`visuals`) and follows the system, falling back to light where the system
-  does not say (egui's own fallback is dark).
+  does not say (egui's own fallback is dark). winit never says on Android, so
+  each frame there sets the fallback from `android::night` — the activity's
+  `Configuration.uiMode` over JNI, since the NDK's copy went stale after a
+  switch — and the system bars' icons to match (`android::set_bar_icons`):
+  edge to edge the bars are transparent, and the light theme's own white icons
+  drew the clock white on white. A switch redraws by itself: winit sends a
+  `ScaleFactorChanged` on every configuration change.
 - `install_theme` — rounder widgets and roomier spacing, applied through
   `all_styles_mut` so both the light and dark styles get it. Style only: layout
   stays a per-widget decision in `page`, because layout is what another backend
@@ -486,7 +503,12 @@ Splits the window into two zones, and keeping them apart is the security story:
   the status bar, and laid out over all of it the Home button sat under the
   clock where taps go to the system. winit reports no insets, so
   `android::SafeArea` (`host/src/android.rs`) reads them from the activity's
-  `WindowInsets` over JNI, once per window size.
+  `WindowInsets` over JNI, once per window size — and on every frame while a
+  field has focus or the keyboard is up, because the keyboard slides over the
+  window without resizing it (`ime()` insets; frames come every 200 ms while it
+  may be moving). The frame it comes up, the focused guest field scrolls into
+  what is left of the page (`reveal_focus`): before, it was typed into blind,
+  under the keys.
 
 Also: `run` calls `eframe::run_native`; `impl eframe::App` —
 note eframe 0.35 hands `fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut Frame)`
@@ -566,14 +588,23 @@ not add 2.5 MB of Kotlin nothing loads). `build.sh` runs `cargo ndk` into
 release signed from `NIMADIR_KEYSTORE` when set. Gradle strips the library
 (48 → 30 MB) using the NDK `build.sh` found. It replaced the spike's
 `cargo-apk`, which could not target an API level past the NDK's list and
-could not build an AAB.
+could not build an AAB. `versionName` is the host crate's version and
+`versionCode` is worked out from it (`versionCodeOf`, major·10⁸ + minor·10⁶ +
+patch·10³ + stage, the stage ordering alpha < beta < rc < release), since Play
+refuses a code that does not grow; it was a constant 1.
+
+The manifest lists **every** `configChanges` value, and opts out of predictive
+back (`enableOnBackInvokedCallback="false"`) — both because of §4.12.
+`tools/android-smoke.sh` checks a real device: cold start, idle CPU, Back to
+the background and open again in the same process, a dark-mode switch and
+back, no panic.
 
 On Android eframe is built without X11, Wayland and `accesskit`
 (`host/Cargo.toml`), and `webview` is a compile error (desktop-only for beta).
 Findings from the device: `docs/spikes/android.md`.
 
 ### `run-tests.sh` — the suite
-47 assertions driven through the real binary: the guest cycle, the registry, the
+119 assertions driven through the real binary: the guest cycle, the registry, the
 store, every branch of address classification, the sandbox limits, the scheme
 guess, served registries, the download cap, and all three feature sets building.
 None of it reaches the internet: the scheme guess is observed against
@@ -950,6 +981,32 @@ frame, for the next. An app that asks for nothing costs nothing.
 The general lesson: a loop that is free on a plugged-in desktop is a battery
 on a phone, and invariant 8 means the phone's numbers are the ones that count.
 
+### 4.12 One event loop per process — found on the first device run
+winit makes one event loop per process (`EventLoopError::RecreationAttempt`),
+and an Android process outlives its activity. Everything that ended or
+recreated the activity broke on that:
+
+- **Back on the start page closed the viewport.** The loop ended,
+  `android_main` returned, the process stayed; the next launch landed in it,
+  failed to make a loop, and closed at once — until Android happened to kill
+  the process. Back now moves the task to the background, as Android 12+ does
+  for any root activity, and opening the app again is a hot start.
+- **A configuration change the manifest did not list recreated the activity**
+  — switching the system to dark mode, for one. winit does not end its loop on
+  `Destroy` (a `TODO` in its source), and android-activity's `onDestroy` waits
+  for `android_main` to return, so the main thread hung: an ANR. Every value
+  is now listed, and the shell handles them itself (the theme is read per
+  frame, above).
+- **Targeting API 36, Android 16 stops sending the Back key** and handles Back
+  itself, finishing the activity — into the hang above — while the shell's own
+  Back, page to page, never ran. Predictive back needs an
+  `OnBackInvokedCallback`, which is Java, and the app has none, so the manifest
+  opts out. The spike, at API 35, never saw it.
+
+Still open: an activity destroyed by the system while the process lives
+(developer option "Don't keep activities") hangs the same way; that needs
+winit to end its loop on `Destroy`, or a process exit there.
+
 ---
 
 ## 5. Invariants worth not breaking
@@ -979,5 +1036,9 @@ on a phone, and invariant 8 means the phone's numbers are the ones that count.
 8. **Desktop and Android are equal targets.** Neither is a port of the other.
    A feature lands when it works on both, and nothing may depend on what only a
    desktop has — hover, a physical keyboard, a mouse wheel, a window that is
-   never backgrounded — outside a feature flag. (The Android backend is not built
-   yet; this is the rule it is built under.)
+   never backgrounded — outside a feature flag.
+9. **On Android the event loop never ends while the process lives** (§4.12).
+   Nothing may close the root viewport, call `finish`, or let the activity be
+   recreated: Back goes to the background, and every configuration change is
+   handled in place. A new `configChanges` value Android adds goes into the
+   manifest.

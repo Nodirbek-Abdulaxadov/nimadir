@@ -39,6 +39,14 @@ The app is a NativeActivity with `android:hasCode="false"` — no Java or Kotlin
 Don't move it to GameActivity without first solving IME text: winit 0.30 drops
 the text events GameActivity sends, which would break typing entirely.
 
+**On Android the event loop must never end while the process lives**: winit
+makes one per process, and the process outlives the activity. So Back on the
+start page goes to the background (`android::to_background`), never closes the
+viewport, and the manifest lists *every* `configChanges` value — a recreated
+activity hangs in `onDestroy` (ARCHITECTURE §4.12). Predictive back is opted
+out (`enableOnBackInvokedCallback="false"`): at API 36 it swallows the Back
+key. The smoke test checks both, and flips the device's dark mode once.
+
 `host` is a library (`lib.rs`) plus the desktop binary (`main.rs`); `android/`
 is the second front door onto the same library.
 

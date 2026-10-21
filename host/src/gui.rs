@@ -95,7 +95,8 @@ fn run_with(mut shell: Shell, native_options: eframe::NativeOptions) -> Result<(
             }
             #[cfg(target_os = "android")]
             {
-                app.safe_area = android_app.map(crate::android::SafeArea::new);
+                app.safe_area = android_app.clone().map(crate::android::SafeArea::new);
+                app.activity = android_app;
             }
             Ok(Box::new(app) as Box<dyn eframe::App>)
         }),
@@ -186,9 +187,10 @@ mod palette {
 /// The window's look: a browser's, in light and in dark, from the two
 /// palettes, following whichever the system asks for.
 ///
-/// When the system does not say — some Linux desktops, perhaps a phone — egui
-/// would fall back to dark; the fallback here is light, the theme the shell
-/// was designed in.
+/// When the system does not say — some Linux desktops — egui would fall back
+/// to dark; the fallback here is light, the theme the shell was designed in.
+/// Android never says through winit, so there the frame sets the fallback
+/// from the activity's configuration (`android::night`).
 fn install_theme(ctx: &egui::Context) {
     install_fonts(ctx);
     ctx.set_visuals_of(
@@ -331,6 +333,9 @@ struct ShellApp {
     /// The address the bar was last synced to, so navigation can refresh it
     /// without overwriting what the user is in the middle of typing.
     synced_src: String,
+    /// The app the page's scroll position belongs to; another app starts at
+    /// the top.
+    scrolled_for: String,
     /// Last title pushed to the OS window, so we only send it on change.
     last_title: String,
     /// The live webview, when a page is open. `None` at every other moment —
@@ -350,6 +355,19 @@ struct ShellApp {
     /// activity eframe was handed.
     #[cfg(target_os = "android")]
     safe_area: Option<crate::android::SafeArea>,
+    /// The activity itself: the system's theme, and leaving on Back.
+    #[cfg(target_os = "android")]
+    activity: Option<AndroidApp>,
+    /// Whether the system was in its dark theme when last looked at; `None`
+    /// until the first frame has set the theme and the bars to match.
+    #[cfg(target_os = "android")]
+    night: Option<bool>,
+    /// Whether the on-screen keyboard was up last frame.
+    #[cfg(target_os = "android")]
+    keyboard_up: bool,
+    /// The keyboard has just come up: the focused field scrolls into what is
+    /// left of the page. Only ever set on Android.
+    reveal_focus: bool,
     /// Something done in this frame shows only in the next — a click or an
     /// edit the guest has not been told about yet — so ask for one.
     redraw: bool,
@@ -375,6 +393,7 @@ impl ShellApp {
             field_values: HashMap::new(),
             address: String::new(),
             synced_src: String::new(),
+            scrolled_for: String::new(),
             last_title: String::new(),
             #[cfg(feature = "webview")]
             web: None,
@@ -384,6 +403,13 @@ impl ShellApp {
             web_error: None,
             #[cfg(target_os = "android")]
             safe_area: None,
+            #[cfg(target_os = "android")]
+            activity: None,
+            #[cfg(target_os = "android")]
+            night: None,
+            #[cfg(target_os = "android")]
+            keyboard_up: false,
+            reveal_focus: false,
             redraw: false,
             settings_seen: None,
             lang: Lang::current(),
@@ -509,11 +535,16 @@ impl ShellApp {
         self.pending_submits.clear();
         self.field_values.clear();
         let nowhere = !self.shell.back();
+        // To the background, not closed: see `android::to_background`.
         #[cfg(target_os = "android")]
-        if nowhere {
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+        if nowhere
+            && !self
+                .activity
+                .as_ref()
+                .is_some_and(crate::android::to_background)
+        {
+            crate::diag::line("Back: could not move the task to the background");
         }
-        #[cfg(not(target_os = "android"))]
         let _ = (nowhere, ctx);
     }
 
@@ -531,7 +562,17 @@ impl ShellApp {
         if let Some(area) = self.safe_area.as_mut() {
             /// Side margin on a phone, in points, where the bars leave none.
             const GUTTER: f32 = 12.0;
-            let px = area.insets((full.width(), full.height()));
+            let typing = ui.ctx().egui_wants_keyboard_input();
+            let px = area.insets((full.width(), full.height()), typing);
+            // The keyboard slides in and out without a redraw to notice it
+            // by, so look again shortly for as long as it may be moving.
+            if typing || px.keyboard {
+                ui.ctx()
+                    .request_repaint_after(std::time::Duration::from_millis(200));
+            }
+            // Just come up: the field it is for may now be under it.
+            self.reveal_focus = px.keyboard && !self.keyboard_up;
+            self.keyboard_up = px.keyboard;
             let ppp = ui.ctx().pixels_per_point();
             return egui::Rect::from_min_max(
                 full.min + egui::vec2((px.left / ppp).max(GUTTER), px.top / ppp),
@@ -563,6 +604,25 @@ impl eframe::App for ShellApp {
         // nothing is in flight.
         self.shell.poll();
 
+        // winit reports no system theme on Android, so egui would always use
+        // the fallback; the activity's configuration says which it should be,
+        // and the system bars' icons follow.
+        #[cfg(target_os = "android")]
+        if let Some(app) = &self.activity {
+            let night = crate::android::night(app);
+            if self.night != Some(night) {
+                self.night = Some(night);
+                let theme = if night {
+                    egui::Theme::Dark
+                } else {
+                    egui::Theme::Light
+                };
+                ui.ctx().options_mut(|o| o.fallback_theme = theme);
+                crate::android::set_bar_icons(app, !night);
+                ui.ctx().request_repaint();
+            }
+        }
+
         // The system Back key on a phone, a mouse's back button on a desktop:
         // both go where the chrome's Back button goes.
         if ui.ctx().input(|i| i.key_pressed(egui::Key::BrowserBack)) {
@@ -590,7 +650,21 @@ impl eframe::App for ShellApp {
                 }
                 Body::App => {
                     self.close_web();
-                    self.page(ui);
+                    // A page longer than the window scrolls, as any page does
+                    // — on a phone there is no making the window taller — and
+                    // a guest's own "scroll" groups scroll inside it. Back at
+                    // the top for each app opened: the one before it was
+                    // destroyed, and where it was scrolled to with it.
+                    let here = self.shell.location().map(|(_, src)| src.to_string());
+                    let here = here.unwrap_or_default();
+                    let mut area = egui::ScrollArea::vertical()
+                        .id_salt("page")
+                        .auto_shrink([false, false]);
+                    if here != self.scrolled_for {
+                        area = area.vertical_scroll_offset(0.0);
+                        self.scrolled_for = here;
+                    }
+                    area.show(ui, |ui| self.page(ui));
                 }
                 Body::WebPage => self.web_page(ui, frame),
                 Body::Settings => {
@@ -633,6 +707,55 @@ impl eframe::App for ShellApp {
                 .request_repaint_after(std::time::Duration::from_millis(ms.into()));
         }
     }
+}
+
+/// Room above and below a one-line field's text, so the field is as tall as
+/// a button: on a phone, a finger's target; on a desktop, what egui gives it
+/// anyway. (A `TextEdit`'s `min_size` sets only its width.)
+fn field_margin(ui: &egui::Ui) -> egui::Margin {
+    let row = ui.text_style_height(&egui::TextStyle::Body);
+    let pad = ((ui.spacing().interact_size.y - row) / 2.0).max(2.0);
+    egui::Margin::symmetric(4, pad.round() as i8)
+}
+
+/// A choice's options, as selectable labels; the one tapped, if any.
+fn choices(ui: &mut egui::Ui, options: &[String], selected: u32) -> Option<usize> {
+    let mut picked = None;
+    for (i, option) in options.iter().enumerate() {
+        if ui.selectable_label(i as u32 == selected, option).clicked() {
+            picked = Some(i);
+        }
+    }
+    picked
+}
+
+/// The narrowest address bar worth drawing beside the chrome's buttons, in
+/// points; with less, it goes on a row of its own.
+const MIN_ADDRESS: f32 = 200.0;
+
+/// What the Open button takes on a row, its spacing included.
+fn open_width(ui: &egui::Ui, lang: Lang) -> f32 {
+    let open = egui::WidgetText::from(t(lang, Text::Open)).into_galley(
+        ui,
+        None,
+        f32::INFINITY,
+        egui::TextStyle::Button,
+    );
+    open.size().x + ui.spacing().button_padding.x * 2.0 + ui.spacing().item_spacing.x
+}
+
+/// The address bar and its Open button, filling what is left of the row up to
+/// 520 pt. True when the user asked to go: Open, or Enter in the bar.
+fn address_bar(ui: &mut egui::Ui, lang: Lang, addr: &mut String) -> bool {
+    let width = (ui.available_width() - open_width(ui, lang)).clamp(80.0, 520.0);
+    let resp = ui.add(
+        egui::TextEdit::singleline(addr)
+            .desired_width(width)
+            .margin(field_margin(ui))
+            .hint_text("counter   |   path/to/app.wasm   |   https://example.com"),
+    );
+    let entered = resp.lost_focus() && ui.ctx().input(|i| i.key_pressed(egui::Key::Enter));
+    ui.button(t(lang, Text::Open)).clicked() || entered
 }
 
 /// Which renderer the area below the chrome needs this frame.
@@ -710,10 +833,8 @@ impl ShellApp {
 
         let (title, src) = match &self.shell.view {
             View::Home => ("wasm-shell".to_string(), String::new()),
-            View::Settings => (
-                t(self.lang, Text::Settings).to_string(),
-                SETTINGS_PAGE.to_string(),
-            ),
+            // Titled as its address, so no title row: the page has a heading.
+            View::Settings => (SETTINGS_PAGE.to_string(), SETTINGS_PAGE.to_string()),
             View::App { title, src, .. } => (title.clone(), src.clone()),
             View::WebPage { title, url } => (title.clone(), url.clone()),
         };
@@ -745,6 +866,8 @@ impl ShellApp {
         let mut submitted_empty = false;
 
         let mut addr = std::mem::take(&mut self.address);
+        let mut submitted = false;
+        let mut wrapped = false;
         ui.horizontal(|ui| {
             // A word, not an arrow: egui's bundled fonts have no arrow glyphs.
             if can_back && ui.button(t(lang, Text::Back)).clicked() {
@@ -757,40 +880,38 @@ impl ShellApp {
                 if ui.button(t(lang, Text::Reload)).clicked() {
                     reload = true;
                 }
+            }
+            // On a phone the buttons leave too little for an address anyone
+            // could read — squeezed in, it pushed Open off the screen — so
+            // the bar takes a row of its own there.
+            let separator = ui.spacing().item_spacing.x * 2.0 + 1.0;
+            if ui.available_width() - separator < MIN_ADDRESS + open_width(ui, lang) {
+                wrapped = true;
+                return;
+            }
+            if !at_home {
                 ui.separator();
             }
-            // 520 pt where there is room, and otherwise what is left beside the
-            // Open button: a fixed width pushed the button off a phone's screen.
-            let open = egui::WidgetText::from(t(lang, Text::Open)).into_galley(
-                ui,
-                None,
-                f32::INFINITY,
-                egui::TextStyle::Button,
-            );
-            let reserve =
-                open.size().x + ui.spacing().button_padding.x * 2.0 + ui.spacing().item_spacing.x;
-            let resp = ui.add(
-                egui::TextEdit::singleline(&mut addr)
-                    .desired_width((ui.available_width() - reserve).clamp(80.0, 520.0))
-                    .hint_text("counter   |   path/to/app.wasm   |   https://example.com"),
-            );
-            let entered = resp.lost_focus() && ui.ctx().input(|i| i.key_pressed(egui::Key::Enter));
-            if ui.button(t(lang, Text::Open)).clicked() || entered {
-                if addr.trim().is_empty() {
-                    submitted_empty = true;
-                } else {
-                    nav = Some(Nav::Typed(addr.clone()));
-                }
-            }
+            submitted = address_bar(ui, lang, &mut addr);
         });
+        if wrapped {
+            ui.horizontal(|ui| submitted = address_bar(ui, lang, &mut addr));
+        }
+        if submitted {
+            if addr.trim().is_empty() {
+                submitted_empty = true;
+            } else {
+                nav = Some(Nav::Typed(addr.clone()));
+            }
+        }
         self.address = addr;
 
         // Opened straight from the address bar, the title *is* the address, and
         // the bar above is already showing it.
+        // Cut short with an ellipsis: drawn at full length, a long title made
+        // the page wider than a phone, and everything under it ran off the edge.
         if !at_home && title != shown {
-            ui.horizontal(|ui| {
-                ui.strong(title.as_str());
-            });
+            ui.add(egui::Label::new(egui::RichText::new(title.as_str()).strong()).truncate());
         }
 
         if submitted_empty {
@@ -1208,6 +1329,7 @@ impl ShellApp {
                 // Wide, centred, and capped: a search box that grows with the
                 // window stops looking like one somewhere around half a screen.
                 let width = ui.available_width().min(560.0);
+                let reveal = self.reveal_focus;
                 let mut value = text.clone();
                 let mut edited = false;
                 let mut submitted = false;
@@ -1223,6 +1345,9 @@ impl ShellApp {
                     );
                     edited = resp.changed();
                     submitted = submitted_by(ui, &resp);
+                    if reveal && resp.has_focus() {
+                        resp.scroll_to_me(Some(egui::Align::Center));
+                    }
                 });
                 if edited {
                     self.field_values.insert(*index, value);
@@ -1248,13 +1373,17 @@ impl ShellApp {
                 let resp = ui.add(
                     egui::TextEdit::singleline(&mut value)
                         .id(egui::Id::new(("guest-field", *index)))
-                        .desired_width(ui.available_width().min(320.0)),
+                        .desired_width(ui.available_width().min(320.0))
+                        .margin(field_margin(ui)),
                 );
                 if resp.changed() {
                     self.field_values.insert(*index, value);
                 }
                 if submitted_by(ui, &resp) {
                     self.pending_submits.insert(*index);
+                }
+                if self.reveal_focus && resp.has_focus() {
+                    resp.scroll_to_me(Some(egui::Align::Center));
                 }
             }
             UiCmd::Checkbox {
@@ -1263,7 +1392,16 @@ impl ShellApp {
                 checked,
             } => {
                 let mut on = *checked;
-                if ui.checkbox(&mut on, text).clicked() {
+                let resp = ui.scope(|ui| {
+                    // The theme's rounding turned the small box into a circle,
+                    // which is a radio button's shape, not a checkbox's.
+                    let w = &mut ui.visuals_mut().widgets;
+                    for v in [&mut w.inactive, &mut w.hovered, &mut w.active] {
+                        v.corner_radius = egui::CornerRadius::same(3);
+                    }
+                    ui.checkbox(&mut on, text)
+                });
+                if resp.inner.clicked() {
                     self.pending_clicks.insert(*index);
                 }
             }
@@ -1274,13 +1412,26 @@ impl ShellApp {
                 options,
                 selected,
             } => {
-                ui.horizontal_wrapped(|ui| {
-                    for (i, option) in options.iter().enumerate() {
-                        if ui.selectable_label(i as u32 == *selected, option).clicked() {
-                            self.field_values.insert(*index, i.to_string());
-                        }
-                    }
-                });
+                // Each option drawn whole: squeezed in beside a field, they
+                // broke a letter to a line. Inside a row they join it and
+                // wrap onto its next line as needed — a row of their own
+                // there would get only what is left of this one's.
+                let picked = if ui.layout().main_dir().is_horizontal() {
+                    let wrap = ui.style().wrap_mode;
+                    ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                    let picked = choices(ui, options, *selected);
+                    ui.style_mut().wrap_mode = wrap;
+                    picked
+                } else {
+                    ui.horizontal_wrapped(|ui| {
+                        ui.style_mut().wrap_mode = Some(egui::TextWrapMode::Extend);
+                        choices(ui, options, *selected)
+                    })
+                    .inner
+                };
+                if let Some(i) = picked {
+                    self.field_values.insert(*index, i.to_string());
+                }
             }
             UiCmd::Separator => {
                 ui.separator();
