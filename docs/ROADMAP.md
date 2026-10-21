@@ -159,6 +159,14 @@ data directory.
 hand, declined in the suite. S6-5: the `fuzz` fixture, 12 000 awkward calls
 without a panic.
 
+**On a device (2026-10-21), 119 assertions.** The smoke test passes on an
+Android 16 phone (cold start ~0.3 s, 0 % CPU idle), and the store, `counter`
+(storage kept across a restart), `gallery`, `rates` (a grant asked, then real
+cbu.uz data), typing, settings and the update check were driven by hand. The
+run found twelve bugs, all fixed (`CHANGELOG.md`), the worst three from one
+cause: winit's one event loop per process (`ARCHITECTURE.md` §4.12). S3-6 is
+measured: nothing is drawn unasked.
+
 **Sprint 8 closed (2026-10-20), 117 assertions.** S8-7: the contract frozen at
 `nimadir:shell@1.0.0`, versions at 1.0.0-beta.1, and `docs/BETA-CHECKLIST.md`
 — four criteria met, three waiting on the owner (push for CI; Pages; a

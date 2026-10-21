@@ -121,6 +121,30 @@ What stands between this and the tag: `docs/BETA-CHECKLIST.md`.
 - All Rust sources are `cargo fmt`-formatted, which CI now checks.
 
 ### Fixed
+- Found on the first device run since the spike (Android 16):
+  - After Back from the start page the app could not be opened again until
+    Android killed its process. Back now sends it to the background, and it
+    reopens at once.
+  - Switching the system to dark mode hung the app (an ANR): Android
+    recreated the activity, which the shell cannot survive. It now handles
+    every configuration change itself, and follows the system's dark mode
+    live — the window was always light on Android before.
+  - On Android 16, Back skipped the shell entirely and closed the app from any
+    page; the app opts out of predictive back until it has a callback for it.
+  - The status bar's clock and icons were white on the light theme's white.
+  - The on-screen keyboard covered the field being typed into; the page now
+    ends above it and the field scrolls into view.
+  - A page longer than the screen could not be scrolled, and ran under the
+    navigation bar.
+  - The address bar and Open button overflowed a phone's width; the bar now
+    takes a row of its own there, and a long title is cut short instead of
+    widening the page. Fields are as tall as buttons, a finger's target.
+  - An app the store opened was titled by its file path, not its name.
+  - A choice beside a field was squeezed to a letter per line.
+  - A checkbox drew round, like a radio button.
+  - `versionCode` was always 1, so Play would refuse the second upload; it is
+    now worked out from the version.
+  - With no apps listed yet, the store told the user to clear an empty search.
 - Uzbek Latin's oʻ and gʻ (U+02BB) drew as boxes: none of egui's bundled
   fonts has the character. Noto Sans is bundled as a fallback for it.
 - On Android the UI is laid out inside the window insets. It was drawn under
