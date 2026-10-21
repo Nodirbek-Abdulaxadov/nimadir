@@ -760,18 +760,20 @@ JSON
     unset NIMADIR_ALLOW_LOCAL_NETWORK
     rm -rf "$NET"
 
-    # Asked only when asked for; here, against releases the suite serves.
+    # Asked only when asked for; here, against releases the suite serves,
+    # named from this host's own version so a release changes nothing here.
+    CORE=$(grep -m1 '^version' host/Cargo.toml | cut -d'"' -f2 | cut -d- -f1)
     printf '{"tag_name":"v9.9.9","html_url":"https://example.org/releases/9.9.9"}\n' > "$FIXTURES/newer.json"
     printf '{"tag_name":"v0.0.1","html_url":""}\n' > "$FIXTURES/older.json"
-    printf '{"tag_name":"v1.0.0-alpha.3","html_url":""}\n' > "$FIXTURES/alpha.json"
-    printf '{"tag_name":"v1.0.0-beta.2","html_url":"https://example.org/releases/beta.2"}\n' > "$FIXTURES/next.json"
+    printf '{"tag_name":"v%s-alpha.3","html_url":""}\n' "$CORE" > "$FIXTURES/alpha.json"
+    printf '{"tag_name":"v%s-rc.1","html_url":"https://example.org/releases/rc.1"}\n' "$CORE" > "$FIXTURES/next.json"
     check "a newer release is reported, with where to get it" "nimadir 9.9.9 is out: https://example.org/releases/9.9.9" \
       bash -c "NIMADIR_UPDATE_URL='$B2/newer.json' $HOST --check-update"
     check "an older one is not" "is the newest" \
       bash -c "NIMADIR_UPDATE_URL='$B2/older.json' $HOST --check-update"
     check "an earlier pre-release is older than this one" "is the newest" \
       bash -c "NIMADIR_UPDATE_URL='$B2/alpha.json' $HOST --check-update"
-    check "and a later one is newer" "nimadir 1.0.0-beta.2 is out" \
+    check "and a later one is newer" "nimadir $CORE-rc.1 is out" \
       bash -c "NIMADIR_UPDATE_URL='$B2/next.json' $HOST --check-update"
   fi
 fi

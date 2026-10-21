@@ -1,6 +1,6 @@
 [package]
 name = "nimadir-android"
-version = "1.0.0-beta.1"
+version = "1.1.0-beta.1"
 edition = "2021"
 publish = false
 description = "The Android front door onto the nimadir shell"

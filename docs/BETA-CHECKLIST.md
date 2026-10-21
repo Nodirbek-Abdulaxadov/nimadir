@@ -47,8 +47,8 @@ means not run anywhere yet.
 2. ~~Switch on GitHub Pages~~ — done 2026-10-21; `registry.yml` publishes
    the hosted registry. Optionally add a `NIMADIR_SIGNING_KEY` secret
    (`nimadir keygen`) to sign the samples.
-3. **Enable private vulnerability reporting** (Settings → Security), which
-   `SECURITY.md` points to.
+3. ~~Enable private vulnerability reporting~~ — on (checked 2026-10-21
+   through the API), as `SECURITY.md` says.
 4. ~~Plug in the phone and run the smoke test~~ — done 2026-10-21 on an
    Android 16 phone; run it again on any other device you can.
 5. Decide **D2** (Apple signing). Without it the `.dmg` is unsigned.

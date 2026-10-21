@@ -5,9 +5,13 @@ Notable changes, newest first. The format follows
 [Semantic Versioning](https://semver.org/). The road from here to the first
 beta is `docs/ROADMAP.md`.
 
-## [Unreleased] — toward 1.1
+## [Unreleased]
 
-The native DOM (ADR-4, `docs/ROADMAP.md` *Road to 1.1*).
+## [1.1.0-beta.1] — 2026-10-21
+
+The native DOM (ADR-4, `docs/ROADMAP.md` *Road to 1.1*): an app can describe
+its page as elements, classes and a stylesheet, which the shell styles, lays
+out and draws itself — no web engine. Apps built for `1.0` run unchanged.
 
 ### Added
 - **`interface dom`** in the WIT, now `nimadir:shell@1.1.0`: a retained
