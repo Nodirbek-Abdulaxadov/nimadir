@@ -11,7 +11,9 @@
 //! and `submit` it hears.
 //!
 //! Last, a field (`#markup`) whose text becomes the markup of the `div`
-//! before it (`set-markup`), logging why when it cannot be read.
+//! before it (`set-markup`), logging why when it cannot be read. `rows:N`
+//! there builds a list of N rows from markup made here — a big page without
+//! a big argument, which Windows caps at 32 KiB a command line.
 //!
 //! Node numbers are fixed by the order `init` makes them, which is the order
 //! below; the suite names them.
@@ -113,7 +115,20 @@ impl Guest for Probe {
     fn update() {
         for e in dom::events() {
             if e.current == MARKUP {
-                if let Err(why) = dom::set_markup(MARKUP - 1, &e.value) {
+                let markup = match e
+                    .value
+                    .strip_prefix("rows:")
+                    .and_then(|n| n.parse::<u32>().ok())
+                {
+                    Some(n) => {
+                        let rows: String = (0..n)
+                            .map(|i| format!("<li><span>Item {i}</span><b>x</b></li>"))
+                            .collect();
+                        format!("<ul>{rows}</ul>")
+                    }
+                    None => e.value.clone(),
+                };
+                if let Err(why) = dom::set_markup(MARKUP - 1, &markup) {
                     nimadir::shell::host_api::log(&format!("markup: {why}"));
                 }
             } else if e.current == FORM {

@@ -507,11 +507,11 @@ BIG=$(mktemp -d)
 check "a store of 500 apps draws them all within a frame's limits" '"500 apps"' \
   $HOST --registry "$(native "$BIG/apps.json")" store --frames 2 --timing
 rm -rf "$BIG"
-# Ten thousand nodes: two thousand rows of a list, built from markup, styled
-# and laid out — the last row gets its box like the first.
-ROWS=$(for n in $(seq 0 1999); do printf '<li><span>Item %d</span><b>x</b></li>' "$n"; done)
+# Ten thousand nodes: two thousand rows of a list, built from markup the
+# probe makes itself (`rows:N`), styled and laid out — the last row gets its
+# box like the first.
 check "a page of ten thousand nodes is styled and laid out" '"Item 1999" @' \
-  $HOST $PROBE --frames 1 --boxes --timing --type "0:2=li { display: flex; gap: 8px }" --type "0:45=<ul>$ROWS</ul>"
+  $HOST $PROBE --frames 1 --boxes --timing --type "0:2=li { display: flex; gap: 8px }" --type "0:45=rows:2000"
 
 echo
 echo "==> making an app"
