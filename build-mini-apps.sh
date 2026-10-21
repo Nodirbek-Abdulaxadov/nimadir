@@ -44,7 +44,13 @@ done
 #
 # The SDK version is checked, not just `dotnet`: CI images and many machines
 # carry an older SDK, which would fail the build outright rather than skip it.
-if command -v dotnet >/dev/null 2>&1 && dotnet --list-sdks 2>/dev/null | grep -q '^10\.'; then
+#
+# NativeAOT-LLVM, which compiles it, is published for Linux and Windows only:
+# on macOS the restore fails outright, so it is skipped there too. (No
+# `grep -q` here: under pipefail, its early exit can make a match a miss.)
+if [[ "$(uname -s)" == Darwin ]]; then
+  echo "==> skipping counter-cs (C#): NativeAOT-LLVM has no macOS build"
+elif command -v dotnet >/dev/null 2>&1 && dotnet --list-sdks 2>/dev/null | grep '^10\.' >/dev/null; then
   echo "==> building mini-app: counter-cs (C#, componentize-dotnet)"
   dotnet build -c Release mini-apps/counter-cs/counter-cs.csproj
   cp mini-apps/counter-cs/bin/Release/net10.0/wasi-wasm/publish/counter_cs.wasm \

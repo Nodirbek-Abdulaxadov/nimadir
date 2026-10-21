@@ -33,7 +33,8 @@ nimadir run                      # builds it and opens it in the shell
 inside. That one file is the app: open it from the shell's address bar, list it
 in a registry, or hand it to someone.
 
-For C# you need the .NET 10 SDK; for Python, `pip install componentize-py`.
+For C# you need the .NET 10 SDK, on Linux or Windows: NativeAOT-LLVM, which
+compiles it, has no macOS build. For Python, `pip install componentize-py`.
 
 ## How an app draws
 

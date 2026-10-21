@@ -74,7 +74,7 @@ The mini-apps are **excluded from the workspace** (`Cargo.toml`) and must never 
 built for the host target — they import host functions that only exist at runtime.
 
 `counter-cs` (C#) needs the .NET 10 SDK and is skipped cleanly when `dotnet` is
-absent. Its csproj pulls the NativeAOT-LLVM cross-compiler for the *build host*
+absent, and always on macOS (NativeAOT-LLVM has no macOS build). Its csproj pulls the NativeAOT-LLVM cross-compiler for the *build host*
 via `runtime.$(NETCoreSdkPortableRuntimeIdentifier).microsoft.dotnet.ilcompiler.llvm`;
 hardcoding a RID there breaks the build on every other platform.
 
