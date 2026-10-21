@@ -27,6 +27,15 @@ The native DOM (ADR-4, `docs/ROADMAP.md` *Road to 1.1*).
   system's dark theme through `--nimadir-*` variables an app can use too.
   What a sheet cannot say is skipped and logged.
 - `query-all` finds nodes by selector.
+- **Layout and drawing**: the tree is laid out by taffy — block, flex, grid,
+  absolute positioning, floats, `calc()` — and drawn natively in the
+  window: backgrounds, gradients, borders, rounded corners, shadows,
+  opacity, text in Noto Sans with a real bold, images with `object-fit`,
+  fields, checkboxes, radios, ranges, progress bars, list markers, and
+  scroll containers that scroll by wheel and by touch. `:hover`, `:active`
+  and `:focus` follow the pointer and the keyboard; a tap on a link inside a
+  paragraph lands on the link. `bounds` answers.
+- Headless `--boxes` and `--paint` print the layout and what would be drawn.
 - Headless `--styles` prints each element's computed style; `--dark`,
   `--touch` and `--viewport` set what the page is styled for.
 

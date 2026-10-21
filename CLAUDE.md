@@ -131,8 +131,11 @@ unlisted address), `--timing` (how long the guest's frames took),
 — by **node number**, which a node keeps between frames; the run prints the
 page as `[page] N nodes` and an outline (`#9 ul.list {click change}`).
 `--styles` adds each element's computed style (`#2 div.app | display: flex;
-gap: 16px`); `--dark`, `--touch`, `--viewport 360x640` set what it is styled
-for. `mini-apps/probe` takes any stylesheet typed into node 2.
+gap: 16px`), `--boxes` its layout (`@16,74 300x39`, stand-in fonts, so the
+same everywhere), `--paint` the display list; `--dark`, `--touch`,
+`--viewport 360x640` set what the page is shown on. `mini-apps/probe` takes
+any stylesheet typed into node 2 (type it at frame 0 to see no frame without
+it).
 
 Frames count from 0 (default 8). Widget indices are handed out per frame in call
 order, and each counter is shared by two widgets: `ui-button` + `ui-tile` for
@@ -195,7 +198,9 @@ suite checks), and update the C# namespace, which carries the version
 - The host is a **frame pump around a sandbox**: it hands the guest what the user
   did to the last frame, calls `update()`, and collects the guest's `ui-*` calls
   into a `Vec<UiCmd>` (`ui.rs`) that a backend then draws — egui (`gui.rs`) or
-  `println!` (`main.rs`). Swapping renderers should touch `gui.rs` only. The
+  `println!` (`main.rs`). The element tree goes core → `dom::paint`'s display
+  list → `gui_dom.rs`. Swapping renderers should touch `gui.rs` and
+  `gui_dom.rs` only. The
   window draws **only when something happens** (input, a load, a webview page);
   a guest that animates asks with `request-frame`. Never reintroduce an
   unconditional `request_repaint()` — it kept a phone's core busy in the

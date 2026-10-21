@@ -295,7 +295,10 @@ natively, on desktop and phone alike, with no web engine anywhere
 
 **Progress (2026-10-21):** D1 done — the tree, its limits, events, the
 headless flags, `todo`. D2 done — the CSS parser, the cascade, `query-all`,
-`--styles`, the `probe` fixture. 140 assertions.
+`--styles`, the `probe` fixture. D3 done — taffy layout with `calc()`, the
+display list, hit-testing to the run, the egui painter with Noto Sans bold;
+seen in the window under Xvfb (typing, ticking, deleting, `:hover`, a
+gradient card in a grid, a scrolling list). 148 assertions.
 
 ### D1 — The tree
 

@@ -17,6 +17,8 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 pub mod css;
+pub mod layout;
+pub mod paint;
 pub mod select;
 pub mod style;
 pub mod values;
@@ -181,6 +183,18 @@ pub struct Document {
     pub pressed: Option<NodeId>,
     /// The last styling, and what it was computed for.
     styled: Option<Styled>,
+    /// The last layout, and what it was computed for.
+    laid_out: Option<LaidOut>,
+    /// How far each scroll container has been scrolled, x and y. Clamped
+    /// to what its content allows when drawn; drawing alone depends on it.
+    pub scroll: HashMap<NodeId, (f32, f32)>,
+}
+
+struct LaidOut {
+    generation: u64,
+    env: Env,
+    state: State,
+    layout: layout::Layout,
 }
 
 /// Every element's computed style, and the document, page and pointer it
@@ -213,6 +227,8 @@ impl Document {
             hovered: None,
             pressed: None,
             styled: None,
+            laid_out: None,
+            scroll: HashMap::new(),
         };
         let root = doc
             .create_element("body")
@@ -582,6 +598,38 @@ impl Document {
         out
     }
 
+    /// The user put the keyboard in `id`: the control that had it is told
+    /// `blur`, and `id` is told `focus`.
+    pub fn user_focus(&mut self, id: NodeId) {
+        if self.focused == Some(id) {
+            return;
+        }
+        if let Some(old) = self.focused.take() {
+            self.dispatch("blur", old, "", 0.0, 0.0);
+        }
+        self.focused = Some(id);
+        self.dispatch("focus", id, "", 0.0, 0.0);
+        self.changed();
+    }
+
+    /// The user took the keyboard out of `id`.
+    pub fn user_blur(&mut self, id: NodeId) {
+        if self.focused == Some(id) {
+            self.focused = None;
+            self.dispatch("blur", id, "", 0.0, 0.0);
+            self.changed();
+        }
+    }
+
+    /// The scroll containers on the page, each with the part of its padding
+    /// box that shows, by the last layout.
+    pub fn scroll_areas(&self) -> Vec<(NodeId, layout::Rect)> {
+        match (&self.styled, &self.laid_out) {
+            (Some(s), Some(l)) => paint::scroll_areas(self, &s.styles, &l.layout),
+            _ => Vec::new(),
+        }
+    }
+
     /// The keyboard goes to a control in the tree; anything else is ignored.
     pub fn focus(&mut self, id: NodeId) {
         let focusable = self
@@ -631,6 +679,16 @@ impl Document {
 
     pub fn take_pending_open(&mut self) -> Option<String> {
         self.pending_open.take()
+    }
+
+    /// Whether a link the user followed is waiting for the next frame.
+    pub fn wants_navigation(&self) -> bool {
+        self.pending_open.is_some()
+    }
+
+    /// An element's computed style, from the last styling.
+    pub fn computed(&self, id: NodeId) -> Option<&Style> {
+        self.styled.as_ref()?.styles.get(&id)
     }
 
     /// Queue `kind` for the nearest of `target` and its ancestors that
@@ -851,6 +909,75 @@ impl Document {
         &self.styled.as_ref().expect("just computed").styles
     }
 
+    /// The page laid out on `env`, its text measured by `fonts` and its
+    /// images sized by `images` — computed again only when the tree, the
+    /// page or the pointer has changed. What `bounds` answers from.
+    pub fn layout(
+        &mut self,
+        env: &Env,
+        fonts: &dyn layout::Fonts,
+        images: &dyn Fn(u32) -> Option<(f32, f32)>,
+    ) -> &layout::Layout {
+        let state = self.state();
+        let fresh = self
+            .laid_out
+            .as_ref()
+            .is_some_and(|l| l.generation == self.generation && l.env == *env && l.state == state);
+        if !fresh {
+            self.styles(env);
+            let styles = &self.styled.as_ref().expect("just styled").styles;
+            let laid = layout::layout(self, styles, fonts, images, env.width, env.height);
+            self.laid_out = Some(LaidOut {
+                generation: self.generation,
+                env: *env,
+                state,
+                layout: laid,
+            });
+        }
+        &self.laid_out.as_ref().expect("just laid out").layout
+    }
+
+    /// The last layout, whatever it was for.
+    pub fn last_layout(&self) -> Option<&layout::Layout> {
+        self.laid_out.as_ref().map(|l| &l.layout)
+    }
+
+    /// The last layout as things to draw.
+    pub fn display_list(&self) -> Vec<paint::Item> {
+        match (&self.styled, &self.laid_out) {
+            (Some(s), Some(l)) => paint::display_list(self, &s.styles, &l.layout),
+            _ => Vec::new(),
+        }
+    }
+
+    /// The element under `(x, y)` on the page, by the last layout.
+    pub fn hit(&self, fonts: &dyn layout::Fonts, x: f32, y: f32) -> Option<NodeId> {
+        match (&self.styled, &self.laid_out) {
+            (Some(s), Some(l)) => paint::hit(self, &s.styles, &l.layout, fonts, x, y),
+            _ => None,
+        }
+    }
+
+    /// Scroll whatever is under `(x, y)` by `(dx, dy)` — the innermost
+    /// container that can still move that way. Whether anything moved: if
+    /// not, the scroll belongs to the page around.
+    pub fn scroll_at(&mut self, x: f32, y: f32, dx: f32, dy: f32) -> bool {
+        let (Some(s), Some(l)) = (&self.styled, &self.laid_out) else {
+            return false;
+        };
+        for id in paint::scrollers_at(self, &s.styles, &l.layout, x, y) {
+            let (mx, my) = paint::max_scroll(&l.layout, id);
+            let (sx, sy) = self.scroll.get(&id).copied().unwrap_or((0.0, 0.0));
+            let (sx, sy) = (sx.clamp(0.0, mx), sy.clamp(0.0, my));
+            let next = ((sx + dx).clamp(0.0, mx), (sy + dy).clamp(0.0, my));
+            if next != (sx, sy) {
+                self.scroll.insert(id, next);
+                return true;
+            }
+        }
+        false
+    }
+
     /// The elements under `scope` (itself excluded) matching `selector`, in
     /// document order; none for a selector that cannot be read.
     pub fn query_all(&self, scope: NodeId, selector: &str) -> Vec<NodeId> {
@@ -895,19 +1022,38 @@ impl Document {
             .collect()
     }
 
-    /// `outline`, each element followed by what its rules set: ` | display:
-    /// flex; gap: 16px`.
-    pub fn outline_styled(&mut self, env: &Env) -> Vec<String> {
+    /// `outline`, with each node's box from the last layout when `boxes` —
+    /// ` @0,0 560x120` — and each element's computed style when `styles` —
+    /// ` | display: flex; gap: 16px`.
+    pub fn outline_with(&mut self, env: &Env, styles: bool, boxes: bool) -> Vec<String> {
         self.styles(env);
-        let styles = &self.styled.as_ref().expect("just styled").styles;
+        let computed = &self.styled.as_ref().expect("just styled").styles;
+        let laid = self.laid_out.as_ref().map(|l| &l.layout);
         let initial = Style::initial();
         self.walk()
             .into_iter()
             .map(|(id, depth)| {
                 let mut line = self.outline_line(id, depth);
+                if boxes {
+                    if let Some(r) = laid.and_then(|l| l.rect_of(id)) {
+                        line.push_str(&format!(
+                            " @{},{} {}x{}",
+                            css::number(r.x),
+                            css::number(r.y),
+                            css::number(r.w),
+                            css::number(r.h)
+                        ));
+                    }
+                }
                 let node = &self.nodes[&id];
-                if let (Some(e), Some(st)) = (node.element(), styles.get(&id)) {
-                    let parent = node.parent.and_then(|p| styles.get(&p)).unwrap_or(&initial);
+                if !styles {
+                    return line;
+                }
+                if let (Some(e), Some(st)) = (node.element(), computed.get(&id)) {
+                    let parent = node
+                        .parent
+                        .and_then(|p| computed.get(&p))
+                        .unwrap_or(&initial);
                     let said = style::describe(st, parent, &e.tag);
                     if !said.is_empty() {
                         line.push_str(" | ");

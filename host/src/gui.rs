@@ -301,21 +301,49 @@ fn visuals(p: &palette::Palette, base: egui::Visuals) -> egui::Visuals {
 /// font lacks and Noto does not add — the chrome says "Back", not "←". Last in
 /// each family, so egui's look is unchanged and Noto only draws what nothing
 /// before it can. Licence: `host/assets/fonts/NotoSans-OFL.txt`.
+///
+/// An app's element tree (ADR-4) is drawn in Noto Sans throughout, regular
+/// and bold (`gui_dom::NOTO`, `NOTO_BOLD`), so its weights are one face;
+/// egui's own fonts follow as fallbacks there, for emoji and the like.
 fn install_fonts(ctx: &egui::Context) {
-    const NOTO: &str = "noto-sans";
+    use crate::gui_dom::{NOTO, NOTO_BOLD};
     let mut fonts = egui::FontDefinitions::default();
-    fonts.font_data.insert(
-        NOTO.to_owned(),
-        std::sync::Arc::new(egui::FontData::from_static(include_bytes!(
-            "../assets/fonts/NotoSans-Regular.ttf"
-        ))),
-    );
+    for (name, bytes) in [
+        (
+            NOTO,
+            &include_bytes!("../assets/fonts/NotoSans-Regular.ttf")[..],
+        ),
+        (
+            NOTO_BOLD,
+            &include_bytes!("../assets/fonts/NotoSans-Bold.ttf")[..],
+        ),
+    ] {
+        fonts.font_data.insert(
+            name.to_owned(),
+            std::sync::Arc::new(egui::FontData::from_static(bytes)),
+        );
+    }
+    let fallbacks = fonts
+        .families
+        .get(&egui::FontFamily::Proportional)
+        .cloned()
+        .unwrap_or_default();
     for family in [egui::FontFamily::Proportional, egui::FontFamily::Monospace] {
         fonts
             .families
             .entry(family)
             .or_default()
             .push(NOTO.to_owned());
+    }
+    for (family, faces) in [
+        (NOTO, vec![NOTO.to_owned()]),
+        (NOTO_BOLD, vec![NOTO_BOLD.to_owned(), NOTO.to_owned()]),
+    ] {
+        let mut list = faces;
+        list.extend(fallbacks.iter().cloned());
+        fonts
+            .families
+            .insert(egui::FontFamily::Name(family.into()), list);
     }
     ctx.set_fonts(fonts);
 }
@@ -330,6 +358,8 @@ struct ShellApp {
     pending_clicks: HashSet<u32>,
     /// Text fields submitted during the previous frame, fed to the guest next.
     pending_submits: HashSet<u32>,
+    /// What the window keeps of an app's element tree between frames.
+    dom: crate::gui_dom::DomView,
     /// Guest images uploaded to the GPU, by `Picture::id`. Kept while drawn;
     /// one not drawn in a frame is dropped, with the app it belonged to.
     textures: HashMap<u64, egui::TextureHandle>,
@@ -398,6 +428,7 @@ impl ShellApp {
             shell,
             pending_clicks: HashSet::new(),
             pending_submits: HashSet::new(),
+            dom: crate::gui_dom::DomView::default(),
             textures: HashMap::new(),
             textures_used: HashSet::new(),
             field_values: HashMap::new(),
@@ -1227,9 +1258,17 @@ impl ShellApp {
             self.pending_clicks.clear();
             self.pending_submits.clear();
             self.field_values.clear();
+            self.dom.clear();
             return;
         }
 
+        // The app's element tree (ADR-4), when it has built one; its
+        // immediate-mode widgets follow it.
+        if self.shell.document().is_some_and(|d| !d.is_empty())
+            && crate::gui_dom::show(ui, &mut self.shell, &mut self.dom, self.reveal_focus)
+        {
+            self.redraw = true;
+        }
         self.draw_run(ui, &cmds);
         let used = &self.textures_used;
         self.textures.retain(|id, _| used.contains(id));

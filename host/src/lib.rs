@@ -9,6 +9,8 @@ pub mod diag;
 pub mod dom;
 #[cfg(feature = "gui")]
 pub mod gui;
+#[cfg(feature = "gui")]
+mod gui_dom;
 pub mod host;
 #[cfg(feature = "gui")]
 mod i18n;

@@ -3,7 +3,8 @@
 //! the same tree: `--type "1:2=.box { color: red }" --styles`.
 //!
 //! A second field, `#q`, takes a selector and logs what `query-all` finds
-//! for it under the page.
+//! for it under the page; the button logs where `#a` was laid out
+//! (`bounds`).
 //!
 //! Node numbers are fixed by the order `init` makes them, which is the order
 //! below; the suite names them.
@@ -50,7 +51,8 @@ impl Guest for Probe {
         for n in ["1", "2", "3", "4"] {
             el(list, "li", &[], n); // #12 #14 #16 #18, texts between
         }
-        el(page, "button", &[], "Go"); // #20, #21
+        let go = el(page, "button", &[], "Go"); // #20, #21
+        dom::listen(go, "click");
         el(page, "input", &[("type", "checkbox"), ("checked", "")], ""); // #22
         el(
             page,
@@ -65,7 +67,11 @@ impl Guest for Probe {
 
     fn update() {
         for e in dom::events() {
-            if e.kind == "input" && dom::get_attribute(e.target, "id").as_deref() == Some("q") {
+            if e.kind == "click" {
+                nimadir::shell::host_api::log(&format!("bounds {:?}", dom::bounds(4)));
+            } else if e.kind == "input"
+                && dom::get_attribute(e.target, "id").as_deref() == Some("q")
+            {
                 let found = dom::query_all(PAGE.with(Cell::get), &e.value);
                 nimadir::shell::host_api::log(&format!("query {:?}: {found:?}", e.value));
             } else if e.kind == "input" {

@@ -717,8 +717,18 @@ impl DomHost for HostState {
         Ok(())
     }
 
-    fn bounds(&mut self, _item: u32) -> wasmtime::Result<Option<Rect>> {
-        Ok(None)
+    /// From the last layout, which the frame before this one drew.
+    fn bounds(&mut self, item: u32) -> wasmtime::Result<Option<Rect>> {
+        Ok(self
+            .dom
+            .last_layout()
+            .and_then(|l| l.rect_of(item))
+            .map(|r| Rect {
+                x: r.x,
+                y: r.y,
+                width: r.w,
+                height: r.h,
+            }))
     }
 
     /// What could not be read goes to the app's log, as a browser's
@@ -890,6 +900,24 @@ impl MiniApp {
 
     pub fn document_mut(&mut self) -> &mut Document {
         &mut self.store.data_mut().dom
+    }
+
+    /// The app's page laid out on `env`, with its images sized from what it
+    /// loaded.
+    pub fn layout_page(
+        &mut self,
+        env: &dom::css::Env,
+        fonts: &dyn dom::layout::Fonts,
+    ) -> &dom::layout::Layout {
+        let st = self.store.data_mut();
+        let images = &st.images;
+        let size = |h: u32| images.get(h).map(|p| (p.width as f32, p.height as f32));
+        st.dom.layout(env, fonts, &size)
+    }
+
+    /// An image the app loaded, by its number.
+    pub fn image(&self, handle: u32) -> Option<crate::images::Picture> {
+        self.store.data().images.get(handle).cloned()
     }
 
     /// Replace the registry `list-apps` answers with — a fresher one arrived

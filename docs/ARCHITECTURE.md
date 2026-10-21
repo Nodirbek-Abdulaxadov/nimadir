@@ -157,8 +157,8 @@ guest side from it, `wasmtime::component::bindgen!` the host side.
   `get-attribute`, `toggle-class`, `set-style`, `set-markup`, `query-all`,
   `parent`, `children`, `value`, `focus`, `bounds`, `add-stylesheet` /
   `remove-stylesheet`, `listen` / `unlisten`, `events`, plus the `rect` and
-  `event` records. Nodes are `u32`s. `set-markup` and `bounds` answer
-  nothing yet: they arrive with D5 and D3 (`docs/ROADMAP.md`).
+  `event` records. Nodes are `u32`s. `set-markup` answers nothing yet: it
+  arrives with D5 (`docs/ROADMAP.md`).
 - `world mini-app` — imports `host-api` and `dom`, exports `init` and `update`.
 
 The last two are what let the start page be an app instead of host code: a guest
@@ -255,6 +255,35 @@ key for text fields, read by `ui-submitted` for the field drawn last.
   `MAX_VAR_DEPTH` and `MAX_VALUE_TOKENS` against variables that refer to each
   other exponentially. A tag the host gives no meaning is a block
   (`default_display`).
+
+**Layout and paint** (D3), still renderer-free:
+- `layout.rs` — the styled tree as boxes, by taffy: block, flex, grid,
+  absolute positioning (out-of-flow boxes are placed from the containing
+  block that hoisted them, as taffy's rounding walks them) and floats.
+  taffy is driven through its low-level traits on a `Tree` that lives for
+  one pass, because its styles hold raw pointers: `Calc` values (boxed, so
+  they never move) are what `calc()` resolves through. What is kept is
+  `Layout`: `Placed` boxes with their page rectangles, borders, padding,
+  scroll extent and paint order (`z-index`). Inline content is simplified:
+  a run of text and inline elements is one `Paragraph` of styled `Run`s; a
+  run with boxes in it (a button in a sentence) is an anonymous wrapping
+  row (`Content::Line`). Whitespace collapses as `white-space` says, across
+  runs. Text is measured through the `Fonts` trait — the renderer's fonts —
+  and `Approx` stands in headlessly, deterministic, so the suite reads
+  boxes. Replaced elements (`img`, fields, toggles, `range`, `progress`)
+  have intrinsic sizes; an image keeps its aspect ratio.
+- `paint.rs` — `display_list`: the laid-out page as `Item`s in drawing
+  order — shadow, background or gradient, border, then the control's own
+  item (`Field`, `Check`, `Range`, `Progress`, `Image`), a list `Marker`,
+  then children, inside `Clip`/`Unclip` where `overflow` clips and moved by
+  `Document::scroll` where it scrolls. Opacity multiplies down the tree and
+  fades colours here, so a renderer needs no layers. `hit` is the same walk
+  backwards — topmost first, through clips and scroll offsets, honouring
+  `pointer-events` and `visibility` — down to the run under the pointer
+  (`Fonts::run_at`), so a link inside a paragraph is what a tap lands on.
+  `scrollers_at` and `scroll_areas` are what scrolling needs.
+- `Document::layout` caches like `styles`; `bounds` answers from the last
+  layout, which the frame before drew.
 
 ### `host/src/host.rs` — the sandbox boundary
 - `mod bindings` — `bindgen!` on `../wit`, kept in a submodule so the
@@ -589,6 +618,26 @@ start page just "nimadir" — and `run` sets the window's app id to
 `nimadir-shell`, the installed `.desktop` file's name, which a desktop
 matches the window against for its icon.
 
+### `host/src/gui_dom.rs` — the element tree in egui (feature `gui`)
+Part of the egui backend. `show` lays the page out at the top of the app's
+page area, with `EguiFonts` — egui's text layout behind `layout::Fonts` —
+and draws `display_list` with egui's painter: rounded rects, per-side
+borders as bands, egui shadows, gradients as a tessellated rounded rect
+whose vertices are recoloured along the gradient, galleys for paragraphs
+(Noto Sans regular and bold, `NOTO`/`NOTO_BOLD`, installed by
+`install_fonts`), textures for images with `object-fit`. Fields are egui
+`TextEdit`s placed at their rectangles, keyed by node (`("dom-field",
+node)`), clipped to their box; a textarea scrolls inside it. Input goes back
+to the document: `hit` under the pointer for `:hover` (not on Android, where
+nothing hovers) and the cursor, the pressed element for `:active` with
+`pointerdown`/`pointerup`, a tap as `Document::click` with its offset, a
+wheel to the innermost scroll container that can still move (what it does
+not use reaches the page), a drag inside a scroll area to that area — so a
+phone scrolls by touch — and focus both ways (`user_focus`, `user_blur`,
+and a field the app focused takes the keyboard). It returns whether the app
+has events waiting, which asks for the next frame. The immediate-mode
+widgets of the same frame are drawn after it (`ShellApp::page`).
+
 ### `host/src/webview.rs` — module 1 (feature `webview`)
 The only file in the repo where HTML, CSS and JavaScript exist, quarantined on
 purpose.
@@ -637,8 +686,10 @@ in `/usr/bin` on Linux, which an installed shell must not shadow.
   act on the document before the frame, so the guest finds them in
   `events()`; the frame then prints `[tap] #n` / `[type] …` / `[enter] …`
   and, when the page has anything on it, `[page] N nodes` and `outline`.
-  `--styles` prints `outline_styled` instead; `--dark`, `--touch` and
-  `--viewport WxH` set the `css::Env` the page is styled for.
+  The page is laid out after each frame with `layout::Approx`, as the window
+  lays out what it draws. `--styles` adds computed styles and `--boxes`
+  rectangles (`outline_with`); `--paint` prints the display list; `--dark`,
+  `--touch` and `--viewport WxH` set the `css::Env` the page is shown on.
 
 `run_headless` is the project's test suite. There is no `#[test]` anywhere; the
 `--script` flag *is* how the boundary is verified, and it needs no display.
@@ -768,7 +819,7 @@ replays. The suite runs it 300 frames and wants it still drawing at the end.
 A to-do list built the way a web page is: `init` builds the page once and
 adds a stylesheet; `update` reads `events()` and edits only what changes. One
 listener on the list hears every item's checkbox and button. Not in
-`apps.json` until the tree is drawn (D3).
+`apps.json` until the tree has been seen on a phone (D4).
 
 ### `mini-apps/probe/` — a test fixture, not an app
 A fixed page, and a field (node 2) whose text becomes its stylesheet, so the
@@ -1119,8 +1170,9 @@ winit to end its loop on `Destroy`, or a process exit there.
 4. **Headless is the default feature set.** The host must keep building and
    running with no system GUI libraries; that is what makes it verifiable in CI.
    Every new system dependency goes behind a feature flag.
-5. **Renderer stays behind `UiCmd`.** A backend swap should touch `gui.rs` and
-   nothing else.
+5. **Renderer stays behind `UiCmd` and the display list.** A backend swap
+   should touch `gui.rs` and `gui_dom.rs` and nothing else: styling, layout
+   and what to draw are the core's (`dom::paint`).
 6. **No web engine in the mini-app path.** No JavaScript, no browser, no
    webview behind an app. Since ADR-4 an app may describe its page in markup
    and CSS, but those are text the host parses into its own tree and draws

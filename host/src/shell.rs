@@ -618,6 +618,26 @@ impl Shell {
         }
     }
 
+    /// The open app's page laid out on `env`, if an app is open.
+    pub fn layout_page(
+        &mut self,
+        env: &crate::dom::css::Env,
+        fonts: &dyn crate::dom::layout::Fonts,
+    ) -> Option<&crate::dom::layout::Layout> {
+        match &mut self.view {
+            View::App { app, .. } => Some(app.layout_page(env, fonts)),
+            _ => None,
+        }
+    }
+
+    /// An image the open app loaded, by its number.
+    pub fn image(&self, handle: u32) -> Option<crate::images::Picture> {
+        match &self.view {
+            View::App { app, .. } => app.image(handle),
+            _ => None,
+        }
+    }
+
     /// An app's request to open an address the registry does not list, until
     /// the user answers it.
     pub fn asking(&self) -> Option<&Ask> {

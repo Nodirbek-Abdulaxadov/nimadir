@@ -406,6 +406,29 @@ check "query-all finds by selector, in document order" 'query "#a > p:not(.last)
   $HOST $PROBE --frames 2 --type "1:25=#a > p:not(.last), li:last-child"
 
 echo
+echo "==> layout and paint (ADR-4)"
+# Laid out with stand-in fonts (`layout::Approx`), so boxes are the same on
+# every machine; --boxes prints each node's, --paint what would be drawn.
+# The sheet is typed before frame 0, so no frame shows the page without it.
+lay() { $HOST $PROBE --frames 1 --boxes --viewport 410x700 --type "0:2=$1"; }
+check "a page is laid out: flex, padding, max-width" '#6 input [placeholder="What needs doing?"] value="" {submit} @16,74 300x39' \
+  $HOST $TODO --boxes --viewport 400x700 --frames 1
+check "grid tracks and gaps" '#11 ul @210,82 200x' \
+  lay '#page { display: grid; grid-template-columns: 1fr 1fr; gap: 10px }'
+check "calc() resolves against the box it sits in" '#4 div#a.box.wide @0,82 168x' \
+  lay '#page { display: grid; grid-template-columns: 1fr 1fr; gap: 10px } .box { width: calc(100% - 32px) }'
+check "absolute positioning from the containing block" '#23 span.note [style="letter-spacing: 1px"] @306,90 ' \
+  lay '.note { position: absolute; right: 20px; top: 90px }'
+check_absent "display: none takes a node out of the layout" '"one" @' \
+  lay '.box { display: none }'
+check "an overflowing box clips what is in it" '[paint] clip 0,82 800x20' \
+  $HOST $PROBE --paint --frames 1 --type '0:2=.box { display: none } ul { overflow: auto; height: 20px }'
+check "a checked checkbox draws its tick" '[paint] check 55,125 18x18 on' \
+  $HOST $PROBE --paint --frames 1 --type '0:2=.box { display: none } ul { overflow: auto; height: 20px }'
+check "bounds() answers from the last layout" 'bounds Some(Rect { x: 0.0, y: 82.0, width: 400.0' \
+  $HOST $PROBE --click "1:20" --frames 2 --viewport 400x700
+
+echo
 echo "==> rates, the first real app"
 # Declined, so cbu.uz is never contacted: the suite needs no internet.
 check "rates asks before reaching the bank" "[asks] rates wants to connect to https://cbu.uz" \

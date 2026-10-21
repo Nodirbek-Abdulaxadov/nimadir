@@ -1,5 +1,7 @@
-Noto Sans Regular, version 2.004 — bundled by nimadir as a fallback font,
-for the characters egui's own fonts lack (Uzbek oʻ / gʻ, U+02BB, among them).
+Noto Sans Regular and Bold, version 2.004 — bundled by nimadir: Regular as a
+fallback font, for the characters egui's own fonts lack (Uzbek oʻ / gʻ,
+U+02BB, among them), and both as the faces an app's element tree is drawn in
+(ADR-4), Bold where CSS asks for a weight of 600 or more.
 
 Copyright 2015 Google LLC. All Rights Reserved.
 

@@ -275,8 +275,9 @@ pub struct Style {
     pub border_style: [BorderStyle; 4],
     /// `None` is `currentcolor`, until `finish` puts it in.
     pub border_color: [Option<Color>; 4],
-    /// top-left, top-right, bottom-right, bottom-left.
-    pub radius: [f32; 4],
+    /// top-left, top-right, bottom-right, bottom-left; a percentage is of
+    /// the box's shorter side.
+    pub radius: [Length; 4],
     pub box_sizing: BoxSizing,
     /// x, then y.
     pub overflow: [Overflow; 2],
@@ -351,7 +352,7 @@ impl Style {
             border_width: [0.0; 4],
             border_style: [BorderStyle::None; 4],
             border_color: [None; 4],
-            radius: [0.0; 4],
+            radius: [Length::ZERO; 4],
             box_sizing: BoxSizing::ContentBox,
             overflow: [Overflow::Visible; 2],
             flex_direction: FlexDirection::Row,
@@ -864,12 +865,12 @@ fn apply(s: &mut Style, parent: &Style, name: &str, value: &[Token], cx: &Ctx) {
                 .take_while(|t| **t != [Token::Delim('/')])
                 .copied()
                 .collect();
-            set_all(&mut s.radius, all(&first, px).and_then(|v| sides(&v)));
+            set_all(&mut s.radius, all(&first, lp).and_then(|v| sides(&v)));
         }
-        "border-top-left-radius" => set(&mut s.radius[0], w.first().and_then(|t| px(t))),
-        "border-top-right-radius" => set(&mut s.radius[1], w.first().and_then(|t| px(t))),
-        "border-bottom-right-radius" => set(&mut s.radius[2], w.first().and_then(|t| px(t))),
-        "border-bottom-left-radius" => set(&mut s.radius[3], w.first().and_then(|t| px(t))),
+        "border-top-left-radius" => set(&mut s.radius[0], w.first().and_then(|t| lp(t))),
+        "border-top-right-radius" => set(&mut s.radius[1], w.first().and_then(|t| lp(t))),
+        "border-bottom-right-radius" => set(&mut s.radius[2], w.first().and_then(|t| lp(t))),
+        "border-bottom-left-radius" => set(&mut s.radius[3], w.first().and_then(|t| lp(t))),
         "box-sizing" => set(&mut s.box_sizing, kw.as_deref().and_then(BoxSizing::parse)),
         "overflow" => {
             let v = all(&w, |t| values::keyword(t).and_then(|k| Overflow::parse(&k)));
@@ -1815,7 +1816,7 @@ pub fn describe(style: &Style, parent: &Style, tag: &str) -> String {
         );
     }
     if style.radius != base.radius {
-        put("border-radius", pxs(&style.radius));
+        put("border-radius", quad(&style.radius));
     }
     if style.box_sizing != base.box_sizing {
         put("box-sizing", style.box_sizing.css().into());

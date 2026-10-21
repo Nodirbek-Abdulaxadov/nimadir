@@ -33,7 +33,7 @@ const USAGE: &str = "usage: nimadir-shell [<address> | <listed-app-name>] \
 [--list] [--headless] [--frames N] [--script \"frame:btn,...\"] \
 [--input \"frame:field=text\"] [--submit \"frame:field,...\"] [--back \"frame,...\"] [--reload \"frame,...\"] [--confirm] \
 [--click \"frame:node,...\"] [--type \"frame:node=text\"] [--enter \"frame:node,...\"] \
-[--styles] [--dark] [--touch] [--viewport WxH] \
+[--styles] [--boxes] [--paint] [--dark] [--touch] [--viewport WxH] \
 [--registry <path-or-url>] [--timing] [--version]\n\
        nimadir-shell --kept | --clear <publisher>/<name> | --clear-cache | --check-update\n\
 an address is a .wasm component (path or URL) or a web page URL";
@@ -61,6 +61,8 @@ fn main() -> Result<()> {
     // print each element's computed style.
     let mut env = host::dom::css::Env::default();
     let mut styles = false;
+    let mut boxes = false;
+    let mut paint = false;
     let mut confirm = false;
     let mut timing = false;
     let mut registry_src: Option<String> = None;
@@ -161,6 +163,8 @@ fn main() -> Result<()> {
             // Repeatable, the lists joined: two of them should not mean
             // the second only.
             "--styles" => styles = true,
+            "--boxes" => boxes = true,
+            "--paint" => paint = true,
             "--dark" => env.dark = true,
             "--touch" => env.hover = false,
             "--viewport" => {
@@ -274,6 +278,8 @@ fn main() -> Result<()> {
                 dom_enters: &dom_enters,
                 env,
                 styles,
+                boxes,
+                paint,
                 confirm,
                 timing,
             };
@@ -338,6 +344,8 @@ struct Harness<'a> {
     dom_enters: &'a str,
     env: host::dom::css::Env,
     styles: bool,
+    boxes: bool,
+    paint: bool,
     confirm: bool,
     /// Print how long the guest's frames took, after the run.
     timing: bool,
@@ -356,6 +364,8 @@ fn run_headless(mut shell: Shell, h: &Harness) -> Result<()> {
         dom_enters,
         env,
         styles,
+        boxes,
+        paint,
         confirm,
         timing,
     } = *h;
@@ -476,15 +486,27 @@ fn run_headless(mut shell: Shell, h: &Harness) -> Result<()> {
             println!("   {a}");
         }
         // The page, when the app has built one: the tree, a node a line.
-        if let Some(doc) = shell.document_mut().filter(|d| !d.is_empty()) {
+        // Laid out after every frame, with stand-in fonts, as the window
+        // lays out what it draws: `bounds` answers from it next frame.
+        let has_page = shell.document().is_some_and(|d| !d.is_empty());
+        if has_page {
+            shell.layout_page(&env, &host::dom::layout::Approx);
+        }
+        if let Some(doc) = shell.document_mut().filter(|_| has_page) {
             println!("   [page] {} nodes", doc.len());
-            let lines = if styles {
-                doc.outline_styled(&env)
+            let lines = if styles || boxes {
+                doc.outline_with(&env, styles, boxes)
             } else {
                 doc.outline()
             };
             for line in lines {
                 println!("   {line}");
+            }
+            // What the window would draw, in order.
+            if paint {
+                for item in doc.display_list() {
+                    println!("   [paint] {}", item.describe());
+                }
             }
         }
 
