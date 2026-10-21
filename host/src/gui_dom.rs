@@ -584,7 +584,8 @@ pub fn show(ui: &mut egui::Ui, shell: &mut Shell, view: &mut DomView, reveal: bo
                 if step > 0.0 {
                     v = min + ((v - min) / step).round() * step;
                 }
-                let _ = doc.slide(node, &crate::dom::css::number(v.clamp(min, max)), done);
+                // `max` then `min`: an app may give a `min` above its `max`.
+                let _ = doc.slide(node, &crate::dom::css::number(v.max(min).min(max)), done);
             }
         }
     }

@@ -7,6 +7,14 @@ use super::css::Token;
 /// How deep `calc()` may nest its brackets.
 const MAX_CALC_NESTING: usize = 16;
 
+/// The largest length, in pixels or percent, a value may come to: past it,
+/// layout's arithmetic runs into infinities, and nothing on a screen needs it.
+pub const MAX_LENGTH: f32 = 1_000_000.0;
+
+fn bounded(v: f32) -> f32 {
+    v.clamp(-MAX_LENGTH, MAX_LENGTH)
+}
+
 /// A length as layout needs it: absolute units are already pixels, relative
 /// ones (`em`, `rem`, `vw`, …) already resolved; only a percentage — of a
 /// containing block not yet known — and `auto` are left.
@@ -159,14 +167,18 @@ pub fn length(tokens: &[Token], cx: &Ctx) -> Option<Length> {
 /// A length or a percentage, not `auto`.
 pub fn length_percent(tokens: &[Token], cx: &Ctx) -> Option<Length> {
     match tokens {
-        [Token::Percentage(p)] => Some(Length::Percent(*p)),
+        [Token::Percentage(p)] => Some(Length::Percent(bounded(*p))),
         [Token::Function(f), rest @ ..]
             if matches!(f.as_str(), "calc" | "min" | "max" | "clamp") =>
         {
             match calc_function(f, rest, cx)? {
-                Value::Lin { px, percent: 0.0 } => Some(Length::Px(px)),
-                Value::Lin { px: 0.0, percent } => Some(Length::Percent(percent)),
-                Value::Lin { px, percent } => Some(Length::Calc { px, percent }),
+                Value::Lin { px, percent } if !px.is_finite() || !percent.is_finite() => None,
+                Value::Lin { px, percent: 0.0 } => Some(Length::Px(bounded(px))),
+                Value::Lin { px: 0.0, percent } => Some(Length::Percent(bounded(percent))),
+                Value::Lin { px, percent } => Some(Length::Calc {
+                    px: bounded(px),
+                    percent: bounded(percent),
+                }),
                 Value::Num(0.0) => Some(Length::ZERO),
                 Value::Num(_) => None,
             }
@@ -184,7 +196,7 @@ pub fn px(tokens: &[Token], cx: &Ctx) -> Option<f32> {
             if matches!(f.as_str(), "calc" | "min" | "max" | "clamp") =>
         {
             match calc_function(f, rest, cx)? {
-                Value::Lin { px, percent: 0.0 } => Some(px),
+                Value::Lin { px, percent: 0.0 } if px.is_finite() => Some(bounded(px)),
                 Value::Num(0.0) => Some(0.0),
                 _ => None,
             }
@@ -211,7 +223,7 @@ fn unit_px(n: f32, unit: &str, cx: &Ctx) -> Option<f32> {
         "ch" | "ex" => n * cx.em * 0.5,
         _ => return None,
     };
-    v.is_finite().then_some(v)
+    v.is_finite().then(|| bounded(v))
 }
 
 /// What `calc()` works with: a length as pixels plus a percentage, or a plain

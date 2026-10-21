@@ -45,6 +45,12 @@ The native DOM (ADR-4, `docs/ROADMAP.md` *Road to 1.1*).
 - `nimadir new` writes a Rust app built on the tree, from markup and a
   stylesheet; `docs/APPS.md` has the guide.
 - `[hidden]` hides whatever display a sheet gives the element.
+- **Bounded and fast** (D6): the fuzz fixture drives every `dom` function on
+  a page styled, laid out and painted each frame; lengths are bounded and
+  layout's output kept finite (a NaN radius panicked before); a page of
+  10 000 nodes styles in ~4 ms and lays out in ~16 ms in release; typing,
+  `:hover` and recolouring classes restyle without laying out again;
+  `set-markup` reads long markup in linear time (it was quadratic).
 - **Forms**: `select` with `option`s (a menu when tapped), a range that
   follows the finger, `label` acting for its control, a `button` in a `form`
   submitting it, `disabled`, `readonly` and `maxlength`; `focus` and `blur`

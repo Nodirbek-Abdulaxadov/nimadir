@@ -43,15 +43,15 @@ non-zero on failure, repeatable, cleaning up after itself, and needing no
 internet: every network case talks to a server on `127.0.0.1`. It is the suite;
 the tables are what it covers.
 
-**The store** (`store.component.wasm`, 44 KB), headless:
+**The store** (`store.component.wasm`, on the element tree since D5), headless:
 
 | Command | Result |
 |---|---|
-| `-- store --frames 1` | hero heading, search field, 4 app tiles read through `list-apps` — 5 registry entries, the store itself not among them |
-| `-- store --input "1:0=hell" --script "2:0" --frames 4` | filtered to 1 of 4, tile indices renumbered, click opened `hello` via `open-app` |
-| `-- store --input "1:0=example.com" --frames 2` | offered an `Open address` tile for the typed text |
-| `-- store --input "1:0=mini-apps/hello/hello.component.wasm" --script "2:0" --frames 3` | clicking that tile navigated through `open-app` |
-| `-- store --input "1:0=nowhere/missing.wasm" --script "2:0" --frames 3` | the failed navigation is reported (`[nav failed] …`), the store keeps running |
+| `-- store --frames 1` | wordmark, search field (#5), 6 cards read through `list-apps` — 7 registry entries, the store itself not among them |
+| `-- store --type "1:5=hell" --click "2:24" --frames 4` | filtered to 1 of 6 by `hidden`, cards keeping their nodes; the hello card's `<a href>` opened `hello` |
+| `-- store --type "1:5=example.com" --frames 2` | offered the `Open address` card (#7) for the typed text |
+| `-- store --type "1:5=mini-apps/hello/hello.component.wasm" --click "2:7" --frames 3` | tapping that card navigated |
+| `-- store --type "1:5=nowhere/missing.wasm" --click "2:7" --frames 3` | the failed navigation is reported (`[nav failed] …`), the store keeps running |
 | `-- --registry <url> mini-apps/store/store.component.wasm` | catalogue fetched over HTTP and listed (by path: a served registry that does not list `store` cannot resolve the name) |
 | `-- --registry <unreachable> --list` | fell back to the built-in list, did not abort |
 
@@ -77,6 +77,20 @@ purpose — see §4.10):
 About 1.5 % of a 60 Hz frame in release, on this desktop (2026-10-20). Not
 measured: egui laying out 500 cards, and any of it on a phone — `S5-7`'s
 budget is a phone's, so the retained-tree question stays open until then.
+
+**The element tree at scale** (D6-2, 2026-10-21, this desktop, release,
+`--timing`, stand-in fonts): a page of about 10 000 nodes — 2 000 list rows
+from markup, or the store with 1 500 cards in a grid.
+
+| Step | 2 000-row list | 1 500 cards in a grid |
+|---|---|---|
+| `set-markup` of the whole page, in the guest's frame | 4.5 ms | — |
+| styling (every element) | 2.4–5 ms | median 4 ms |
+| layout after a change of shape | ~16 ms | median 11 ms, max 22 ms with every card shown |
+| typing in a field, `:hover`, a class that only recolours | styling alone; no layout | styling alone; no layout |
+
+Under a frame for most of it; a full relayout of ten thousand nodes is a
+frame and a half. Debug builds are about five times slower.
 
 **The window**, run under Xvfb with Mesa's software Vulkan and openbox, driven
 with `xdotool` and screenshotted at each step:
@@ -237,6 +251,18 @@ key for text fields, read by `ui-submitted` for the field drawn last.
   document's `generation`, the page (`css::Env`: size, dark, hover) and the
   pointer (`select::State`: hovered, pressed, focused); `query_all` runs the
   cascade's matcher over a subtree.
+- **Two counters**, so a page is not laid out again for what only repaints:
+  `generation` moves on every change styling can see; `structure` only on
+  what layout must see — the tree's shape, its text, attributes that size a
+  box (`mark` keeps the list of those that do not: `class`, `style`,
+  `hidden`, `checked`, `value`, …). Listeners and focus move neither. A
+  restyle with the same `structure` compares every element's old and new
+  style with `Style::same_layout` (colours, backgrounds, shadows, opacity,
+  visibility, cursor aside) and keeps the layout if none differs —
+  `layout_dirty` — so typing, `:hover` and a recolouring class cost a restyle
+  alone; `paint` reads text colours from the current styles for that reason.
+- Every map keyed by node is a `NodeMap`: node numbers come from the host in
+  order, so a multiply (`NodeHasher`) is hash enough.
 
 **CSS** (D2), in four files, none of which knows a renderer:
 - `css.rs` — a tokenizer and a forgiving parser: rules, selector lists
@@ -283,7 +309,10 @@ key for text fields, read by `ui-submitted` for the field drawn last.
   runs. Text is measured through the `Fonts` trait — the renderer's fonts —
   and `Approx` stands in headlessly, deterministic, so the suite reads
   boxes. Replaced elements (`img`, fields, toggles, `range`, `progress`)
-  have intrinsic sizes; an image keeps its aspect ratio.
+  have intrinsic sizes; an image keeps its aspect ratio. Each box remembers
+  what its text measured at the widths asked (`memo`): taffy asks the same
+  width again under other constraints. Layout output is made finite
+  (`finite`) before anything draws, scrolls or hit-tests by it.
 - `paint.rs` — `display_list`: the laid-out page as `Item`s in drawing
   order — shadow, background or gradient, border, then the control's own
   item (`Field`, `Check`, `Range`, `Progress`, `Image`), a list `Marker`,
@@ -830,7 +859,10 @@ with the real one, plus that function.
 ### `mini-apps/fetcher/`, `mini-apps/fuzz/` — test fixtures
 `fetcher` fetches whatever is typed into its field, so the suite can sign it
 against its own server and walk every path of ADR-3. `fuzz` calls every
-`host-api` function forty times a frame with the worst inputs it can think of —
+`host-api` function forty times a frame — and every `dom` function forty
+more, on a page styled, laid out and painted each frame, releasing what it
+made so it stays under the document's limits — with the worst inputs it can
+think of —
 empty, long and multi-byte strings, NaN, garbage for an image, nonsense for a
 URL, request numbers nobody issued — from a fixed seed, so any failure
 replays. The suite runs it 300 frames and wants it still drawing at the end.

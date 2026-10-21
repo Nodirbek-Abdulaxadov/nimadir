@@ -162,108 +162,95 @@ pub fn parse(src: &str) -> Result<Vec<Markup>, String> {
 }
 
 /// The opening tag at `start`: its name, attributes, whether it closes
-/// itself, and how long it is.
+/// itself, and how long it is. Read character by character up to its `>`,
+/// never further: collecting the rest of the markup for every tag made long
+/// markup quadratic.
 #[allow(clippy::type_complexity)]
 fn open_tag(
     src: &str,
     start: usize,
 ) -> Result<(String, Vec<(String, String)>, bool, usize), String> {
-    let chars: Vec<(usize, char)> = src[start..].char_indices().collect();
-    let at = |k: usize| chars.get(k).map(|(_, c)| *c);
-    let mut k = 1;
-    let name_start = k;
-    while at(k).is_some_and(|c| c.is_alphanumeric() || c == '-' || c == '_' || c == ':') {
-        k += 1;
-    }
-    if k == name_start {
+    let rest = &src[start..];
+    let mut it = rest.char_indices().peekable();
+    // Past the `<`.
+    it.next();
+    let peek = |it: &mut std::iter::Peekable<std::str::CharIndices>| it.peek().map(|(_, c)| *c);
+    let take_while = |it: &mut std::iter::Peekable<std::str::CharIndices>,
+                      keep: &dyn Fn(char) -> bool| {
+        let mut out = String::new();
+        while let Some(&(_, c)) = it.peek() {
+            if !keep(c) {
+                break;
+            }
+            out.push(c);
+            it.next();
+        }
+        out
+    };
+    let skip_space = |it: &mut std::iter::Peekable<std::str::CharIndices>| {
+        while it.peek().is_some_and(|(_, c)| c.is_whitespace()) {
+            it.next();
+        }
+    };
+    let tag = take_while(&mut it, &|c| {
+        c.is_alphanumeric() || matches!(c, '-' | '_' | ':')
+    })
+    .to_ascii_lowercase();
+    if tag.is_empty() {
         return Err(format!("`<` begins no tag, at {}", place(src, start)));
     }
-    let tag: String = chars[name_start..k]
-        .iter()
-        .map(|(_, c)| *c)
-        .collect::<String>()
-        .to_ascii_lowercase();
     let mut attrs: Vec<(String, String)> = Vec::new();
     loop {
-        while at(k).is_some_and(char::is_whitespace) {
-            k += 1;
-        }
-        match at(k) {
+        skip_space(&mut it);
+        match it.peek().copied() {
             None => {
                 return Err(format!(
                     "`<{tag}` is never finished, at {}",
                     place(src, start)
                 ))
             }
-            Some('>') => return Ok((tag, attrs, false, chars[k].0 + 1)),
-            Some('/') if at(k + 1) == Some('>') => {
-                return Ok((tag, attrs, true, chars[k + 1].0 + 1))
-            }
-            _ => {}
-        }
-        let name_start = k;
-        while at(k)
-            .is_some_and(|c| !c.is_whitespace() && !matches!(c, '=' | '>' | '/' | '"' | '\''))
-        {
-            k += 1;
-        }
-        if k == name_start {
-            return Err(format!(
-                "an attribute of `<{tag}>` has no name, at {}",
-                place(src, start + chars[k].0)
-            ));
-        }
-        let name: String = chars[name_start..k]
-            .iter()
-            .map(|(_, c)| *c)
-            .collect::<String>()
-            .to_ascii_lowercase();
-        while at(k).is_some_and(char::is_whitespace) {
-            k += 1;
-        }
-        let mut value = String::new();
-        if at(k) == Some('=') {
-            k += 1;
-            while at(k).is_some_and(char::is_whitespace) {
-                k += 1;
-            }
-            match at(k) {
-                Some(q @ ('"' | '\'')) => {
-                    k += 1;
-                    let v_start = k;
-                    while at(k).is_some_and(|c| c != q) {
-                        k += 1;
-                    }
-                    if at(k).is_none() {
-                        return Err(format!(
-                            "a value in `<{tag}>` is never closed, at {}",
-                            place(src, start)
-                        ));
-                    }
-                    value = decode(
-                        &chars[v_start..k]
-                            .iter()
-                            .map(|(_, c)| *c)
-                            .collect::<String>(),
-                    );
-                    k += 1;
-                }
-                _ => {
-                    let v_start = k;
-                    while at(k).is_some_and(|c| !c.is_whitespace() && c != '>') {
-                        k += 1;
-                    }
-                    value = decode(
-                        &chars[v_start..k]
-                            .iter()
-                            .map(|(_, c)| *c)
-                            .collect::<String>(),
-                    );
+            Some((at, '>')) => return Ok((tag, attrs, false, at + 1)),
+            Some((_, '/')) => {
+                it.next();
+                match it.peek().copied() {
+                    Some((at, '>')) => return Ok((tag, attrs, true, at + 1)),
+                    _ => continue,
                 }
             }
-        }
-        if !attrs.iter().any(|(n, _)| *n == name) {
-            attrs.push((name, value));
+            Some((at, _)) => {
+                let name = take_while(&mut it, &|c| {
+                    !c.is_whitespace() && !matches!(c, '=' | '>' | '/' | '"' | '\'')
+                })
+                .to_ascii_lowercase();
+                if name.is_empty() {
+                    return Err(format!(
+                        "an attribute of `<{tag}>` has no name, at {}",
+                        place(src, start + at)
+                    ));
+                }
+                skip_space(&mut it);
+                let mut value = String::new();
+                if peek(&mut it) == Some('=') {
+                    it.next();
+                    skip_space(&mut it);
+                    match peek(&mut it) {
+                        Some(q @ ('"' | '\'')) => {
+                            it.next();
+                            value = take_while(&mut it, &|c| c != q);
+                            if it.next().is_none() {
+                                return Err(format!(
+                                    "a value in `<{tag}>` is never closed, at {}",
+                                    place(src, start)
+                                ));
+                            }
+                        }
+                        _ => value = take_while(&mut it, &|c| !c.is_whitespace() && c != '>'),
+                    }
+                }
+                if !attrs.iter().any(|(n, _)| *n == name) {
+                    attrs.push((name, decode(&value)));
+                }
+            }
         }
     }
 }

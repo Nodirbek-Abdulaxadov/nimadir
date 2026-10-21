@@ -507,6 +507,11 @@ BIG=$(mktemp -d)
 check "a store of 500 apps draws them all within a frame's limits" '"500 apps"' \
   $HOST --registry "$(native "$BIG/apps.json")" store --frames 2 --timing
 rm -rf "$BIG"
+# Ten thousand nodes: two thousand rows of a list, built from markup, styled
+# and laid out — the last row gets its box like the first.
+ROWS=$(for n in $(seq 0 1999); do printf '<li><span>Item %d</span><b>x</b></li>' "$n"; done)
+check "a page of ten thousand nodes is styled and laid out" '"Item 1999" @' \
+  $HOST $PROBE --frames 1 --boxes --timing --type "0:2=li { display: flex; gap: 8px }" --type "0:45=<ul>$ROWS</ul>"
 
 echo
 echo "==> making an app"
@@ -569,8 +574,9 @@ check_fails "a guest that fills its page with text is stopped" "more than 32 MiB
   $HOST $RUNAWAY --script "1:8" --frames 3
 # Every host function, 40 calls a frame for 300 frames, with the worst inputs
 # the fixture can think of. The guest logs NULs, which bash would warn about.
+# The element tree too, its page styled, laid out and painted every frame.
 check "the host answers every function's worst inputs without falling over" "fuzz frame 299, still here" \
-  bash -c "set -o pipefail; $HOST mini-apps/fuzz/fuzz.component.wasm --frames 300 | tr -d '\\000'"
+  bash -c "set -o pipefail; $HOST mini-apps/fuzz/fuzz.component.wasm --frames 300 --styles --boxes --paint | tr -d '\\000'"
 # The fixture's WIT must be this one, a minor version on, plus one function.
 if command -v python3 >/dev/null 2>&1; then
   check "the future fixture's WIT is wit/world.wit one minor version on" "in step" \

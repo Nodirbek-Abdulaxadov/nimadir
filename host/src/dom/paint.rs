@@ -7,12 +7,10 @@
 //! opacity multiplies down the tree, which control sits where. A renderer
 //! (`gui.rs`) turns each `Item` into its own shapes and widgets.
 
-use std::collections::HashMap;
-
 use super::layout::{Content, Font, Fonts, Layout, Paragraph, Rect};
 use super::style::{self as st, BorderStyle, Gradient, Shadow, Style};
 use super::values::{self, Color};
-use super::{Document, Kind, NodeId};
+use super::{Document, Kind, NodeId, NodeMap};
 
 /// One thing to draw.
 #[derive(Clone, Debug, PartialEq)]
@@ -157,9 +155,10 @@ fn clips(s: &Style) -> (bool, bool) {
 /// Corner radii in pixels, a percentage taken of the shorter side, none
 /// past half of it.
 pub fn radii(s: &Style, r: &Rect) -> [f32; 4] {
-    let side = r.w.min(r.h);
+    let side = r.w.min(r.h).max(0.0);
+    // `max` then `min`, not `clamp`: neither panics on a NaN.
     s.radius
-        .map(|l| l.resolve(side).unwrap_or(0.0).clamp(0.0, side / 2.0))
+        .map(|l| l.resolve(side).unwrap_or(0.0).max(0.0).min(side / 2.0))
 }
 
 /// How far a scroll container can scroll, from its layout.
@@ -251,7 +250,7 @@ impl Item {
 }
 
 /// The page, as things to draw.
-pub fn display_list(doc: &Document, styles: &HashMap<NodeId, Style>, layout: &Layout) -> Vec<Item> {
+pub fn display_list(doc: &Document, styles: &NodeMap<Style>, layout: &Layout) -> Vec<Item> {
     let mut out = Vec::new();
     if !layout.boxes.is_empty() {
         paint(doc, styles, layout, 0, Walk::PAGE, &mut out);
@@ -261,7 +260,7 @@ pub fn display_list(doc: &Document, styles: &HashMap<NodeId, Style>, layout: &La
 
 fn paint(
     doc: &Document,
-    styles: &HashMap<NodeId, Style>,
+    styles: &NodeMap<Style>,
     layout: &Layout,
     i: usize,
     w: Walk,
@@ -279,7 +278,7 @@ fn paint(
             if w.visible {
                 out.push(Item::Text {
                     rect: rect.inset(b.padding),
-                    paragraph: faded(p, w.opacity),
+                    paragraph: faded(&recoloured(doc, styles, p), w.opacity),
                 });
             }
         }
@@ -520,6 +519,23 @@ fn fade_font(s: &Style, opacity: f32) -> Font {
     }
 }
 
+/// A paragraph in its runs' colours and decorations as styled now: the
+/// layout may be from before a `:hover` that changed only them.
+fn recoloured(doc: &Document, styles: &NodeMap<Style>, p: &Paragraph) -> Paragraph {
+    let mut p = p.clone();
+    for r in &mut p.runs {
+        let element = match doc.nodes.get(&r.node).map(|n| &n.kind) {
+            Some(Kind::Text(_)) => doc.parent(r.node),
+            _ => Some(r.node),
+        };
+        if let Some(s) = element.and_then(|e| styles.get(&e)) {
+            r.font.color = s.color;
+            r.font.decoration = s.text_decoration;
+        }
+    }
+    p
+}
+
 fn faded(p: &Paragraph, opacity: f32) -> Paragraph {
     if opacity >= 1.0 {
         return p.clone();
@@ -535,7 +551,7 @@ fn faded(p: &Paragraph, opacity: f32) -> Paragraph {
 /// `None` over nothing that takes a pointer.
 pub fn hit(
     doc: &Document,
-    styles: &HashMap<NodeId, Style>,
+    styles: &NodeMap<Style>,
     layout: &Layout,
     fonts: &dyn Fonts,
     x: f32,
@@ -550,7 +566,7 @@ pub fn hit(
 #[allow(clippy::too_many_arguments)]
 fn hit_box(
     doc: &Document,
-    styles: &HashMap<NodeId, Style>,
+    styles: &NodeMap<Style>,
     layout: &Layout,
     fonts: &dyn Fonts,
     i: usize,
@@ -620,7 +636,7 @@ fn hit_box(
 /// The scroll containers under `(x, y)`, innermost first.
 pub fn scrollers_at(
     doc: &Document,
-    styles: &HashMap<NodeId, Style>,
+    styles: &NodeMap<Style>,
     layout: &Layout,
     x: f32,
     y: f32,
@@ -636,7 +652,7 @@ pub fn scrollers_at(
 #[allow(clippy::too_many_arguments)]
 fn scrollers(
     doc: &Document,
-    styles: &HashMap<NodeId, Style>,
+    styles: &NodeMap<Style>,
     layout: &Layout,
     i: usize,
     w: Walk,
@@ -668,7 +684,7 @@ fn scrollers(
 /// Every scroll container, with the part of its padding box that shows.
 pub fn scroll_areas(
     doc: &Document,
-    styles: &HashMap<NodeId, Style>,
+    styles: &NodeMap<Style>,
     layout: &Layout,
 ) -> Vec<(NodeId, Rect)> {
     let mut out = Vec::new();
@@ -680,7 +696,7 @@ pub fn scroll_areas(
 
 fn areas(
     doc: &Document,
-    styles: &HashMap<NodeId, Style>,
+    styles: &NodeMap<Style>,
     layout: &Layout,
     i: usize,
     w: Walk,

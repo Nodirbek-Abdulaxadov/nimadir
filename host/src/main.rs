@@ -372,6 +372,9 @@ fn run_headless(mut shell: Shell, h: &Harness) -> Result<()> {
     // Each frame's call into the guest and back, UI collected — the
     // boundary's cost, without a renderer's.
     let mut took = Vec::with_capacity(frames);
+    // Styling and laying out the page, when there is one — the host's side
+    // of the element tree's cost.
+    let mut page_took = Vec::with_capacity(frames);
     for l in shell.take_logs() {
         println!("[wasm log] {l}");
     }
@@ -490,7 +493,9 @@ fn run_headless(mut shell: Shell, h: &Harness) -> Result<()> {
         // lays out what it draws: `bounds` answers from it next frame.
         let has_page = shell.document().is_some_and(|d| !d.is_empty());
         if has_page {
+            let started = std::time::Instant::now();
             shell.layout_page(&env, &host::dom::layout::Approx);
+            page_took.push(started.elapsed());
         }
         if let Some(doc) = shell.document_mut().filter(|_| has_page) {
             println!("   [page] {} nodes", doc.len());
@@ -622,6 +627,15 @@ fn run_headless(mut shell: Shell, h: &Harness) -> Result<()> {
         println!(
             "\n[timing] {} frames: median {median:.2?}, max {max:.2?} per frame in the guest",
             took.len()
+        );
+    }
+    if timing && !page_took.is_empty() {
+        page_took.sort_unstable();
+        let median = page_took[page_took.len() / 2];
+        let max = page_took[page_took.len() - 1];
+        println!(
+            "[timing] {} pages: median {median:.2?}, max {max:.2?} to style and lay out",
+            page_took.len()
         );
     }
 

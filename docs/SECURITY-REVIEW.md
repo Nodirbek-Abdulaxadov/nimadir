@@ -45,6 +45,24 @@ Outside `host-api`:
 | The registry | listing malicious apps | it is trusted by whoever configures it; the hosted one is the project's, entries pinned; a registry cannot raise an app's permissions |
 | The start page | its exemption from the `open-app` question | the exemption is the page titled `store` — what Home loads from the registry — and a guest cannot give another page that title |
 
+## Addendum: the element tree (ADR-4, D6-1, 2026-10-21)
+
+`interface dom` adds a document the host keeps for the life of the app, CSS
+and markup the host parses, and layout and painting it runs on the guest's
+say. Reviewed the same way:
+
+| Surface | Threat | Mitigation | Tested by |
+|---|---|---|---|
+| the document | growing the host without end: nodes, text, stylesheets, events | 65 536 nodes, 32 MiB of strings and sheets (each node costing 64 bytes besides), 256 levels, a trap naming the limit; 1024 events queued, oldest dropped | `runaway` buttons 6–8 |
+| any `dom` call | malformed input making the host panic | `fuzz` drives every `dom` function — cycles, stale numbers, garbage CSS and markup, unreadable selectors — while the page is styled, laid out and painted each frame | "the host answers every function's worst inputs" (run with `--styles --boxes --paint`) |
+| selectors | exponential matching (`a a a … b` over a deep tree) | 32 compounds a selector, 10 000 steps a match, then no match | `fuzz` |
+| `var()` | expansion bombs (`--a: var(--b) var(--b)`, …) and cycles | 16 levels, 4096 tokens a value, then the value is dropped | `fuzz` |
+| `calc()`, lengths | nesting; values that send layout to infinity or NaN | 16 levels of brackets; lengths bounded to ±1 000 000; layout's output made finite before it is drawn, scrolled or hit-tested | `fuzz` (a NaN radius panicked before this review) |
+| `set-markup` | parser recursion; scripts | read with an explicit stack, refused past 256 levels; `script` and `style` dropped unread | "a script in markup is dropped, never run" |
+| painting | drawing over the chrome, or outside the page | everything is clipped to the page area; a box positioned above it is not drawn | seen in the window: a box at `top: -70px` stays out of the chrome |
+| links | navigating unasked | `<a href>` is followed like `open-app`: listed apps, else the chrome asks | the store's cases |
+| text | control characters reaching a terminal | the headless outline quotes and escapes every guest string | the outline cases |
+
 ## Residual risks, accepted for beta
 
 - **By name, not by address.** The local-network check reads the origin: a
@@ -58,5 +76,8 @@ Outside `host-api`:
   browser.
 - **Android** was last run on a device in the spike, before this review's
   fixes; nothing here is Android-specific, but nothing here was re-run there.
+- **A `select`'s menu** is drawn in egui's popup layer, which may overlap the
+  chrome while open; it holds only the app's option labels, under the
+  select the user tapped.
 - **No independent review.** This was the project reviewing itself. Before a
   stable release, someone who did not write it should try.

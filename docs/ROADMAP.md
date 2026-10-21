@@ -303,7 +303,11 @@ range, `label`, form `submit`, `disabled`/`readonly`/`maxlength`, focus and
 pointer events; the phone is still to see it (touch scrolling, the keyboard
 over a field). D5 — `set-markup`, the Rust template on the tree, the guide in
 `docs/APPS.md`, the store rebuilt on the tree (cards in a grid, search by
-`hidden`, Enter). 160 assertions.
+`hidden`, Enter). D6-1 and D6-2 — `fuzz` over `dom` (it found a NaN panic in
+painting), the security review's addendum, 10 000 nodes at ~4 ms styling and
+~16 ms layout in release, restyle without relayout for what only repaints,
+linear markup. 161 assertions. Left for 1.1: the phone, and D6-3 on the
+owner's say.
 
 ### D1 — The tree
 

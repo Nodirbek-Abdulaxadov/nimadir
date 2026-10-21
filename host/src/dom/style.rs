@@ -9,13 +9,14 @@
 //! are resolved here, so layout sees pixels — and percentages, which only
 //! layout can resolve.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock};
 
 use super::css::{self, Declaration, Env, Media, Selector, Sheet, Token};
 use super::select::{Matcher, Places, State};
 use super::values::{self, words, Color, Ctx, Length};
-use super::{Document, Element, NodeId, ROOT};
+use super::{Document, Element, NodeMap, ROOT};
 
 /// The most tokens one value may grow to as `var()`s are put in — a custom
 /// property can name another twice, which names another twice, and so on.
@@ -439,6 +440,29 @@ impl Style {
         self.vars = p.vars.clone();
     }
 
+    /// Whether `other` lays out the same — differing, if at all, only in
+    /// what is drawn: colours, backgrounds, shadows, opacity, visibility,
+    /// the cursor. A pointer moving over a page changes those, and the
+    /// page need not be laid out again for it.
+    pub fn same_layout(&self, other: &Style) -> bool {
+        let mut a = self.clone();
+        a.color = other.color;
+        a.background = other.background;
+        a.gradient.clone_from(&other.gradient);
+        a.border_color = other.border_color;
+        a.border_style = other.border_style;
+        a.shadow = other.shadow;
+        a.opacity = other.opacity;
+        a.visibility = other.visibility;
+        a.cursor = other.cursor;
+        a.pointer_events = other.pointer_events;
+        a.text_decoration = other.text_decoration;
+        a.list_style = other.list_style;
+        a.object_fit = other.object_fit;
+        a.vars = other.vars.clone();
+        a == *other
+    }
+
     /// Whether the element is laid out as a block-level box, as opposed to
     /// flowing as text.
     pub fn is_inline(&self) -> bool {
@@ -537,7 +561,7 @@ pub fn ua_sheet() -> &'static Sheet {
 }
 
 /// Every element in the tree, styled.
-pub fn compute(doc: &Document, env: &Env, state: State) -> HashMap<NodeId, Style> {
+pub fn compute(doc: &Document, env: &Env, state: State) -> NodeMap<Style> {
     let mut index = Index::default();
     index.add(ua_sheet(), ORIGIN_UA);
     for sheet in doc.parsed_sheets() {
@@ -547,7 +571,8 @@ pub fn compute(doc: &Document, env: &Env, state: State) -> HashMap<NodeId, Style
     let matcher = Matcher::new(doc, state, &places);
     let root_initial = Style::initial();
 
-    let mut styles: HashMap<NodeId, Style> = HashMap::new();
+    let mut styles: NodeMap<Style> =
+        NodeMap::with_capacity_and_hasher(doc.len(), Default::default());
     let mut rem = 16.0;
     for (id, _) in doc.walk() {
         let node = &doc.nodes[&id];
@@ -579,18 +604,7 @@ pub fn compute(doc: &Document, env: &Env, state: State) -> HashMap<NodeId, Style
                 ));
             }
         }
-        let inline: Vec<Declaration> = if e.style.is_empty() {
-            Vec::new()
-        } else {
-            css::inline(
-                &e.style
-                    .iter()
-                    .map(|(k, v)| format!("{k}: {v}"))
-                    .collect::<Vec<_>>()
-                    .join(";"),
-            )
-        };
-        for d in &inline {
+        for d in e.inline.iter() {
             found.push(((d.important as u8, ORIGIN_INLINE, u32::MAX, 0), d));
         }
         found.sort_by_key(|(key, _)| *key);
@@ -616,7 +630,7 @@ pub fn compute(doc: &Document, env: &Env, state: State) -> HashMap<NodeId, Style
         // and the colour, for `currentcolor`.
         let first = |n: &str| matches!(n, "font-size" | "font" | "color");
         for (_, d) in found.iter().filter(|(_, d)| first(&d.name)) {
-            if let Some(value) = substitute(&d.value, &style.vars, 0) {
+            if let Some(value) = resolve(&d.value, &style.vars) {
                 apply(&mut style, parent, &d.name, &value, &cx);
             }
         }
@@ -629,7 +643,7 @@ pub fn compute(doc: &Document, env: &Env, state: State) -> HashMap<NodeId, Style
             .iter()
             .filter(|(_, d)| !first(&d.name) && !d.name.starts_with("--"))
         {
-            if let Some(value) = substitute(&d.value, &style.vars, 0) {
+            if let Some(value) = resolve(&d.value, &style.vars) {
                 apply(&mut style, parent, &d.name, &value, &cx);
             }
         }
@@ -642,15 +656,31 @@ pub fn compute(doc: &Document, env: &Env, state: State) -> HashMap<NodeId, Style
 /// `value` with every `var(--x, fallback)` replaced; `None` if one names a
 /// variable that is not set and gives no fallback, or the value grows past
 /// `MAX_VALUE_TOKENS`.
+/// `value` as it is when it names no variable — the common case, and no
+/// copy — else with its `var()`s put in.
+fn resolve<'a>(
+    value: &'a [Token],
+    vars: &HashMap<String, Arc<Vec<Token>>>,
+) -> Option<Cow<'a, [Token]>> {
+    if has_var(value) {
+        substitute(value, vars, 0).map(Cow::Owned)
+    } else {
+        Some(Cow::Borrowed(value))
+    }
+}
+
+fn has_var(value: &[Token]) -> bool {
+    value
+        .iter()
+        .any(|t| matches!(t, Token::Function(f) if f == "var"))
+}
+
 fn substitute(
     value: &[Token],
     vars: &HashMap<String, Arc<Vec<Token>>>,
     depth: usize,
 ) -> Option<Vec<Token>> {
-    if !value
-        .iter()
-        .any(|t| matches!(t, Token::Function(f) if f == "var"))
-    {
+    if !has_var(value) {
         return Some(value.to_vec());
     }
     if depth > MAX_VAR_DEPTH {

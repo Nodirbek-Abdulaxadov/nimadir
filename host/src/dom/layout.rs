@@ -18,14 +18,13 @@
 //! (`Layout`) is plain data.
 
 use std::cell::Cell;
-use std::collections::HashMap;
 
 use taffy as tf;
 use tf::{CacheTree, LayoutPartialTree, TraversePartialTree};
 
 use super::style::{self as st, Display, Style, WhiteSpace};
 use super::values::{Color, Length};
-use super::{Document, Kind, NodeId, ROOT};
+use super::{Document, Kind, NodeId, NodeMap, ROOT};
 
 /// The look of one run of text.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -149,25 +148,40 @@ impl Fonts for Approx {
         let mut widest: f32 = 0.0;
         let mut lines = 1usize;
         let mut line: f32 = 0.0;
-        for piece in Self::pieces(p) {
-            match piece {
-                None => {
-                    widest = widest.max(line);
-                    line = 0.0;
-                    lines += 1;
+        // The word being read: wrapped as a whole when it does not fit.
+        let mut word: f32 = 0.0;
+        let flush = |word: &mut f32, line: &mut f32, lines: &mut usize, widest: &mut f32| {
+            if *word > 0.0 {
+                if *line > 0.0 && limit.is_some_and(|l| *line + *word > l + 0.01) {
+                    *widest = widest.max(*line);
+                    *lines += 1;
+                    *line = 0.0;
                 }
-                Some((space, w)) => {
-                    if !space && line > 0.0 && limit.is_some_and(|l| line + w > l + 0.01) {
+                *line += *word;
+                *word = 0.0;
+            }
+        };
+        for run in &p.runs {
+            for c in run.text.chars() {
+                match c {
+                    '\n' => {
+                        flush(&mut word, &mut line, &mut lines, &mut widest);
                         widest = widest.max(line);
-                        lines += 1;
                         line = 0.0;
+                        lines += 1;
                     }
-                    if !(space && line == 0.0 && lines > 1) {
-                        line += w;
+                    ' ' => {
+                        flush(&mut word, &mut line, &mut lines, &mut widest);
+                        // A space that ends a line is not drawn on the next.
+                        if !(line == 0.0 && lines > 1) {
+                            line += Self::advance(c, &run.font);
+                        }
                     }
+                    _ => word += Self::advance(c, &run.font),
                 }
             }
         }
+        flush(&mut word, &mut line, &mut lines, &mut widest);
         widest = widest.max(line);
         if let (Some(w), true) = (width, p.ellipsis) {
             widest = widest.min(w);
@@ -297,9 +311,9 @@ impl Placed {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Layout {
     pub boxes: Vec<Placed>,
-    pub by_node: HashMap<NodeId, usize>,
+    pub by_node: NodeMap<usize>,
     /// Each text node's paragraph.
-    pub by_text: HashMap<NodeId, usize>,
+    pub by_text: NodeMap<usize>,
     /// The page's size: its root's box.
     pub width: f32,
     pub height: f32,
@@ -352,6 +366,9 @@ fn calc_value(ptr: *const (), basis: f32) -> f32 {
     c.px + basis * c.percent / 100.0
 }
 
+/// A width asked for, rounded, and the size the text came to at it.
+type Measured = (Option<f32>, (f32, f32));
+
 struct TBox {
     content: Content,
     style: tf::Style,
@@ -362,6 +379,9 @@ struct TBox {
     layout: tf::Layout,
     replaced: Replaced,
     min_width: Cell<Option<f32>>,
+    /// What its text measured at the widths asked so far: taffy asks the same
+    /// width again under other constraints, and a measure is the dear part.
+    measured: std::cell::RefCell<Vec<Measured>>,
     ordinal: u32,
     /// Paint before or after its siblings: `z-index`, and whether it is
     /// positioned at all.
@@ -375,7 +395,7 @@ struct Tree<'a> {
     #[allow(clippy::vec_box)]
     calcs: Vec<Box<Calc>>,
     fonts: &'a dyn Fonts,
-    by_node: HashMap<NodeId, usize>,
+    by_node: NodeMap<usize>,
 }
 
 /// An item of a block container's content, before it is grouped.
@@ -404,17 +424,19 @@ enum Piece {
 /// `images` gives an image's size by its `image-load` number.
 pub fn layout(
     doc: &Document,
-    styles: &HashMap<NodeId, Style>,
+    styles: &NodeMap<Style>,
     fonts: &dyn Fonts,
     images: &dyn Fn(u32) -> Option<(f32, f32)>,
     width: f32,
     height: f32,
 ) -> Layout {
     let mut tree = Tree {
-        boxes: Vec::new(),
+        // A box is large — taffy's cache is in it — so the list is sized
+        // once rather than moved as it grows.
+        boxes: Vec::with_capacity(doc.len() + doc.len() / 4),
         calcs: Vec::new(),
         fonts,
-        by_node: HashMap::new(),
+        by_node: NodeMap::default(),
     };
     let Some(root_style) = styles.get(&ROOT) else {
         return Layout::default();
@@ -437,12 +459,12 @@ pub fn layout(
     let mut stack = vec![(root, 0.0f32, 0.0f32)];
     while let Some((i, px, py)) = stack.pop() {
         let l = &tree.boxes[i].layout;
-        let (x, y) = (px + l.location.x, py + l.location.y);
+        let (x, y) = (finite(px + l.location.x), finite(py + l.location.y));
         rects[i] = Rect {
             x,
             y,
-            w: l.size.width,
-            h: l.size.height,
+            w: finite(l.size.width).max(0.0),
+            h: finite(l.size.height).max(0.0),
         };
         for &c in &tree.boxes[i].children {
             if !tree.boxes[c].style.position.is_out_of_flow() {
@@ -466,23 +488,24 @@ pub fn layout(
             Placed {
                 content: b.content.clone(),
                 rect: rects[i],
-                border: [l.border.top, l.border.right, l.border.bottom, l.border.left],
+                border: [l.border.top, l.border.right, l.border.bottom, l.border.left].map(finite),
                 padding: [
                     l.padding.top,
                     l.padding.right,
                     l.padding.bottom,
                     l.padding.left,
-                ],
+                ]
+                .map(finite),
                 children,
                 extent: (
-                    (ov.right - l.border.left).max(0.0),
-                    (ov.bottom - l.border.top).max(0.0),
+                    finite(ov.right - l.border.left).max(0.0),
+                    finite(ov.bottom - l.border.top).max(0.0),
                 ),
                 ordinal: b.ordinal,
             }
         })
         .collect::<Vec<_>>();
-    let mut by_text = HashMap::new();
+    let mut by_text = NodeMap::default();
     for (i, b) in boxes.iter().enumerate() {
         if let Content::Text(p) = &b.content {
             for r in &p.runs {
@@ -500,6 +523,16 @@ pub fn layout(
     }
 }
 
+/// A number layout produced, or 0 if its arithmetic ran off the end: what
+/// is drawn, scrolled and hit-tested is never NaN or infinite.
+fn finite(v: f32) -> f32 {
+    if v.is_finite() {
+        v
+    } else {
+        0.0
+    }
+}
+
 impl Tree<'_> {
     fn push(&mut self, content: Content, style: tf::Style, replaced: Replaced) -> usize {
         self.boxes.push(TBox {
@@ -512,6 +545,7 @@ impl Tree<'_> {
             layout: tf::Layout::with_order(0),
             replaced,
             min_width: Cell::new(None),
+            measured: std::cell::RefCell::new(Vec::new()),
             ordinal: 0,
             z: (0, false),
         });
@@ -524,7 +558,7 @@ impl Tree<'_> {
     fn element(
         &mut self,
         doc: &Document,
-        styles: &HashMap<NodeId, Style>,
+        styles: &NodeMap<Style>,
         images: &dyn Fn(u32) -> Option<(f32, f32)>,
         id: NodeId,
         s: &Style,
@@ -571,12 +605,7 @@ impl Tree<'_> {
 
     /// The children of `id`, with `display: contents` taken out of the way
     /// and `display: none` left out.
-    fn flat_children(
-        doc: &Document,
-        styles: &HashMap<NodeId, Style>,
-        id: NodeId,
-        out: &mut Vec<NodeId>,
-    ) {
+    fn flat_children(doc: &Document, styles: &NodeMap<Style>, id: NodeId, out: &mut Vec<NodeId>) {
         for &c in &doc.nodes[&id].children {
             match styles.get(&c).map(|s| s.display) {
                 Some(Display::None) => {}
@@ -591,7 +620,7 @@ impl Tree<'_> {
     fn items(
         &mut self,
         doc: &Document,
-        styles: &HashMap<NodeId, Style>,
+        styles: &NodeMap<Style>,
         images: &dyn Fn(u32) -> Option<(f32, f32)>,
         id: NodeId,
         s: &Style,
@@ -624,7 +653,7 @@ impl Tree<'_> {
     fn blocks(
         &mut self,
         doc: &Document,
-        styles: &HashMap<NodeId, Style>,
+        styles: &NodeMap<Style>,
         images: &dyn Fn(u32) -> Option<(f32, f32)>,
         id: NodeId,
         s: &Style,
@@ -656,7 +685,7 @@ impl Tree<'_> {
     fn flush(
         &mut self,
         doc: &Document,
-        styles: &HashMap<NodeId, Style>,
+        styles: &NodeMap<Style>,
         images: &dyn Fn(u32) -> Option<(f32, f32)>,
         run: Vec<Piece>,
         s: &Style,
@@ -1015,6 +1044,21 @@ impl Tree<'_> {
     }
 }
 
+/// `measure` at `width`, from the box's memo when it has been asked before.
+fn memo(b: &TBox, width: Option<f32>, measure: impl FnOnce() -> (f32, f32)) -> (f32, f32) {
+    let key = width.map(|w| (w * 64.0).round() / 64.0);
+    if let Some(&(_, size)) = b.measured.borrow().iter().find(|(k, _)| *k == key) {
+        return size;
+    }
+    let size = measure();
+    let mut m = b.measured.borrow_mut();
+    if m.len() >= 8 {
+        m.remove(0);
+    }
+    m.push((key, size));
+    size
+}
+
 /// What a leaf measures as, given what taffy already knows.
 fn measure(
     b: &TBox,
@@ -1040,7 +1084,7 @@ fn measure(
                 tf::AvailableSpace::MinContent => Some(min()),
                 tf::AvailableSpace::MaxContent => None,
             });
-            let (w, h) = fonts.measure(p, width);
+            let (w, h) = memo(b, width, || fonts.measure(p, width));
             tf::Size {
                 width: known.width.unwrap_or(match available.width {
                     tf::AvailableSpace::MinContent => min(),
@@ -1142,7 +1186,7 @@ fn text_piece(t: &str, parent: &Style, node: NodeId) -> Piece {
 /// inline content around it — an inline element as the pieces of its text.
 fn classify(
     doc: &Document,
-    styles: &HashMap<NodeId, Style>,
+    styles: &NodeMap<Style>,
     id: NodeId,
     parent: &Style,
     out: &mut Vec<Item>,

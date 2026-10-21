@@ -8,10 +8,9 @@
 //! may take `MAX_STEPS` steps before it is given up as no match.
 
 use std::cell::Cell;
-use std::collections::HashMap;
 
 use super::css::{AttrOp, Combinator, Compound, Pseudo, Selector};
-use super::{Document, Element, Kind, NodeId, ROOT};
+use super::{Document, Element, Kind, NodeId, NodeMap, ROOT};
 
 /// The most compound selectors one selector may chain: `a b c … ` 32 deep.
 pub const MAX_COMPOUNDS: usize = 32;
@@ -30,20 +29,15 @@ pub struct State {
 /// Each element's place among its parent's element children — worked out
 /// once per styling, so `:nth-child` over a long list is not quadratic.
 #[derive(Default)]
-pub struct Places(HashMap<NodeId, (usize, usize)>);
+pub struct Places(NodeMap<(usize, usize)>);
 
 impl Places {
     pub fn of(doc: &Document) -> Self {
-        let mut places = HashMap::new();
+        let mut places = NodeMap::with_capacity_and_hasher(doc.nodes.len(), Default::default());
+        let is_element = |c: &NodeId| doc.nodes.get(c).is_some_and(|n| n.element().is_some());
         for node in doc.nodes.values() {
-            let elements: Vec<NodeId> = node
-                .children
-                .iter()
-                .copied()
-                .filter(|c| doc.nodes.get(c).is_some_and(|n| n.element().is_some()))
-                .collect();
-            let count = elements.len();
-            for (i, c) in elements.into_iter().enumerate() {
+            let count = node.children.iter().filter(|c| is_element(c)).count();
+            for (i, &c) in node.children.iter().filter(|c| is_element(c)).enumerate() {
                 places.insert(c, (i, count));
             }
         }

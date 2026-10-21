@@ -14,6 +14,7 @@
 //! not worth stopping it for.
 
 use std::collections::{HashMap, VecDeque};
+use std::hash::{BuildHasherDefault, Hasher};
 use std::sync::Arc;
 
 pub mod css;
@@ -29,6 +30,30 @@ use select::{Matcher, Places, State};
 use style::Style;
 
 pub type NodeId = u32;
+
+/// A map keyed by node number. The host hands numbers out in order, so no
+/// guest can pick them to collide: a multiply is hash enough, and far
+/// cheaper than the default on every lookup styling and layout make.
+pub type NodeMap<V> = HashMap<NodeId, V, BuildHasherDefault<NodeHasher>>;
+
+#[derive(Default)]
+pub struct NodeHasher(u64);
+
+impl Hasher for NodeHasher {
+    fn finish(&self) -> u64 {
+        self.0
+    }
+
+    fn write(&mut self, bytes: &[u8]) {
+        for &b in bytes {
+            self.0 = (self.0.rotate_left(8) ^ b as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+        }
+    }
+
+    fn write_u32(&mut self, n: u32) {
+        self.0 = (n as u64).wrapping_mul(0x9e37_79b9_7f4a_7c15);
+    }
+}
 
 /// The page: a `body` the host makes, always there, never removed.
 pub const ROOT: NodeId = 1;
@@ -103,6 +128,8 @@ pub struct Element {
     /// Inline style, one property at a time, in the order set. The `style`
     /// attribute replaces all of it.
     pub style: Vec<(String, String)>,
+    /// `style`, read as CSS once when it changes rather than at every styling.
+    pub inline: Arc<Vec<css::Declaration>>,
     /// The event kinds asked for on this node.
     pub listeners: Vec<String>,
     /// A control's value as the user has left it: a field's text.
@@ -162,7 +189,7 @@ fn pairs(p: &[(String, String)]) -> usize {
 
 /// The tree, its events, and what the user is doing to it.
 pub struct Document {
-    nodes: HashMap<NodeId, Node>,
+    nodes: NodeMap<Node>,
     next_id: NodeId,
     bytes: usize,
     events: VecDeque<Event>,
@@ -174,6 +201,11 @@ pub struct Document {
     /// Bumped by every change that could change how the page looks, so a
     /// renderer knows when what it computed is stale.
     generation: u64,
+    /// Bumped only by changes that can lay the page out differently whatever
+    /// the styles say: the tree's shape, its text, attributes that size a
+    /// box. A class, a `hidden`, a field's value bump `generation` alone, and
+    /// lay out again only if the styles they make do.
+    structure: u64,
     /// The app's stylesheets, by number, in the order added — read when
     /// added, with what each cost against `MAX_BYTES`.
     sheets: Vec<(u32, usize, Arc<Sheet>)>,
@@ -186,15 +218,18 @@ pub struct Document {
     styled: Option<Styled>,
     /// The last layout, and what it was computed for.
     laid_out: Option<LaidOut>,
+    /// Whether a styling since the last layout changed anything that lays
+    /// out differently. One that only repaints — `:hover` turning a card
+    /// blue — leaves the layout standing.
+    layout_dirty: bool,
     /// How far each scroll container has been scrolled, x and y. Clamped
     /// to what its content allows when drawn; drawing alone depends on it.
-    pub scroll: HashMap<NodeId, (f32, f32)>,
+    pub scroll: NodeMap<(f32, f32)>,
 }
 
 struct LaidOut {
-    generation: u64,
+    structure: u64,
     env: Env,
-    state: State,
     layout: layout::Layout,
 }
 
@@ -202,9 +237,10 @@ struct LaidOut {
 /// was computed for — any of which changing makes it stale.
 struct Styled {
     generation: u64,
+    structure: u64,
     env: Env,
     state: State,
-    styles: HashMap<NodeId, Style>,
+    styles: NodeMap<Style>,
 }
 
 impl Default for Document {
@@ -216,20 +252,22 @@ impl Default for Document {
 impl Document {
     pub fn new() -> Self {
         let mut doc = Document {
-            nodes: HashMap::new(),
+            nodes: NodeMap::default(),
             next_id: ROOT,
             bytes: 0,
             events: VecDeque::new(),
             focused: None,
             pending_open: None,
             generation: 0,
+            structure: 0,
             sheets: Vec::new(),
             next_sheet: 1,
             hovered: None,
             pressed: None,
             styled: None,
             laid_out: None,
-            scroll: HashMap::new(),
+            layout_dirty: true,
+            scroll: NodeMap::default(),
         };
         let root = doc
             .create_element("body")
@@ -255,8 +293,49 @@ impl Document {
         self.generation
     }
 
+    /// Something changed that styling may see.
     fn changed(&mut self) {
         self.generation += 1;
+    }
+
+    /// Something changed that layout must see.
+    fn reshaped(&mut self) {
+        self.generation += 1;
+        self.structure += 1;
+    }
+
+    /// Attribute `name` changed: styling sees every attribute, through
+    /// selectors; layout only those that size a box beyond what styles say.
+    fn mark(&mut self, name: &str) {
+        let styles_only = matches!(
+            name,
+            "class"
+                | "id"
+                | "style"
+                | "hidden"
+                | "checked"
+                | "disabled"
+                | "value"
+                | "placeholder"
+                | "href"
+                | "alt"
+                | "title"
+                | "lang"
+                | "name"
+                | "for"
+                | "readonly"
+                | "maxlength"
+                | "min"
+                | "max"
+                | "step"
+                | "selected"
+        ) || name.starts_with("data-")
+            || name.starts_with("aria-");
+        if styles_only {
+            self.changed();
+        } else {
+            self.reshaped();
+        }
     }
 
     /// Charge `add` bytes against the document, refunding `sub`, or say
@@ -284,7 +363,6 @@ impl Document {
             self.nodes.get_mut(&id).expect("just edited").kind = saved;
             return Err(limit);
         }
-        self.changed();
         Ok(Some(out))
     }
 
@@ -369,7 +447,7 @@ impl Document {
         {
             self.focused = None;
         }
-        self.changed();
+        self.reshaped();
     }
 
     /// Put `child` under `parent`, before `before` if that is one of
@@ -403,7 +481,7 @@ impl Document {
             .unwrap_or(siblings.len());
         siblings.insert(at, child);
         self.nodes.get_mut(&child).expect("checked above").parent = Some(parent);
-        self.changed();
+        self.reshaped();
         Ok(())
     }
 
@@ -433,7 +511,7 @@ impl Document {
         }
         self.events
             .retain(|e| self.nodes.contains_key(&e.target) && self.nodes.contains_key(&e.current));
-        self.changed();
+        self.reshaped();
     }
 
     /// A text node's text; an element's children replaced by this text.
@@ -441,6 +519,7 @@ impl Document {
         match self.nodes.get(&id).map(|n| &n.kind) {
             Some(Kind::Text(_)) => {
                 self.edit(id, |k| *k = Kind::Text(text.to_string()))?;
+                self.reshaped();
             }
             Some(Kind::Element(_)) => {
                 let children = self.nodes[&id].children.clone();
@@ -451,7 +530,7 @@ impl Document {
                     let t = self.create_text(text)?;
                     self.append_child(id, t)?;
                 }
-                self.changed();
+                self.reshaped();
             }
             None => {}
         }
@@ -496,7 +575,7 @@ impl Document {
                 }
             }
         }
-        self.changed();
+        self.reshaped();
         Ok(Ok(()))
     }
 
@@ -513,7 +592,10 @@ impl Document {
             }
             match name.as_str() {
                 "class" => e.classes = split_classes(value),
-                "style" => e.style = parse_inline_style(value),
+                "style" => {
+                    e.style = parse_inline_style(value);
+                    e.inline = Arc::new(css::inline(value));
+                }
                 "value" => e.value = value.to_string(),
                 "checked" => {
                     e.checked = truthy(value);
@@ -525,6 +607,7 @@ impl Document {
             }
             None
         })?;
+        self.mark(&name);
         if let Some(Some(group)) = radio_group {
             self.uncheck_radios(&group, id);
         }
@@ -538,13 +621,17 @@ impl Document {
                 e.attrs.retain(|(k, _)| *k != name);
                 match name.as_str() {
                     "class" => e.classes.clear(),
-                    "style" => e.style.clear(),
+                    "style" => {
+                        e.style.clear();
+                        e.inline = Arc::default();
+                    }
                     "value" => e.value.clear(),
                     "checked" => e.checked = false,
                     _ => {}
                 }
             }
         })?;
+        self.mark(&name);
         Ok(())
     }
 
@@ -594,12 +681,14 @@ impl Document {
                     .map(|(k, v)| format!("{k}: {v}"))
                     .collect::<Vec<_>>()
                     .join("; ");
+                e.inline = Arc::new(css::inline(&css));
                 match e.attrs.iter_mut().find(|(k, _)| k == "style") {
                     Some((_, v)) => *v = css,
                     None => e.attrs.push(("style".into(), css)),
                 }
             }
         })?;
+        self.changed();
         Ok(())
     }
 
@@ -657,7 +746,6 @@ impl Document {
         }
         self.focused = Some(id);
         self.dispatch("focus", id, "", 0.0, 0.0);
-        self.changed();
     }
 
     /// The user took the keyboard out of `id`.
@@ -665,7 +753,6 @@ impl Document {
         if self.focused == Some(id) {
             self.focused = None;
             self.dispatch("blur", id, "", 0.0, 0.0);
-            self.changed();
         }
     }
 
@@ -688,7 +775,6 @@ impl Document {
             && self.is_ancestor_or_self(ROOT, id);
         if focusable && self.focused != Some(id) {
             self.focused = Some(id);
-            self.changed();
         }
     }
 
@@ -956,6 +1042,7 @@ impl Document {
                 e.value = value.clone();
             }
         })?;
+        self.changed();
         self.dispatch("input", id, &value, 0.0, 0.0);
         self.dispatch("change", id, &value, 0.0, 0.0);
         Ok(())
@@ -973,6 +1060,7 @@ impl Document {
             moved
         })?;
         if moved == Some(true) {
+            self.changed();
             self.dispatch("input", id, value, 0.0, 0.0);
         }
         if done {
@@ -1041,6 +1129,7 @@ impl Document {
             changed
         })?;
         if changed == Some(true) {
+            self.changed();
             self.dispatch("input", id, text, 0.0, 0.0);
         }
         Ok(())
@@ -1095,7 +1184,7 @@ impl Document {
 
     /// Every element's computed style for a page shown on `env` — computed
     /// again only when the tree, the page or the pointer has changed.
-    pub fn styles(&mut self, env: &Env) -> &HashMap<NodeId, Style> {
+    pub fn styles(&mut self, env: &Env) -> &NodeMap<Style> {
         let state = self.state();
         let fresh = self
             .styled
@@ -1103,8 +1192,22 @@ impl Document {
             .is_some_and(|s| s.generation == self.generation && s.env == *env && s.state == state);
         if !fresh {
             let styles = style::compute(self, env, state);
+            // The shape stayed — only a class, the pointer, a value moved:
+            // lay out again only if some element now lays out differently.
+            let repaint_only = self.styled.as_ref().is_some_and(|old| {
+                old.structure == self.structure
+                    && old.env == *env
+                    && old.styles.len() == styles.len()
+                    && styles
+                        .iter()
+                        .all(|(id, s)| old.styles.get(id).is_some_and(|o| o.same_layout(s)))
+            });
+            if !repaint_only {
+                self.layout_dirty = true;
+            }
             self.styled = Some(Styled {
                 generation: self.generation,
+                structure: self.structure,
                 env: *env,
                 state,
                 styles,
@@ -1122,21 +1225,21 @@ impl Document {
         fonts: &dyn layout::Fonts,
         images: &dyn Fn(u32) -> Option<(f32, f32)>,
     ) -> &layout::Layout {
-        let state = self.state();
-        let fresh = self
-            .laid_out
-            .as_ref()
-            .is_some_and(|l| l.generation == self.generation && l.env == *env && l.state == state);
+        self.styles(env);
+        let fresh = !self.layout_dirty
+            && self
+                .laid_out
+                .as_ref()
+                .is_some_and(|l| l.structure == self.structure && l.env == *env);
         if !fresh {
-            self.styles(env);
             let styles = &self.styled.as_ref().expect("just styled").styles;
             let laid = layout::layout(self, styles, fonts, images, env.width, env.height);
             self.laid_out = Some(LaidOut {
-                generation: self.generation,
+                structure: self.structure,
                 env: *env,
-                state,
                 layout: laid,
             });
+            self.layout_dirty = false;
         }
         &self.laid_out.as_ref().expect("just laid out").layout
     }
