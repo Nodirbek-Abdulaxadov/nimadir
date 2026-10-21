@@ -7,11 +7,6 @@ beta is `docs/ROADMAP.md`.
 
 ## [Unreleased]
 
-### Added
-- The installers open web pages: the `.deb`, the Windows installer and the
-  `.dmg` are built with the webview (the `.deb` depends on WebKitGTK). The
-  AppImage is not, since WebKitGTK's helper processes live at absolute paths.
-
 ## [1.1.0-beta.1] — 2026-10-21
 
 The native DOM (ADR-4, `docs/ROADMAP.md` *Road to 1.1*): an app can describe
@@ -19,6 +14,9 @@ its page as elements, classes and a stylesheet, which the shell styles, lays
 out and draws itself — no web engine. Apps built for `1.0` run unchanged.
 
 ### Added
+- The installers open web pages: the `.deb`, the Windows installer and the
+  `.dmg` are built with the webview (the `.deb` depends on WebKitGTK). The
+  AppImage is not, since WebKitGTK's helper processes live at absolute paths.
 - **`interface dom`** in the WIT, now `nimadir:shell@1.1.0`: a retained
   element tree an app builds and edits — elements, text, attributes, classes,
   inline style, stylesheets, listeners, and events read with `events()`.
