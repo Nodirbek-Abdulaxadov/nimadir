@@ -10,8 +10,38 @@ plugins {
 val releaseKeystore = providers.environmentVariable("NIMADIR_KEYSTORE")
 val releasePassword = providers.environmentVariable("NIMADIR_KEYSTORE_PASSWORD")
 val releaseAlias = providers.environmentVariable("NIMADIR_KEY_ALIAS").orElse("nimadir")
-val appVersionCode = providers.gradleProperty("versionCode").map { it.toInt() }.orElse(1)
-val appVersionName = providers.gradleProperty("versionName").orElse("1.0.0-beta.1")
+
+// The shell's version is the host crate's — what `--version`, the log and the
+// update check say — so there is one place to bump it.
+val shellVersion = rootProject.file("../host/Cargo.toml").readLines()
+    .first { it.startsWith("version = ") }
+    .substringAfter('"').substringBefore('"')
+
+// Play refuses a versionCode that is not larger than the last one, so it is
+// worked out from the version, in an order that only grows:
+// MM mmm ppp sss — major, minor, patch, then the stage: alpha.N is 100+N,
+// beta.N 300+N, rc.N 500+N, and the release itself 999.
+fun versionCodeOf(version: String): Int {
+    val core = version.substringBefore('-')
+    val pre = version.substringAfter('-', "")
+    val (major, minor, patch) = core.split('.').map { it.toInt() }
+    val n = pre.substringAfter('.', "0").toInt()
+    val stage = when (pre.substringBefore('.')) {
+        "" -> 999
+        "alpha" -> 100 + n
+        "beta" -> 300 + n
+        "rc" -> 500 + n
+        else -> error("versionCode: unknown pre-release '$pre' in $version")
+    }
+    require(major <= 20 && minor < 100 && patch < 1000 && n < 200) {
+        "versionCode: $version does not fit"
+    }
+    return major * 100_000_000 + minor * 1_000_000 + patch * 1_000 + stage
+}
+
+val appVersionCode = providers.gradleProperty("versionCode").map { it.toInt() }
+    .orElse(versionCodeOf(shellVersion))
+val appVersionName = providers.gradleProperty("versionName").orElse(shellVersion)
 
 android {
     // A placeholder, as in Cargo.toml. Once on Play it can never change.
