@@ -14,6 +14,8 @@ mod i18n;
 pub mod images;
 mod net;
 pub mod paths;
+#[cfg(all(feature = "gui", target_os = "linux"))]
+mod portal;
 pub mod registry;
 pub mod resolve;
 pub mod settings;

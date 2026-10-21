@@ -43,7 +43,15 @@ enum Nav {
 }
 
 pub fn run(shell: Shell) -> Result<()> {
-    run_with(shell, eframe::NativeOptions::default())
+    run_with(
+        shell,
+        eframe::NativeOptions {
+            // The installed .desktop file's name: what a desktop matches the
+            // window against for its icon and its place in the dock.
+            viewport: egui::ViewportBuilder::default().with_app_id("nimadir-shell"),
+            ..Default::default()
+        },
+    )
 }
 
 /// The Android front door: the same window, handed the activity it lives in.
@@ -83,10 +91,12 @@ fn run_with(mut shell: Shell, native_options: eframe::NativeOptions) -> Result<(
     let android_app = native_options.android_app.clone();
 
     eframe::run_native(
-        "wasm-shell",
+        "nimadir",
         native_options,
         Box::new(move |cc| {
             install_theme(&cc.egui_ctx);
+            #[cfg(target_os = "linux")]
+            crate::portal::follow_color_scheme(cc.egui_ctx.clone());
             #[allow(unused_mut)]
             let mut app = ShellApp::new(shell);
             #[cfg(feature = "webview")]
@@ -555,7 +565,7 @@ impl ShellApp {
     /// and a tap on either goes to the system: laid out over the whole window,
     /// the Home button sat under the clock where it could not be pressed. A
     /// small gutter keeps fields off the screen's edges too. On the desktop
-    /// there is nothing to avoid and this is the whole window.
+    /// there is nothing to avoid, and it is the window less a margin.
     fn safe_rect(&mut self, ui: &egui::Ui) -> egui::Rect {
         let full = ui.max_rect();
         #[cfg(target_os = "android")]
@@ -579,7 +589,9 @@ impl ShellApp {
                 full.max - egui::vec2((px.right / ppp).max(GUTTER), px.bottom / ppp),
             );
         }
-        full
+        // A desktop window's edges are not a finger's problem, but text
+        // touching them is hard to read: egui's own panels leave 8 points.
+        full.shrink(8.0)
     }
 }
 
@@ -780,12 +792,13 @@ impl Body {
 impl ShellApp {
     /// Mirror the current view into the OS window title, like a browser tab.
     fn sync_window_title(&mut self, ui: &egui::Ui) {
+        // "Page — browser", the way a browser's tab reads; the start page is
+        // just the shell's name.
         let want = match &self.shell.view {
-            View::Home => "wasm-shell".to_string(),
-            View::App { title, .. } | View::WebPage { title, .. } => {
-                format!("wasm-shell — {title}")
-            }
-            View::Settings => "wasm-shell — Settings".to_string(),
+            View::Home => "nimadir".to_string(),
+            View::App { .. } if self.shell.is_start_page() => "nimadir".to_string(),
+            View::App { title, .. } | View::WebPage { title, .. } => format!("{title} — nimadir"),
+            View::Settings => format!("{} — nimadir", t(self.lang, Text::Settings)),
         };
         if want != self.last_title {
             ui.ctx()
@@ -832,7 +845,7 @@ impl ShellApp {
         }
 
         let (title, src) = match &self.shell.view {
-            View::Home => ("wasm-shell".to_string(), String::new()),
+            View::Home => ("nimadir".to_string(), String::new()),
             // Titled as its address, so no title row: the page has a heading.
             View::Settings => (SETTINGS_PAGE.to_string(), SETTINGS_PAGE.to_string()),
             View::App { title, src, .. } => (title.clone(), src.clone()),

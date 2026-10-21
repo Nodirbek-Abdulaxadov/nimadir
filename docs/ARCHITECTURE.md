@@ -487,7 +487,11 @@ Splits the window into two zones, and keeping them apart is the security story:
   switch — and the system bars' icons to match (`android::set_bar_icons`):
   edge to edge the bars are transparent, and the light theme's own white icons
   drew the clock white on white. A switch redraws by itself: winit sends a
-  `ScaleFactorChanged` on every configuration change.
+  `ScaleFactorChanged` on every configuration change. winit says nothing on
+  Linux either, X11 or Wayland, so there `portal::follow_color_scheme` reads
+  the XDG desktop portal's `color-scheme` on a thread of its own — never
+  blocking the window on the bus — and sets the fallback again on each
+  `SettingChanged` (zbus, already in the window build through accesskit).
 - `install_theme` — rounder widgets and roomier spacing, applied through
   `all_styles_mut` so both the light and dark styles get it. Style only: layout
   stays a per-widget decision in `page`, because layout is what another backend
@@ -498,7 +502,8 @@ Splits the window into two zones, and keeping them apart is the security story:
   — `on_hover_cursor(PointingHand)`, because the whole card is the link.
 
 - `safe_rect` — the rectangle everything, chrome included, is laid out in. On
-  the desktop the whole window. On Android the window minus the system bars
+  the desktop the window less 8 pt, the margin egui's own panels leave — with
+  none, text touched the window's edges. On Android the window minus the system bars
   and any cutout, plus a 12 pt side gutter: since API 35 the window runs under
   the status bar, and laid out over all of it the Home button sat under the
   clock where taps go to the system. winit reports no insets, so
@@ -513,7 +518,10 @@ Splits the window into two zones, and keeping them apart is the security story:
 Also: `run` calls `eframe::run_native`; `impl eframe::App` —
 note eframe 0.35 hands `fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut Frame)`
 directly, with no `CentralPanel` to open; `sync_window_title` mirrors the
-view into the OS title bar like a browser tab.
+view into the OS title bar like a browser tab — "gallery — nimadir", the
+start page just "nimadir" — and `run` sets the window's app id to
+`nimadir-shell`, the installed `.desktop` file's name, which a desktop
+matches the window against for its icon.
 
 ### `host/src/webview.rs` — module 1 (feature `webview`)
 The only file in the repo where HTML, CSS and JavaScript exist, quarantined on

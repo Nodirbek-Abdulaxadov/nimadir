@@ -51,13 +51,17 @@ jni = { version = "0.21", optional = true }
 # initialise and pump it (see webview.rs). Pinned to the version wry itself
 # uses, so both sides mean the same GTK.
 gtk = { version = "0.18", optional = true }
+# The desktop's dark-mode preference, from the XDG portal (portal.rs): winit
+# reports no theme on Linux. Already in the window build through accesskit,
+# with these features, so it adds nothing.
+zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"], optional = true }
 
 [features]
 # Headless is the default so the shell builds and runs ANYWHERE (no system GUI
 # libraries needed) and can be verified in CI. The real native window is the
 # `gui` feature: `cargo run --features gui -- <app.wasm>`.
 default = []
-gui = ["dep:eframe", "dep:winit", "dep:jni"]
+gui = ["dep:eframe", "dep:winit", "dep:jni", "dep:zbus"]
 # Kept separate from `gui` because it needs system libraries that `gui` does
 # not: WebKitGTK on Linux (libwebkit2gtk-4.1-dev), WebView2 on Windows. Folding
 # it into `gui` would make the windowed build stop working on machines that

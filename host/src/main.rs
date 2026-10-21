@@ -1,4 +1,4 @@
-//! wasm-shell — a native app shell that loads sandboxed WASM mini-apps on demand
+//! nimadir — a native app shell that loads sandboxed WASM mini-apps on demand
 //! and renders their UI natively. No web stack on the mini-app path: HTML, CSS
 //! and JS exist only in the optional webview module, for old web pages.
 //!
@@ -238,7 +238,7 @@ fn main() -> Result<()> {
 
 /// Print the registry — the text form of the home screen.
 fn print_home(apps: &[registry::AppEntry], source: &str) {
-    println!("wasm-shell — mini-apps ({source}):\n");
+    println!("nimadir — mini-apps ({source}):\n");
     if apps.is_empty() {
         println!("  (none listed)");
         return;

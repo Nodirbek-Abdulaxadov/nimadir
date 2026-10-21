@@ -145,6 +145,13 @@ What stands between this and the tag: `docs/BETA-CHECKLIST.md`.
   - `versionCode` was always 1, so Play would refuse the second upload; it is
     now worked out from the version.
   - With no apps listed yet, the store told the user to clear an empty search.
+- Found running the desktop window (Linux, under Xvfb):
+  - It was always light on a dark desktop: winit reports no theme on Linux.
+    It now follows the desktop's preference from the XDG portal, live.
+  - The window was still called "wasm-shell", and its app id matched no
+    installed `.desktop` file, so a desktop could not give it its icon. It is
+    "gallery — nimadir" now, app id `nimadir-shell`.
+  - Text and buttons touched the window's edges; there is an 8 pt margin.
 - Uzbek Latin's oʻ and gʻ (U+02BB) drew as boxes: none of egui's bundled
   fonts has the character. Noto Sans is bundled as a fallback for it.
 - On Android the UI is laid out inside the window insets. It was drawn under

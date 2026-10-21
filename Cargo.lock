@@ -2506,6 +2506,7 @@ dependencies = [
  "wasmtime-wasi",
  "winit",
  "wry",
+ "zbus",
 ]
 
 [[package]]

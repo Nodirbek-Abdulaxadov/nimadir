@@ -23,8 +23,11 @@ yet.
 - **Android accessibility**: needs GameActivity, which waits on the above.
 - **Images have no alternative text.**
 - **No time zone** for apps (`locale` only).
-- **The desktop window has not been looked at** in this run — the same
-  `gui.rs` was, on the phone, in light and dark.
+- **The desktop window was looked at on Linux only** (X11, under Xvfb, in
+  light and dark): the store, every sample, a network grant, the ask bar, a
+  web page without the webview, settings. Windows and macOS have never shown
+  it. The live switch of the desktop's dark mode is written, not exercised —
+  it would have meant flipping the owner's desktop theme.
 - **Predictive back is off** (`enableOnBackInvokedCallback="false"`): it
   needs a Java callback the app does not have. Android says the opt-out will
   go in a later version.
