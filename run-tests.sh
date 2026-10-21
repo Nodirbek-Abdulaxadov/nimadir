@@ -213,6 +213,9 @@ check "an installed shell reads the registry in its config directory" "from the 
 check "and the built-in store lists what that registry holds" '"1 apps"' \
   bash -c "cd '$ELSEWHERE' && '$ABS_HOST' store --frames 1"
 rm -f "$NIMADIR_HOME/config/apps.json"
+# A fresh phone before the hosted registry arrives: only the store itself.
+check "with nothing listed, the store says so rather than blame the search" "No apps are listed yet" \
+  bash -c "cd '$ELSEWHERE' && '$ABS_HOST' store --frames 1"
 check "NIMADIR_REGISTRY names the registry for every run" "mini-apps/counter/counter.component.wasm" \
   bash -c "cd '$ELSEWHERE' && NIMADIR_REGISTRY='$(native "$PWD/apps.json")' '$ABS_HOST' --list"
 rm -rf "$ELSEWHERE"

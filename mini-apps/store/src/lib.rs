@@ -103,7 +103,11 @@ impl Guest for Store {
         }
 
         if matches.is_empty() {
-            if !typed_address {
+            if apps.is_empty() {
+                // A registry not fetched yet, or none to fetch: clearing the
+                // search would change nothing, so do not suggest it.
+                ui_label("No apps are listed yet. Type an address above to open one.");
+            } else if !typed_address {
                 ui_label("Nothing matches. Clear the search to see everything.");
             }
             settings_link();
