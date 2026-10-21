@@ -283,8 +283,8 @@ natively, on desktop and phone alike, with no web engine anywhere
 
 **1.1 exit criteria:**
 
-1. **Expressive.** The store, rewritten on the tree, and `todo` look like a
-   designer drew them: cards, a grid, a form, a brand colour, dark mode.
+1. **Expressive.** The store, rewritten on the tree, and `showcase` look
+   like a designer drew them: cards, a grid, a form, a brand colour, dark mode.
 2. **Equal targets.** Every item works on Android as on desktop; touch
    scrolls what a wheel scrolls.
 3. **Bounded.** The document is capped as a whole; a fuzz fixture drives every
@@ -306,8 +306,9 @@ over a field). D5 — `set-markup`, the Rust template on the tree, the guide in
 `hidden`, Enter). D6-1 and D6-2 — `fuzz` over `dom` (it found a NaN panic in
 painting), the security review's addendum, 10 000 nodes at ~4 ms styling and
 ~16 ms layout in release, restyle without relayout for what only repaints,
-linear markup. 161 assertions. Left for 1.1: the phone, and D6-3 on the
-owner's say.
+linear markup. 161 assertions. Then `showcase`, the tree in full, listed in the
+registry (170 assertions). Left for 1.1: the phone, and D6-3 on the owner's
+say.
 
 ### D1 — The tree
 

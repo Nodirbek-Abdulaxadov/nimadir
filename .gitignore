@@ -22,6 +22,7 @@ __pycache__/
 /mini-apps/fuzz/target
 /mini-apps/todo/target
 /mini-apps/probe/target
+/mini-apps/showcase/target
 
 # The hosted registry, as tools/publish_registry.py builds it.
 /dist

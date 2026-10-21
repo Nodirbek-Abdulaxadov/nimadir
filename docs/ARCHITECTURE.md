@@ -305,7 +305,9 @@ key for text fields, read by `ui-submitted` for the field drawn last.
   scroll extent and paint order (`z-index`). Inline content is simplified:
   a run of text and inline elements is one `Paragraph` of styled `Run`s; a
   run with boxes in it (a button in a sentence) is an anonymous wrapping
-  row (`Content::Line`). Whitespace collapses as `white-space` says, across
+  row (`Content::Line`). An inline element gives its runs a look — and its
+  background, drawn behind the text (`paint::inline_background`) — but no
+  box of its own. Whitespace collapses as `white-space` says, across
   runs. Text is measured through the `Fonts` trait — the renderer's fonts —
   and `Approx` stands in headlessly, deterministic, so the suite reads
   boxes. Replaced elements (`img`, fields, toggles, `range`, `progress`)
@@ -668,12 +670,14 @@ whose vertices are recoloured along the gradient, galleys for paragraphs
 (Noto Sans regular and bold, `NOTO`/`NOTO_BOLD`, installed by
 `install_fonts`), textures for images with `object-fit`. Fields are egui
 `TextEdit`s placed at their rectangles, keyed by node (`("dom-field",
-node)`), clipped to their box; a textarea scrolls inside it. Input goes back
+node)`), clipped to their box; a textarea asks for as many rows as its box holds
+and scrolls inside it. Input goes back
 to the document: `hit` under the pointer for `:hover` (not on Android, where
 nothing hovers) and the cursor, the pressed element for `:active` with
 `pointerdown`/`pointerup`, a tap as `Document::click` with its offset, a
 wheel to the innermost scroll container that can still move (what it does
-not use reaches the page), a drag inside a scroll area to that area — so a
+not use reaches the page), a drag inside a scroll area to that area (whose taps and presses are
+taken there and handled as the page's) — so a
 phone scrolls by touch — and focus both ways (`user_focus`, `user_blur`,
 and a field the app focused takes the keyboard). A field honours
 `disabled`, `readonly` and `maxlength`. A `select` is drawn closed — its
@@ -880,6 +884,17 @@ second field (node 25) takes a selector and logs what `query-all` finds; the
 button (node 20) logs `bounds`. Below, a form (node 26) — labels, a field,
 a checkbox in a label, a select, a range, a submit button, a disabled field
 — logs every `input`, `change` and `submit` it hears.
+
+### `mini-apps/showcase/` — the element tree in full
+The reference page for ADR-4, listed in the registry: a gradient hero, tabs
+switched by `hidden`, a responsive grid of cards with an absolute ribbon and
+progress bars, a strip that scrolls sideways, a sidebar that folds under
+`@media (max-width: 640px)`, a form whose controls drive a live preview (a
+range sets `font-size` inline, radios set the custom property `--accent`
+inline on the page so everything using `var(--accent)` follows, a checkbox
+toggles a class, Save shows a toast and `request-frame`s its own removal),
+typography with inline styles in one paragraph, and the shell's
+`--nimadir-*` colours. Built once from markup; one listener on the root.
 
 ### `mini-apps/rates/` — the first real app
 Exchange rates from the Central Bank of Uzbekistan (`cbu.uz`) with a

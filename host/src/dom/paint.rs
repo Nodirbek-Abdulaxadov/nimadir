@@ -516,6 +516,7 @@ fn fade_font(s: &Style, opacity: f32) -> Font {
         decoration: s.text_decoration,
         letter_spacing: s.letter_spacing,
         line: s.line_height.px(s.font_size),
+        background: Color::TRANSPARENT,
     }
 }
 
@@ -532,8 +533,25 @@ fn recoloured(doc: &Document, styles: &NodeMap<Style>, p: &Paragraph) -> Paragra
             r.font.color = s.color;
             r.font.decoration = s.text_decoration;
         }
+        r.font.background = inline_background(doc, styles, element);
     }
     p
+}
+
+/// The background behind a run: the nearest inline element around it that
+/// has one. A block's background is its box's, painted as such.
+fn inline_background(doc: &Document, styles: &NodeMap<Style>, mut at: Option<NodeId>) -> Color {
+    while let Some(id) = at {
+        let Some(s) = styles.get(&id) else { break };
+        if !s.is_inline() {
+            break;
+        }
+        if !s.background.is_transparent() {
+            return s.background;
+        }
+        at = doc.parent(id);
+    }
+    Color::TRANSPARENT
 }
 
 fn faded(p: &Paragraph, opacity: f32) -> Paragraph {
@@ -543,6 +561,7 @@ fn faded(p: &Paragraph, opacity: f32) -> Paragraph {
     let mut p = p.clone();
     for r in &mut p.runs {
         r.font.color = r.font.color.faded(opacity);
+        r.font.background = r.font.background.faded(opacity);
     }
     p
 }

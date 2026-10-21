@@ -39,6 +39,9 @@ pub struct Font {
     pub letter_spacing: f32,
     /// The line height its element asks for, in pixels.
     pub line: f32,
+    /// Behind the text: the background of the inline element it sits in —
+    /// a `mark`, a highlighted `span` — filled in when painted.
+    pub background: Color,
 }
 
 impl Font {
@@ -52,6 +55,7 @@ impl Font {
             decoration: s.text_decoration,
             letter_spacing: s.letter_spacing,
             line: s.line_height.px(s.font_size),
+            background: Color::TRANSPARENT,
         }
     }
 }

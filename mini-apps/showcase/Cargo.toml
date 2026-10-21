@@ -1,0 +1,17 @@
+[package]
+name = "showcase"
+version = "0.1.0"
+edition = "2021"
+description = "The element tree in full: layout, CSS, forms and events, drawn natively"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = "0.60.0"
+
+[profile.release]
+opt-level = "s"
+panic = "abort"
+lto = true
+strip = true

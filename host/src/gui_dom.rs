@@ -84,6 +84,12 @@ fn text_format(f: &Font, line_height: f32) -> TextFormat {
         },
         extra_letter_spacing: f.letter_spacing,
         line_height: Some(line_height),
+        background: color32(f.background),
+        expand_bg: if f.background.is_transparent() {
+            0.0
+        } else {
+            1.0
+        },
         valign: egui::Align::Center,
         ..Default::default()
     }
@@ -493,7 +499,10 @@ pub fn show(ui: &mut egui::Ui, shell: &mut Shell, view: &mut DomView, reveal: bo
         let mut text = value;
         let format = text_format(&font, font.line);
         let edit = if multiline {
-            egui::TextEdit::multiline(&mut text)
+            // As many rows as the box holds, not egui's four: asked for more
+            // than fit, it would scroll its first line out of sight.
+            let rows = (r.height() / font.line.max(1.0)).floor().max(1.0) as usize;
+            egui::TextEdit::multiline(&mut text).desired_rows(rows)
         } else {
             egui::TextEdit::singleline(&mut text)
         };
@@ -591,13 +600,24 @@ pub fn show(ui: &mut egui::Ui, shell: &mut Shell, view: &mut DomView, reveal: bo
     }
 
     // Scroll containers take a drag inside them — on a phone, the way to
-    // scroll — before the page around them does.
+    // scroll — before the page around them does. They sit over the page's
+    // own response, so they take its taps and presses there too, which are
+    // handled below as the page's.
+    let mut tapped = resp
+        .clicked()
+        .then(|| resp.interact_pointer_pos())
+        .flatten();
+    let mut held = resp.is_pointer_button_down_on();
     for (node, area) in doc.scroll_areas() {
         let a = ui.interact(
             to_screen(&area),
             egui::Id::new(("dom-scroll", node)),
-            egui::Sense::drag(),
+            egui::Sense::click_and_drag(),
         );
+        if a.clicked() {
+            tapped = a.interact_pointer_pos();
+        }
+        held |= a.is_pointer_button_down_on();
         if a.dragged() {
             let d = a.drag_delta();
             let at = a.interact_pointer_pos().unwrap_or(a.rect.center());
@@ -640,7 +660,7 @@ pub fn show(ui: &mut egui::Ui, shell: &mut Shell, view: &mut DomView, reveal: bo
         }
     }
     // :active, pointerdown and pointerup.
-    let pressed = if resp.is_pointer_button_down_on() {
+    let pressed = if held {
         ui.input(|i| i.pointer.press_origin()).and_then(|p| {
             let (x, y) = local(p);
             doc.hit(&fonts, x, y)
@@ -662,8 +682,8 @@ pub fn show(ui: &mut egui::Ui, shell: &mut Shell, view: &mut DomView, reveal: bo
         ctx.request_repaint();
     }
     // A tap, where it landed relative to what it landed on.
-    if resp.clicked() {
-        if let Some(p) = resp.interact_pointer_pos() {
+    {
+        if let Some(p) = tapped {
             let (x, y) = local(p);
             if let Some(node) = doc.hit(&fonts, x, y) {
                 let at = doc

@@ -110,7 +110,7 @@ HOST=./target/debug/nimadir-shell
 echo "==> building"
 # Mini-apps first: the host carries the store inside it when the store exists
 # at the time it is built.
-if [[ ! -f mini-apps/store/store.component.wasm || ! -f mini-apps/runaway/runaway.component.wasm || ! -f mini-apps/future/future.component.wasm || ! -f mini-apps/fetcher/fetcher.component.wasm || ! -f mini-apps/fuzz/fuzz.component.wasm || ! -f mini-apps/todo/todo.component.wasm || ! -f mini-apps/probe/probe.component.wasm ]]; then
+if [[ ! -f mini-apps/store/store.component.wasm || ! -f mini-apps/runaway/runaway.component.wasm || ! -f mini-apps/future/future.component.wasm || ! -f mini-apps/fetcher/fetcher.component.wasm || ! -f mini-apps/fuzz/fuzz.component.wasm || ! -f mini-apps/todo/todo.component.wasm || ! -f mini-apps/probe/probe.component.wasm || ! -f mini-apps/showcase/showcase.component.wasm ]]; then
   echo "    mini-apps missing; running build-mini-apps.sh"
   ./build-mini-apps.sh >/dev/null || { red "mini-app build failed"; echo; exit 1; }
 fi
@@ -166,9 +166,9 @@ echo "==> the store (start page as a mini-app)"
 # — an <a href> the shell follows — counter #17, hello #24; a card offering a
 # typed address (#7); the settings link (#15). Searching hides cards rather
 # than rebuilding them, so a card keeps its node.
-check "lists the registry through list-apps" '"6 apps"' \
+check "lists the registry through list-apps" '"7 apps"' \
   $HOST store --frames 1
-# 7 entries in apps.json, 6 offered: a start page that lists itself is a card
+# 8 entries in apps.json, 7 offered: a start page that lists itself is a card
 # that takes you where you already are.
 check_absent "the start page is not one of its own cards" '"store"' \
   $HOST store --frames 1
@@ -176,7 +176,7 @@ check "draws a search field" '#5 input#q [type="search"' \
   $HOST store --frames 1
 check "the start page leads with a hero heading" '#3 h1.wordmark' \
   $HOST store --frames 1
-check "filters as you type" '1 of 6 apps matching' \
+check "filters as you type" '1 of 7 apps matching' \
   $HOST store --type "1:5=hell" --frames 2
 check "hides what does not match, each card keeping its node" '#17 a.tile [href="mini-apps/counter/counter.component.wasm" hidden=""]' \
   $HOST store --type "1:5=hell" --frames 2
@@ -463,6 +463,30 @@ check_absent "a script in markup is dropped, never run" '"evil()"' \
   $HOST $PROBE --frames 1 --type "0:45=$MARKUP"
 check "markup it cannot read changes nothing and says where" 'markup: `</div>` closes `<p>`, at line 1, column 13' \
   $HOST $PROBE --frames 1 --type '0:45=<div><p>open</div>'
+
+echo
+echo "==> showcase, the tree in full"
+# Tabs (forms #31), the form's controls (name #178, size #196, the purple
+# radio #209, rounded #216, Save's text #224), the counter (+ is #381).
+SHOW=mini-apps/showcase/showcase.component.wasm
+check "the showcase builds its page from markup" '#39 section#layout.panel' \
+  $HOST $SHOW --frames 1
+check "a tab shows its panel and hides the rest" '#164 section#forms.panel' \
+  $HOST $SHOW --click "1:31" --frames 2
+check "and the others are hidden" '#39 section#layout.panel [hidden=""]' \
+  $HOST $SHOW --click "1:31" --frames 2
+check "a radio sets a CSS variable, and what uses it follows" 'h3#p-name | margin: 4px 0px 0px; color: #9334e6' \
+  $HOST $SHOW --click "1:31" --click "2:209" --styles --frames 3
+check "a range sets the preview's text size" 'div#preview.preview [style="font-size: 20px"]' \
+  $HOST $SHOW --click "1:31" --type "2:196=20" --frames 3
+check "a checkbox toggles a class" 'div#preview.preview.square' \
+  $HOST $SHOW --click "1:31" --click "2:216" --frames 3
+check "typing fills the preview" '"Nodirbek"' \
+  $HOST $SHOW --click "1:31" --type "2:178=Nodirbek" --frames 3
+check "saving shows the toast, and asks for a frame to take it away" '[next frame in' \
+  $HOST $SHOW --click "1:31" --click "2:224" --frames 3
+check "the counter counts" '"2"' \
+  $HOST $SHOW --click "1:381" --click "2:381" --frames 3
 
 echo
 echo "==> rates, the first real app"

@@ -36,9 +36,18 @@ The native DOM (ADR-4, `docs/ROADMAP.md` *Road to 1.1*).
   and `:focus` follow the pointer and the keyboard; a tap on a link inside a
   paragraph lands on the link. `bounds` answers.
 - Headless `--boxes` and `--paint` print the layout and what would be drawn.
+- In the window: a tap inside a scroll container reaches the page (a tab in
+  a scrolling tab bar did not switch); a textarea no longer scrolls its
+  first line out of sight.
 - **Markup**: `set-markup` reads an HTML-like snippet — elements,
   attributes, entities, void elements, comments; scripts dropped — and fails,
   changing nothing, on markup it cannot read, naming line and column.
+- **`showcase`**, listed in the registry: the element tree in full — tabs, a
+  responsive grid of cards, a sideways strip, a folding sidebar, a form
+  driving a live preview through a CSS variable, typography, the shell's
+  colours.
+- An inline element's background (`<mark>`, a highlighted `span`) is drawn
+  behind its text.
 - **The start page is built on the tree**: cards in a grid, each an
   `<a href>`; searching hides what does not match; Enter opens the one match
   or a typed address.

@@ -177,7 +177,7 @@ element answers.
 - What a sheet cannot say is skipped and logged (`css: skipped …`).
 
 Text inside a paragraph flows as one block: an inline element (`span`, `b`,
-`a`) gives its text a look, not a box of its own. No transforms, transitions,
+`a`, `mark`) gives its text a look and a background, not a box of its own. No transforms, transitions,
 animations, web fonts or `<canvas>` yet.
 
 **The shell's colours** are variables every element can use, and they follow
