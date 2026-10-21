@@ -365,6 +365,33 @@ assertions). Left for 1.1: D6-3, on the owner's say.
 | D6-2 | 10 000 nodes styled and laid out inside a frame; restyle only what changed | M |
 | D6-3 | `ARCHITECTURE.md` and the invariants; `1.1.0-beta.1` on the owner's say | S |
 
+## Sprint 9 — 1.1 in people's hands
+
+**Goal:** 1.1 is released, and what stops someone using it every day is gone.
+The worst of that is on the phone: a keyboard that cannot type Uzbek.
+
+| ID | Item | Size |
+|---|---|---|
+| S9-1 | **`1.1.0-beta.1`:** versions, the changelog, the tag, the release published | S |
+| S9-2 | **IME text on Android** (S3-4): GameActivity, and winit's dropped `TextEvent` turned into IME events — predictions, Cyrillic, `oʻ` and `gʻ` typed on the phone's own keyboard | L |
+| S9-3 | **The webview in the installers:** web pages open from a `.deb`, the Windows installer and the `.dmg`, not only from a source build | M |
+| S9-4 | **Accessibility of the tree:** a role and a name for each element, from its tag, `aria-*`, `alt` and text; printed headlessly; handed to a screen reader through accesskit | M |
+| S9-5 | **The tree on a phone at speed** (S5-7): a store of 500 cards, scrolled on the device, frame times measured; fixed where they miss | M |
+| S9-6 | **Debts:** Forward (S3-5); an app's version and publisher on its card (S4-1); the time zone (S6-3); `todo` in the registry | M |
+
+## Sprint 10 — Tabs, and the web on a phone
+
+**Goal:** more than one app open at a time, and a web page on Android as on
+the desktop.
+
+| ID | Item | Size |
+|---|---|---|
+| S10-1 | **ADR-5, tabs:** what a tab is, what a hidden one may do (nothing: no frames), how many, what memory they may hold together; invariant 3 restated for closing a tab | M |
+| S10-2 | **Tabs in the chrome**, desktop and Android: open, switch, close; each with its own history; headless flags to drive them | L |
+| S10-3 | **ADR-6, the web on Android:** the platform's `WebView`, through a small Java helper now that the app has code (S9-2) | S |
+| S10-4 | **The Android webview:** over the page area, Back within the page, destroyed on leaving it, as on the desktop | L |
+| S10-5 | Docs and the device run; `1.2.0-beta.1` on the owner's say | S |
+
 ## After beta — not in this plan
 
 - **A retained "native DOM"** — planned: *Road to 1.1* above.
