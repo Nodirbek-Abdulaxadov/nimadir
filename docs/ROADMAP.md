@@ -160,8 +160,9 @@ hand, declined in the suite. S6-5: the `fuzz` fixture, 12 000 awkward calls
 without a panic.
 
 **Tagged `v1.0.0-beta.1` (2026-10-21).** CI green on every job; every
-installer built by `release.yml` into a draft release. Pages, private
-vulnerability reporting and D2 are still the owner's (`docs/BETA-CHECKLIST.md`).
+installer built by `release.yml` into a draft release; the hosted registry
+live on Pages. Private vulnerability reporting and D2 are still the owner's
+(`docs/BETA-CHECKLIST.md`).
 
 **On a device (2026-10-21), 119 assertions.** The smoke test passes on an
 Android 16 phone (cold start ~0.3 s, 0 % CPU idle), and the store, `counter`
