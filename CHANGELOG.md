@@ -18,6 +18,8 @@ beta is `docs/ROADMAP.md`.
   the registry gives them; the published registry carries each manifest's
   version.
 - `todo` is listed in the registry.
+- A long page on the tree draws only what can be seen: paint wholly outside
+  the visible area is skipped each frame (controls are kept, as widgets).
 - **Tabs** (ADR-5): a strip once there are two, `+` for a new one on the
   start page, × to close, Ctrl+T, Ctrl+W and Ctrl+Tab on the desktop. A tab
   not shown is parked: its app kept but never called, its webview closed.

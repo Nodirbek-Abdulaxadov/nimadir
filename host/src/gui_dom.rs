@@ -248,6 +248,15 @@ pub fn show(ui: &mut egui::Ui, shell: &mut Shell, view: &mut DomView, reveal: bo
     let mut ranges_drawn = HashSet::new();
     for item in items {
         let clip = clips.last().copied().unwrap_or(base_clip);
+        // What lies wholly outside what can be seen is not drawn: a long page
+        // on a phone draws a screenful, not all of it, every frame (S9-5).
+        // Only what is paint alone — controls are widgets, and keep their
+        // state whether seen or not.
+        if let Some((r, reach)) = paint_bounds(&item) {
+            if !to_screen(&r).expand(reach).intersects(clip) {
+                continue;
+            }
+        }
         let painter = ui.painter().with_clip_rect(clip);
         match item {
             Item::Clip(r) => clips.push(to_screen(&r).intersect(base_clip)),
@@ -936,6 +945,29 @@ fn describe(n: &mut egui::accesskit::Node, a: &Accessible, widget: bool) {
     } else if a.role == Role::Slider {
         n.add_action(Action::Increment);
         n.add_action(Action::Decrement);
+    }
+}
+
+/// Where an item that is only paint draws, and how far past it: a shadow
+/// reaches out by its blur, spread and offset. `None` for what is more than
+/// paint — clips, and controls, which are widgets.
+fn paint_bounds(item: &Item) -> Option<(Rect, f32)> {
+    match item {
+        Item::Shadow { rect, shadow, .. } => Some((
+            *rect,
+            shadow.blur + shadow.spread.abs() + shadow.x.abs().max(shadow.y.abs()),
+        )),
+        Item::Fill { rect, .. }
+        | Item::Gradient { rect, .. }
+        | Item::Border { rect, .. }
+        | Item::Image { rect, .. }
+        | Item::Check { rect, .. }
+        | Item::Progress { rect, .. } => Some((*rect, 1.0)),
+        // Drawn left of its item, a number or a bullet wide.
+        Item::Marker { rect, .. } => Some((*rect, 48.0)),
+        // Text may hang past its box (a long word, an italic's overhang).
+        Item::Text { rect, .. } => Some((*rect, 8.0)),
+        _ => None,
     }
 }
 
