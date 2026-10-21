@@ -273,10 +273,78 @@ If the plan slips, these go first, in this order: S8-2, S5-6, S7-5 (the Go
 sample), S8-4, S3-8. Nothing in Sprints 1, 2 or 4 is cuttable — those are the
 exit criteria.
 
+## Road to 1.1 — the native DOM (ADR-4)
+
+**Goal:** an app can say what HTML and CSS say — a tree of elements, styled by
+stylesheets, laid out by block, flex and grid — and the host still draws it
+natively, on desktop and phone alike, with no web engine anywhere
+(`docs/adr/0004-native-dom.md`). The contract is `interface dom` in
+`nimadir:shell@1.1.0`; apps built against `1.0` keep working unchanged.
+
+**1.1 exit criteria:**
+
+1. **Expressive.** The store and the gallery, rewritten on the tree, look like
+   a designer drew them: cards, a grid, a form, a brand colour, dark mode.
+2. **Equal targets.** Every item works on Android as on desktop; touch
+   scrolls what a wheel scrolls.
+3. **Bounded.** The document is capped as a whole; a fuzz fixture drives every
+   `dom` function with awkward input without a panic.
+4. **Tested headlessly.** The tree, computed styles and boxes print; scripts
+   click and type by node.
+5. **Additive.** Every `1.0` app and test passes unchanged.
+
+### D1 — The tree
+
+| ID | Item | Size |
+|---|---|---|
+| D1-1 | `interface dom` at `1.1.0`: the fixture, the C# namespace, the templates' WIT; `newer_than_us` per interface | M |
+| D1-2 | `Document`: elements, text, attributes, classes, inline style, listeners, the event queue; the document's limits | L |
+| D1-3 | Headless: the tree prints; `--click`, `--type`, `--enter` by node | M |
+| D1-4 | A `dom` sample app and its suite cases | S |
+
+### D2 — CSS
+
+| ID | Item | Size |
+|---|---|---|
+| D2-1 | Parser: declarations, selectors, `@media`, custom properties; bounded | L |
+| D2-2 | Cascade: user-agent sheet (`--nimadir-*` theme variables), author sheets, inline, specificity, `!important`, inheritance, `var()`, `em`/`rem` | L |
+| D2-3 | Headless prints computed style | S |
+
+### D3 — Layout and paint
+
+| ID | Item | Size |
+|---|---|---|
+| D3-1 | taffy: block, flex, grid, absolute, float; inline text as paragraphs; text measured through a trait | L |
+| D3-2 | The display list; headless prints boxes | M |
+| D3-3 | egui painter: backgrounds, borders, radii, shadows, opacity, text runs with a real bold, images, clipping | L |
+
+### D4 — Controls and interaction
+
+| ID | Item | Size |
+|---|---|---|
+| D4-1 | `button`, `a`, `input` (text, password, search, checkbox, radio, range), `textarea`, `img`, `progress`; `:hover`, `:active`, `:focus`, `:disabled`, `:checked` | L |
+| D4-2 | `overflow: auto` scrolls by touch and wheel; a focused field is scrolled clear of the keyboard | M |
+| D4-3 | Events: `click`, `input`, `change`, `submit`, `focus`, `blur`, `pointerdown`, `pointerup` | M |
+
+### D5 — For app developers
+
+| ID | Item | Size |
+|---|---|---|
+| D5-1 | `set-markup`, `query-all` | M |
+| D5-2 | A Rust builder in the template; C# and Python regenerate; `docs/APPS.md` gains the tree | M |
+| D5-3 | The store and the gallery rewritten on the tree | M |
+
+### D6 — Bounded and fast
+
+| ID | Item | Size |
+|---|---|---|
+| D6-1 | The fuzz fixture over `dom`; the limits tested; the security review's addendum | M |
+| D6-2 | 10 000 nodes styled and laid out inside a frame; restyle only what changed | M |
+| D6-3 | `ARCHITECTURE.md` and the invariants; `1.1.0-beta.1` on the owner's say | S |
+
 ## After beta — not in this plan
 
-- **A retained "native DOM"** (a UI tree in WIT, diffs instead of whole frames) —
-  only if S5-7 shows immediate mode is too slow.
+- **A retained "native DOM"** — planned: *Road to 1.1* above.
 - A Makepad backend behind `UiCmd`.
 - Zero-copy bulk data (shared buffers for pixels and geometry).
 - Tabs; a self-serve publishing portal.
