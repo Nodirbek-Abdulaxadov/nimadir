@@ -19,6 +19,16 @@ The native DOM (ADR-4, `docs/ROADMAP.md` *Road to 1.1*).
 - Headless: `--click`, `--type`, `--enter` act on the tree by node number,
   and each frame prints the page as an outline.
 - `mini-apps/todo`, a to-do list on the tree.
+- **CSS, read by the host**: stylesheets and inline style through a cascade
+  of its own — selectors with combinators, attributes and pseudo-classes,
+  specificity, `!important`, inheritance, custom properties and `var()`,
+  `calc()`, relative units, colours, `@media` on width, orientation, colour
+  scheme and hover. A built-in sheet styles every element and follows the
+  system's dark theme through `--nimadir-*` variables an app can use too.
+  What a sheet cannot say is skipped and logged.
+- `query-all` finds nodes by selector.
+- Headless `--styles` prints each element's computed style; `--dark`,
+  `--touch` and `--viewport` set what the page is styled for.
 
 ### Changed
 - Invariant 6 reads "no web *engine*": an app may describe its page in markup

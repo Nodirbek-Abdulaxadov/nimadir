@@ -33,6 +33,7 @@ const USAGE: &str = "usage: nimadir-shell [<address> | <listed-app-name>] \
 [--list] [--headless] [--frames N] [--script \"frame:btn,...\"] \
 [--input \"frame:field=text\"] [--submit \"frame:field,...\"] [--back \"frame,...\"] [--reload \"frame,...\"] [--confirm] \
 [--click \"frame:node,...\"] [--type \"frame:node=text\"] [--enter \"frame:node,...\"] \
+[--styles] [--dark] [--touch] [--viewport WxH] \
 [--registry <path-or-url>] [--timing] [--version]\n\
        nimadir-shell --kept | --clear <publisher>/<name> | --clear-cache | --check-update\n\
 an address is a .wasm component (path or URL) or a web page URL";
@@ -56,6 +57,10 @@ fn main() -> Result<()> {
     let mut dom_clicks = String::new();
     let mut dom_typed: Vec<String> = Vec::new();
     let mut dom_enters = String::new();
+    // What the page is shown on, for `@media` and layout; and whether to
+    // print each element's computed style.
+    let mut env = host::dom::css::Env::default();
+    let mut styles = false;
     let mut confirm = false;
     let mut timing = false;
     let mut registry_src: Option<String> = None;
@@ -155,6 +160,16 @@ fn main() -> Result<()> {
             }
             // Repeatable, the lists joined: two of them should not mean
             // the second only.
+            "--styles" => styles = true,
+            "--dark" => env.dark = true,
+            "--touch" => env.hover = false,
+            "--viewport" => {
+                i += 1;
+                if let Some((w, h)) = args.get(i).and_then(|v| v.split_once('x')) {
+                    env.width = w.trim().parse().unwrap_or(env.width);
+                    env.height = h.trim().parse().unwrap_or(env.height);
+                }
+            }
             "--enter" => {
                 i += 1;
                 dom_enters.push(',');
@@ -257,6 +272,8 @@ fn main() -> Result<()> {
                 dom_clicks: &dom_clicks,
                 dom_typed: &dom_typed,
                 dom_enters: &dom_enters,
+                env,
+                styles,
                 confirm,
                 timing,
             };
@@ -319,6 +336,8 @@ struct Harness<'a> {
     dom_clicks: &'a str,
     dom_typed: &'a [String],
     dom_enters: &'a str,
+    env: host::dom::css::Env,
+    styles: bool,
     confirm: bool,
     /// Print how long the guest's frames took, after the run.
     timing: bool,
@@ -335,6 +354,8 @@ fn run_headless(mut shell: Shell, h: &Harness) -> Result<()> {
         dom_clicks,
         dom_typed,
         dom_enters,
+        env,
+        styles,
         confirm,
         timing,
     } = *h;
@@ -455,9 +476,14 @@ fn run_headless(mut shell: Shell, h: &Harness) -> Result<()> {
             println!("   {a}");
         }
         // The page, when the app has built one: the tree, a node a line.
-        if let Some(doc) = shell.document().filter(|d| !d.is_empty()) {
+        if let Some(doc) = shell.document_mut().filter(|d| !d.is_empty()) {
             println!("   [page] {} nodes", doc.len());
-            for line in doc.outline() {
+            let lines = if styles {
+                doc.outline_styled(&env)
+            } else {
+                doc.outline()
+            };
+            for line in lines {
                 println!("   {line}");
             }
         }

@@ -105,10 +105,13 @@ fn update() {
 }
 ```
 
-The tree, its events and its limits work today, and the headless runner
-prints the page and clicks by node (`--click "1:7"`). The stylesheet is kept
-but not yet applied, and the window does not draw the tree yet: CSS, layout
-and painting arrive in the next steps (`docs/ROADMAP.md`, *Road to 1.1*).
+The tree, its events, its limits and CSS work today: stylesheets with
+selectors, the cascade, `var()`, `calc()`, `@media` — and the host's own sheet,
+whose `--nimadir-text`, `--nimadir-accent`, `--nimadir-surface`, … follow the
+system's light or dark theme, so an app that uses them does too. The headless
+runner prints the page, each element's computed style (`--styles`), and
+clicks by node (`--click "1:7"`). The window does not draw the tree yet:
+layout and painting are the next step (`docs/ROADMAP.md`, *Road to 1.1*).
 `mini-apps/todo` is a whole app written this way.
 
 ## What an app may do, and how it asks

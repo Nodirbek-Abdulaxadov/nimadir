@@ -157,8 +157,8 @@ guest side from it, `wasmtime::component::bindgen!` the host side.
   `get-attribute`, `toggle-class`, `set-style`, `set-markup`, `query-all`,
   `parent`, `children`, `value`, `focus`, `bounds`, `add-stylesheet` /
   `remove-stylesheet`, `listen` / `unlisten`, `events`, plus the `rect` and
-  `event` records. Nodes are `u32`s. `set-markup`, `query-all` and `bounds`
-  answer nothing yet: they arrive with D5 and D3 (`docs/ROADMAP.md`).
+  `event` records. Nodes are `u32`s. `set-markup` and `bounds` answer
+  nothing yet: they arrive with D5 and D3 (`docs/ROADMAP.md`).
 - `world mini-app` — imports `host-api` and `dom`, exports `init` and `update`.
 
 The last two are what let the start page be an app instead of host code: a guest
@@ -219,7 +219,42 @@ key for text fields, read by `ui-submitted` for the field drawn last.
   `dispatch`, which delivers to the nearest listening ancestor and names both
   the node hit (`target`) and the listener (`current`).
 - `outline` — the tree as text, a node a line: what the headless runner
-  prints after each frame and the suite reads.
+  prints after each frame and the suite reads. `outline_styled` adds what
+  each element's rules set (`style::describe`).
+- `styles(env)` — every element's computed style, cached against the
+  document's `generation`, the page (`css::Env`: size, dark, hover) and the
+  pointer (`select::State`: hovered, pressed, focused); `query_all` runs the
+  cascade's matcher over a subtree.
+
+**CSS** (D2), in four files, none of which knows a renderer:
+- `css.rs` — a tokenizer and a forgiving parser: rules, selector lists
+  (type, class, id, attribute with `= ~= |= ^= $= *=`, the combinators
+  `  > + ~`, `:hover :active :focus :focus-within :disabled :enabled
+  :checked :root :empty :first-child :last-child :only-child :nth-child
+  :nth-last-child :not() :placeholder-shown`), `@media` on width, height,
+  orientation, colour scheme and hover, nested up to `MAX_MEDIA_NESTING`.
+  Declarations stay tokens until styling. A rule it cannot read is skipped
+  and recorded in `Sheet::warnings`, which `add-stylesheet` logs as
+  `css: skipped …`; pseudo-elements are such rules.
+- `select.rs` — matching, right to left. A guest writes the selectors, so a
+  selector has at most `MAX_COMPOUNDS` (32) parts and a match at most
+  `MAX_STEPS` (10 000) steps; `Places` works out every element's sibling
+  position once per styling, so `:nth-child` is not quadratic.
+- `values.rs` — lengths (`px em rem vw vh vmin vmax pt pc in cm mm ch`,
+  `calc()` with `+ - * /` and brackets, `min() max() clamp()` over pixels),
+  numbers, colours (hex, `rgb()`, `hsl()`, the named colours,
+  `currentcolor`). `Length` keeps only what layout must resolve: `auto`, a
+  percentage, and `Calc { px, percent }`.
+- `style.rs` — `Style`, the computed style, and `compute`, the cascade:
+  `UA_CSS` (the host's sheet, whose `--nimadir-*` variables are the window's
+  palette and switch with `@media (prefers-color-scheme: dark)`), then the
+  app's sheets, then inline style; `!important`, origin, specificity, order.
+  Rules are filed by the subject's id, class or tag (`Index`). Custom
+  properties first, then `font-size`/`color` (what `em` and `currentcolor`
+  mean), then the rest; `var()` is put in with `substitute`, bounded by
+  `MAX_VAR_DEPTH` and `MAX_VALUE_TOKENS` against variables that refer to each
+  other exponentially. A tag the host gives no meaning is a block
+  (`default_display`).
 
 ### `host/src/host.rs` — the sandbox boundary
 - `mod bindings` — `bindgen!` on `../wit`, kept in a submodule so the
@@ -602,6 +637,8 @@ in `/usr/bin` on Linux, which an installed shell must not shadow.
   act on the document before the frame, so the guest finds them in
   `events()`; the frame then prints `[tap] #n` / `[type] …` / `[enter] …`
   and, when the page has anything on it, `[page] N nodes` and `outline`.
+  `--styles` prints `outline_styled` instead; `--dark`, `--touch` and
+  `--viewport WxH` set the `css::Env` the page is styled for.
 
 `run_headless` is the project's test suite. There is no `#[test]` anywhere; the
 `--script` flag *is* how the boundary is verified, and it needs no display.
@@ -732,6 +769,11 @@ A to-do list built the way a web page is: `init` builds the page once and
 adds a stylesheet; `update` reads `events()` and edits only what changes. One
 listener on the list hears every item's checkbox and button. Not in
 `apps.json` until the tree is drawn (D3).
+
+### `mini-apps/probe/` — a test fixture, not an app
+A fixed page, and a field (node 2) whose text becomes its stylesheet, so the
+suite tries any CSS against the same tree with `--type "1:2=…" --styles`. A
+second field (node 25) takes a selector and logs what `query-all` finds.
 
 ### `mini-apps/rates/` — the first real app
 Exchange rates from the Central Bank of Uzbekistan (`cbu.uz`) with a

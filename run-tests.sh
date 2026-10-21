@@ -110,7 +110,7 @@ HOST=./target/debug/nimadir-shell
 echo "==> building"
 # Mini-apps first: the host carries the store inside it when the store exists
 # at the time it is built.
-if [[ ! -f mini-apps/store/store.component.wasm || ! -f mini-apps/runaway/runaway.component.wasm || ! -f mini-apps/future/future.component.wasm || ! -f mini-apps/fetcher/fetcher.component.wasm || ! -f mini-apps/fuzz/fuzz.component.wasm ]]; then
+if [[ ! -f mini-apps/store/store.component.wasm || ! -f mini-apps/runaway/runaway.component.wasm || ! -f mini-apps/future/future.component.wasm || ! -f mini-apps/fetcher/fetcher.component.wasm || ! -f mini-apps/fuzz/fuzz.component.wasm || ! -f mini-apps/todo/todo.component.wasm || ! -f mini-apps/probe/probe.component.wasm ]]; then
   echo "    mini-apps missing; running build-mini-apps.sh"
   ./build-mini-apps.sh >/dev/null || { red "mini-app build failed"; echo; exit 1; }
 fi
@@ -371,6 +371,39 @@ check "a click on a button's text is a click on the button" '"1 thing left"' \
 # Released with what is under it: the item's six nodes, 23 down to 17.
 check "a released node goes with everything under it" '[page] 17 nodes' \
   $HOST $TODO --click "1:16" --frames 2
+
+echo
+echo "==> CSS (ADR-4)"
+# The probe's page takes whatever stylesheet is typed into node 2; --styles
+# prints what each element's rules set.
+PROBE=mini-apps/probe/probe.component.wasm
+css() { $HOST $PROBE --frames 2 --styles --type "1:2=$1" "${@:2}"; }
+check "the host's own sheet gives elements a look" '#3 h1 | font-size: 28px; font-weight: 700' \
+  $HOST $TODO --styles --frames 1
+check "and follows the system's dark theme" 'background: #303134; font-weight: 600' \
+  $HOST $TODO --styles --dark --frames 1
+check "an id outweighs a class" '#7 p | margin: 0px 0px 12px; color: #ff0000' \
+  css '#a p { color: red } .box p { color: blue }'
+check "!important outweighs an id" '#5 p.first | margin: 0px 0px 12px; color: #008000' \
+  css '.first { color: green !important } #a p { color: red }'
+check "inline style outweighs a sheet" '#23 span.note [style="letter-spacing: 1px"] | letter-spacing: 1px' \
+  css '.note { letter-spacing: 3px }'
+check "siblings, :nth-child and :not match as on the web" '#16 li | padding: 2px; font-weight: 700' \
+  css 'li:nth-child(2n+1) { font-weight: 700 } li:not(:first-child):not(:last-child) { padding: 2px }'
+check "attribute selectors match" '#9 p.last [lang="uz-UZ"] | margin: 0px 0px 12px; color: #00aa00' \
+  css '[lang|=uz] { color: #0a0 }'
+check "var() with a fallback, calc(), em and rem resolve" '#23 span.note [style="letter-spacing: 1px"] | margin: 3px; padding: 12px; color: #008000; font-size: 12px' \
+  css ':root { --x: 12px; --c: hsl(120, 100%, 25%) } .note { padding: var(--x); margin: var(--missing, 3px); color: var(--c); font-size: 0.8rem }'
+check "calc() keeps a percentage for layout" 'width: calc(100% + -32px); padding: 20px; font-size: 20px' \
+  css '.box { width: calc(100% - 32px); font-size: 20px; padding: 1em }'
+check "@media follows the page's width" 'grid-template-columns: repeat(3, 1fr) 200px' \
+  css '@media (max-width: 400px) { #page { display: grid; grid-template-columns: repeat(3, 1fr) 200px } }' --viewport 360x640
+check_absent "and leaves a wider page alone" '#3 div#page | display: grid' \
+  css '@media (max-width: 400px) { #page { display: grid } }'
+check "what a sheet cannot say is skipped, logged, and the rest applies" 'css: skipped `p::before`' \
+  css 'p::before { color: red } .first { color: blue }'
+check "query-all finds by selector, in document order" 'query "#a > p:not(.last), li:last-child": [5, 7, 18]' \
+  $HOST $PROBE --frames 2 --type "1:25=#a > p:not(.last), li:last-child"
 
 echo
 echo "==> rates, the first real app"

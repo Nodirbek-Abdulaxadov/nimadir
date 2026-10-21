@@ -14,6 +14,16 @@
 //! not worth stopping it for.
 
 use std::collections::{HashMap, VecDeque};
+use std::sync::Arc;
+
+pub mod css;
+pub mod select;
+pub mod style;
+pub mod values;
+
+use css::{Env, Sheet};
+use select::{Matcher, Places, State};
+use style::Style;
 
 pub type NodeId = u32;
 
@@ -161,9 +171,25 @@ pub struct Document {
     /// Bumped by every change that could change how the page looks, so a
     /// renderer knows when what it computed is stale.
     generation: u64,
-    /// The app's stylesheets, by number, in the order added.
-    sheets: Vec<(u32, String)>,
+    /// The app's stylesheets, by number, in the order added — read when
+    /// added, with what each cost against `MAX_BYTES`.
+    sheets: Vec<(u32, usize, Arc<Sheet>)>,
     next_sheet: u32,
+    /// The element under the pointer, for `:hover`.
+    pub hovered: Option<NodeId>,
+    /// The element being pressed, for `:active`.
+    pub pressed: Option<NodeId>,
+    /// The last styling, and what it was computed for.
+    styled: Option<Styled>,
+}
+
+/// Every element's computed style, and the document, page and pointer it
+/// was computed for — any of which changing makes it stale.
+struct Styled {
+    generation: u64,
+    env: Env,
+    state: State,
+    styles: HashMap<NodeId, Style>,
 }
 
 impl Default for Document {
@@ -184,6 +210,9 @@ impl Document {
             generation: 0,
             sheets: Vec::new(),
             next_sheet: 1,
+            hovered: None,
+            pressed: None,
+            styled: None,
         };
         let root = doc
             .create_element("body")
@@ -765,26 +794,80 @@ impl Document {
         self.dispatch("submit", id, &value, 0.0, 0.0);
     }
 
-    /// A stylesheet, charged against the document like its nodes.
-    pub fn add_stylesheet(&mut self, css: &str) -> Result<u32, Limit> {
-        self.charge(css.len(), 0)?;
+    /// A stylesheet, read now and charged against the document like its
+    /// nodes. Returns its number and what in it was skipped.
+    pub fn add_stylesheet(&mut self, text: &str) -> Result<(u32, Vec<String>), Limit> {
+        self.charge(text.len(), 0)?;
+        let sheet = css::parse(text);
+        let mut warnings = sheet.warnings.clone();
+        if sheet.more_warnings > 0 {
+            warnings.push(format!("and {} more skipped", sheet.more_warnings));
+        }
         let id = self.next_sheet;
         self.next_sheet = self.next_sheet.wrapping_add(1).max(1);
-        self.sheets.push((id, css.to_string()));
+        self.sheets.push((id, text.len(), Arc::new(sheet)));
         self.changed();
-        Ok(id)
+        Ok((id, warnings))
     }
 
     pub fn remove_stylesheet(&mut self, id: u32) {
-        if let Some(at) = self.sheets.iter().position(|(s, _)| *s == id) {
-            let (_, css) = self.sheets.remove(at);
-            self.bytes = self.bytes.saturating_sub(css.len());
+        if let Some(at) = self.sheets.iter().position(|(s, _, _)| *s == id) {
+            let (_, cost, _) = self.sheets.remove(at);
+            self.bytes = self.bytes.saturating_sub(cost);
             self.changed();
         }
     }
 
-    pub fn stylesheets(&self) -> impl Iterator<Item = &str> {
-        self.sheets.iter().map(|(_, css)| css.as_str())
+    pub fn parsed_sheets(&self) -> impl Iterator<Item = &Sheet> {
+        self.sheets.iter().map(|(_, _, sheet)| sheet.as_ref())
+    }
+
+    /// What the user is doing to the page, as selectors see it.
+    pub fn state(&self) -> State {
+        State {
+            hovered: self.hovered,
+            pressed: self.pressed,
+            focused: self.focused,
+        }
+    }
+
+    /// Every element's computed style for a page shown on `env` — computed
+    /// again only when the tree, the page or the pointer has changed.
+    pub fn styles(&mut self, env: &Env) -> &HashMap<NodeId, Style> {
+        let state = self.state();
+        let fresh = self
+            .styled
+            .as_ref()
+            .is_some_and(|s| s.generation == self.generation && s.env == *env && s.state == state);
+        if !fresh {
+            let styles = style::compute(self, env, state);
+            self.styled = Some(Styled {
+                generation: self.generation,
+                env: *env,
+                state,
+                styles,
+            });
+        }
+        &self.styled.as_ref().expect("just computed").styles
+    }
+
+    /// The elements under `scope` (itself excluded) matching `selector`, in
+    /// document order; none for a selector that cannot be read.
+    pub fn query_all(&self, scope: NodeId, selector: &str) -> Vec<NodeId> {
+        let Some(selectors) = css::selectors(css::trim(&css::tokenize(selector))) else {
+            return Vec::new();
+        };
+        let places = Places::of(self);
+        let matcher = Matcher::new(self, self.state(), &places);
+        let mut out = Vec::new();
+        let mut stack: Vec<NodeId> = self.children(scope).into_iter().rev().collect();
+        while let Some(id) = stack.pop() {
+            if selectors.iter().any(|s| matcher.matches(s, id)) {
+                out.push(id);
+            }
+            stack.extend(self.children(id).into_iter().rev());
+        }
+        out
     }
 
     /// The nodes in the tree, in document order, each with its depth.
@@ -808,15 +891,41 @@ impl Document {
     pub fn outline(&self) -> Vec<String> {
         self.walk()
             .into_iter()
+            .map(|(id, depth)| self.outline_line(id, depth))
+            .collect()
+    }
+
+    /// `outline`, each element followed by what its rules set: ` | display:
+    /// flex; gap: 16px`.
+    pub fn outline_styled(&mut self, env: &Env) -> Vec<String> {
+        self.styles(env);
+        let styles = &self.styled.as_ref().expect("just styled").styles;
+        let initial = Style::initial();
+        self.walk()
+            .into_iter()
             .map(|(id, depth)| {
+                let mut line = self.outline_line(id, depth);
                 let node = &self.nodes[&id];
-                let what = match &node.kind {
-                    Kind::Text(t) => format!("{t:?}"),
-                    Kind::Element(e) => describe(e, self.focused == Some(id)),
-                };
-                format!("{}#{id} {what}", "  ".repeat(depth))
+                if let (Some(e), Some(st)) = (node.element(), styles.get(&id)) {
+                    let parent = node.parent.and_then(|p| styles.get(&p)).unwrap_or(&initial);
+                    let said = style::describe(st, parent, &e.tag);
+                    if !said.is_empty() {
+                        line.push_str(" | ");
+                        line.push_str(&said);
+                    }
+                }
+                line
             })
             .collect()
+    }
+
+    fn outline_line(&self, id: NodeId, depth: usize) -> String {
+        let node = &self.nodes[&id];
+        let what = match &node.kind {
+            Kind::Text(t) => format!("{t:?}"),
+            Kind::Element(e) => describe(e, self.focused == Some(id)),
+        };
+        format!("{}#{id} {what}", "  ".repeat(depth))
     }
 }
 

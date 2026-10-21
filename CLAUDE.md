@@ -130,6 +130,9 @@ unlisted address), `--timing` (how long the guest's frames took),
 `--click "frame:node,…"`, `--type "frame:node=text"`, `--enter "frame:node,…"`
 — by **node number**, which a node keeps between frames; the run prints the
 page as `[page] N nodes` and an outline (`#9 ul.list {click change}`).
+`--styles` adds each element's computed style (`#2 div.app | display: flex;
+gap: 16px`); `--dark`, `--touch`, `--viewport 360x640` set what it is styled
+for. `mini-apps/probe` takes any stylesheet typed into node 2.
 
 Frames count from 0 (default 8). Widget indices are handed out per frame in call
 order, and each counter is shared by two widgets: `ui-button` + `ui-tile` for

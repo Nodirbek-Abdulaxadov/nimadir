@@ -696,8 +696,8 @@ impl DomHost for HostState {
         Ok(Err("set-markup is not in this build yet".into()))
     }
 
-    fn query_all(&mut self, _scope: u32, _selector: String) -> wasmtime::Result<Vec<u32>> {
-        Ok(Vec::new())
+    fn query_all(&mut self, scope: u32, selector: String) -> wasmtime::Result<Vec<u32>> {
+        Ok(self.dom.query_all(scope, &selector))
     }
 
     fn parent(&mut self, item: u32) -> wasmtime::Result<Option<u32>> {
@@ -721,9 +721,15 @@ impl DomHost for HostState {
         Ok(None)
     }
 
+    /// What could not be read goes to the app's log, as a browser's
+    /// console would have it.
     fn add_stylesheet(&mut self, css: String) -> wasmtime::Result<u32> {
         let r = self.dom.add_stylesheet(&css);
-        self.doc(r)
+        let (id, warnings) = self.doc(r)?;
+        for w in warnings {
+            self.logs.push(format!("css: {}", crate::text::visible(&w)));
+        }
+        Ok(id)
     }
 
     fn remove_stylesheet(&mut self, sheet: u32) -> wasmtime::Result<()> {

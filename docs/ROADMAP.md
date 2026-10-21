@@ -293,6 +293,10 @@ natively, on desktop and phone alike, with no web engine anywhere
    click and type by node.
 5. **Additive.** Every `1.0` app and test passes unchanged.
 
+**Progress (2026-10-21):** D1 done — the tree, its limits, events, the
+headless flags, `todo`. D2 done — the CSS parser, the cascade, `query-all`,
+`--styles`, the `probe` fixture. 140 assertions.
+
 ### D1 — The tree
 
 | ID | Item | Size |
