@@ -697,8 +697,11 @@ purpose.
 - `init` / `pump` — GTK's loop on Linux, no-ops elsewhere. Without the pump a
   page loads and then freezes. The pump is budgeted at 64 iterations so a busy
   page cannot starve the egui frame it is drawn inside.
-- `check_parent` — rejects a Wayland surface with a readable error instead of
-  letting wry panic on it.
+- `has_x11` — whether there is an X server; when there is, `init` keeps GTK
+  to X11 and `gui::run` asks winit for X11 too, so on a Wayland desktop the
+  window lives on XWayland and a page can still be opened.
+- `check_parent` — rejects a Wayland surface (no X server at all) with a
+  readable error instead of letting wry panic on it.
 - Dropping the pane destroys the native surface, which is what the shell does on
   navigation. See invariant 3.
 
@@ -973,10 +976,16 @@ second (GTK) loop that must be pumped by hand. Practical consequences:
 1. The webview is its own **optional cargo feature**, exactly like `gui`.
    `libwebkit2gtk-4.1-dev` is a system package, and making it mandatory would
    break the default headless build.
-2. Wayland is rejected up front. `webview::check_parent` inspects the raw handle
-   and returns an error naming XWayland as the way out, because handing a
-   Wayland surface to `build_as_child` is a documented *panic*, and a shell that
-   dies because of the display server it happens to run under is not a shell.
+2. A `webview` build goes to X11 when it can: `gui::run` hands eframe an
+   event-loop hook that calls winit's `with_x11`, and `webview::init` limits
+   GDK to `x11` before `gtk::init`, both only when `DISPLAY` is set
+   (`webview::has_x11`). Both halves matter: wry builds the child from GDK's
+   default display and *unwraps* it as an X11 display. (winit dropped
+   `WINIT_UNIX_BACKEND` in 0.29, so no environment variable does this.) Where
+   there is no X server, Wayland is rejected up front: `webview::check_parent`
+   inspects the raw handle and returns an error, because handing a Wayland
+   surface to `build_as_child` is a documented *panic*, and a shell that dies
+   because of the display server it happens to run under is not a shell.
 3. The failure is remembered (`ShellApp::web_error`), so a webview that cannot
    exist is reported once instead of retried sixty times a second.
 

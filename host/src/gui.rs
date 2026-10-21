@@ -49,6 +49,20 @@ pub fn run(shell: Shell) -> Result<()> {
             // The installed .desktop file's name: what a desktop matches the
             // window against for its icon and its place in the dock.
             viewport: egui::ViewportBuilder::default().with_app_id("nimadir-shell"),
+            // A child webview attaches only to an X11 window (`webview::
+            // check_parent`), so a build that opens web pages asks for
+            // XWayland on a Wayland desktop instead of refusing every page
+            // there. Only when there is an X server to ask: without one the
+            // window still opens, on Wayland, and pages say why they cannot.
+            #[cfg(all(feature = "webview", target_os = "linux"))]
+            event_loop_builder: crate::webview::has_x11().then(|| {
+                Box::new(
+                    |builder: &mut eframe::EventLoopBuilder<eframe::UserEvent>| {
+                        use winit::platform::x11::EventLoopBuilderExtX11;
+                        builder.with_x11();
+                    },
+                ) as eframe::EventLoopBuilderHook
+            }),
             ..Default::default()
         },
     )

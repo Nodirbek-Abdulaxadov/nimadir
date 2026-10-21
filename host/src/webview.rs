@@ -25,8 +25,10 @@
 //! nothing to drive. On Linux `wry` is WebKitGTK, which lives in **GTK's** event
 //! loop, not winit's — so the host must call `init` once before creating one and
 //! `pump` on every frame, or the page loads and then freezes. `build_as_child`
-//! is also X11-only there; a Wayland surface is rejected up front with a message
-//! that says so, rather than being handed to wry, which would panic on it.
+//! is also X11-only there, so a window built with this feature asks for X11
+//! (XWayland on a Wayland desktop) from the start (`gui::run`). A Wayland
+//! surface that gets here anyway is rejected up front with a message that says
+//! so, rather than being handed to wry, which would panic on it.
 
 use anyhow::{anyhow, Result};
 use wry::dpi::{PhysicalPosition, PhysicalSize};
@@ -55,7 +57,20 @@ impl From<Bounds> for Rect {
 /// Call once, on the main thread, before the event loop starts.
 #[cfg(target_os = "linux")]
 pub fn init() -> Result<()> {
+    // The child webview is built from GTK's default display, which wry takes
+    // to be X11 without checking. On a Wayland desktop GTK would pick Wayland
+    // while the window is on XWayland, so keep it to the same X server.
+    if has_x11() {
+        gtk::gdk::set_allowed_backends("x11");
+    }
     gtk::init().map_err(|e| anyhow!("could not initialise GTK for the webview: {e}"))
+}
+
+/// Whether there is an X server to put the window on — XWayland, on a Wayland
+/// desktop. Read the way winit reads it: an empty `DISPLAY` is no display.
+#[cfg(target_os = "linux")]
+pub fn has_x11() -> bool {
+    std::env::var_os("DISPLAY").is_some_and(|d| !d.is_empty())
 }
 
 #[cfg(not(target_os = "linux"))]
@@ -136,8 +151,8 @@ fn check_parent(parent: &impl HasWindowHandle) -> Result<()> {
     match parent.window_handle()?.as_raw() {
         RawWindowHandle::Xlib(_) | RawWindowHandle::Xcb(_) => Ok(()),
         RawWindowHandle::Wayland(_) => anyhow::bail!(
-            "a child webview needs X11, and this is a Wayland session. \
-             Run the shell under XWayland (WINIT_UNIX_BACKEND=x11) to open web pages."
+            "a child webview needs X11, and this window is on Wayland with no \
+             X server to move to (DISPLAY is not set). Start XWayland to open web pages."
         ),
         _ => anyhow::bail!("this window is not one a webview can attach to"),
     }

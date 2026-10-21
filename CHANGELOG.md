@@ -71,6 +71,13 @@ The native DOM (ADR-4, `docs/ROADMAP.md` *Road to 1.1*).
 - Invariant 6 reads "no web *engine*": an app may describe its page in markup
   and CSS, which the host parses and draws itself.
 
+### Fixed
+- A build with the webview could not open a web page on a Wayland desktop:
+  the window was on Wayland, and a child webview attaches only to X11. It
+  now opens on XWayland whenever there is an X server, with GTK kept to the
+  same one. The error's advice (`WINIT_UNIX_BACKEND=x11`) had not worked
+  since winit 0.29.
+
 ## [1.0.0-beta.1] — 2026-10-21
 
 What it was held to, and what it ships without: `docs/BETA-CHECKLIST.md`.

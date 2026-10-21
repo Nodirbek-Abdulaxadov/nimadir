@@ -189,9 +189,10 @@ the "no web stack" goal survives having a webview at all:
 
 On Linux `wry` is WebKitGTK, which lives in **GTK's** event loop rather than
 winit's, so the host initialises GTK once and pumps it each frame; without that
-a page loads and then freezes. Child webviews there are also X11-only — a
-Wayland session is rejected with a message saying so, rather than being handed
-to wry, which would panic on it.
+a page loads and then freezes. Child webviews there are also X11-only, so a
+build with the webview opens its window on X11 whenever there is an X server —
+XWayland, on a Wayland desktop. With none at all, a page is refused with a
+message saying so, rather than being handed to wry, which would panic on it.
 
 Two properties fall out of the design and are worth stating:
 

@@ -21,8 +21,16 @@ cargo build -p host --features gui         # + native window (eframe/egui)
 cargo build -p host --features webview     # + wry; needs WebView2 / libwebkit2gtk-4.1-dev
 ```
 
-On Linux the webview is X11-only: `webview::check_parent` refuses a Wayland
-surface with an error rather than letting wry panic, so run it under X11/XWayland.
+On Linux the webview is X11-only, so a `webview` build puts its window (and
+GTK) on X11 whenever `DISPLAY` is set — XWayland on a Wayland desktop
+(`gui::run`, `webview::has_x11`). With no X server, `webview::check_parent`
+refuses the Wayland surface with an error rather than letting wry panic.
+Without `libwebkit2gtk-4.1-dev` (and no sudo), `apt-get download` its `-dev`
+package with `libjavascriptcoregtk-4.1-dev` and `libsoup-3.0-dev`, `dpkg -x`
+them, and point `PKG_CONFIG_PATH` at the extracted `.pc` files (prefix and
+libdir rewritten, `.so` links to the system libraries). Test web pages from a
+clean environment (`env -i`): the VS Code snap's `GTK_PATH` and friends make
+WebKit's helper processes load the snap's glibc and fail.
 
 Android (`android/`) is the Rust crate plus a Gradle project that only packages
 it. Needs `ANDROID_HOME` with an NDK, JDK 17+, `rustup target add

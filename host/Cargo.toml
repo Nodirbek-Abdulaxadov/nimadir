@@ -58,6 +58,9 @@ gtk = { version = "0.18", optional = true }
 # reports no theme on Linux. Already in the window build through accesskit,
 # with these features, so it adds nothing.
 zbus = { version = "5", default-features = false, features = ["async-io", "blocking-api"], optional = true }
+# Only to ask for X11 when the window may hold a webview (gui.rs, `run`): a
+# child webview cannot attach to a Wayland surface. The version eframe uses.
+winit = { version = "0.30", optional = true, default-features = false, features = ["x11"] }
 
 [features]
 # Headless is the default so the shell builds and runs ANYWHERE (no system GUI
