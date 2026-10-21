@@ -6,6 +6,10 @@
 //! for it under the page; the button logs where `#a` was laid out
 //! (`bounds`).
 //!
+//! Below them a form — a label, a field, a checkbox in a label, a select, a
+//! range, a submit button, a disabled field — logs every `input`, `change`
+//! and `submit` it hears.
+//!
 //! Node numbers are fixed by the order `init` makes them, which is the order
 //! below; the suite names them.
 
@@ -35,6 +39,9 @@ fn el(parent: u32, tag: &str, attrs: &[(&str, &str)], text: &str) -> u32 {
     n
 }
 
+/// The form's node number, by the order `init` makes things.
+const FORM: u32 = 26;
+
 struct Probe;
 
 impl Guest for Probe {
@@ -63,11 +70,44 @@ impl Guest for Probe {
         let q = el(root, "input", &[("id", "q")], ""); // #25
         dom::listen(q, "input");
         PAGE.with(|p| p.set(page));
+
+        let form = el(root, "form", &[("id", "f")], ""); // #26
+        el(form, "label", &[("for", "name")], "Name"); // #27, #28
+        el(form, "input", &[("id", "name")], ""); // #29
+        let agree = el(form, "label", &[], ""); // #30
+        el(agree, "input", &[("type", "checkbox")], ""); // #31
+        let words = dom::create_text(" Agree"); // #32
+        dom::append_child(agree, words);
+        let select = el(form, "select", &[("id", "color")], ""); // #33
+        el(select, "option", &[("value", "r")], "red"); // #34, #35
+        el(select, "option", &[("value", "g")], "green"); // #36, #37
+        el(
+            select,
+            "option",
+            &[("value", "b"), ("selected", "")],
+            "blue",
+        ); // #38, #39
+        let range = [
+            ("type", "range"),
+            ("min", "0"),
+            ("max", "10"),
+            ("step", "2"),
+            ("value", "4"),
+        ];
+        el(form, "input", &range, ""); // #40
+        el(form, "button", &[], "Send"); // #41, #42
+        el(form, "input", &[("disabled", ""), ("value", "locked")], ""); // #43
+        for kind in ["input", "change", "submit"] {
+            dom::listen(form, kind);
+        }
     }
 
     fn update() {
         for e in dom::events() {
-            if e.kind == "click" {
+            if e.current == FORM {
+                let line = format!("form {} #{} {:?}", e.kind, e.target, e.value);
+                nimadir::shell::host_api::log(&line);
+            } else if e.kind == "click" {
                 nimadir::shell::host_api::log(&format!("bounds {:?}", dom::bounds(4)));
             } else if e.kind == "input"
                 && dom::get_attribute(e.target, "id").as_deref() == Some("q")

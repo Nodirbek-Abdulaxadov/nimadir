@@ -429,6 +429,24 @@ check "bounds() answers from the last layout" 'bounds Some(Rect { x: 0.0, y: 82.
   $HOST $PROBE --click "1:20" --frames 2 --viewport 400x700
 
 echo
+echo "==> forms (ADR-4)"
+# The probe's form logs what it hears: `form <kind> #<target> <value>`.
+check "a label acts for the control its for= names" '#29 input#name value="" (focused)' \
+  $HOST $PROBE --click "1:28" --frames 2
+check "a label around a checkbox flips it" 'form change #31 "true"' \
+  $HOST $PROBE --click "1:32" --frames 2
+check "a select picks by value and says so" 'form change #33 "g"' \
+  $HOST $PROBE --type "1:33=g" --frames 2
+check "a range takes its value" 'form input #40 "8"' \
+  $HOST $PROBE --type "1:40=8" --frames 2
+check "a button in a form submits it" 'form submit #41' \
+  $HOST $PROBE --click "1:42" --frames 2
+check_absent "a disabled control answers nothing" '[wasm log] form' \
+  $HOST $PROBE --click "1:43" --type "1:43=x" --frames 2
+check "a select is drawn with its choice" '[paint] select #33' \
+  $HOST $PROBE --paint --frames 1
+
+echo
 echo "==> rates, the first real app"
 # Declined, so cbu.uz is never contacted: the suite needs no internet.
 check "rates asks before reaching the bank" "[asks] rates wants to connect to https://cbu.uz" \

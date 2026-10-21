@@ -212,6 +212,8 @@ pub fn show(ui: &mut egui::Ui, shell: &mut Shell, view: &mut DomView, reveal: bo
     let base_clip = ui.clip_rect();
     let mut clips: Vec<egui::Rect> = Vec::new();
     let mut fields = Vec::new();
+    let mut selects = Vec::new();
+    let mut ranges = Vec::new();
     let mut used = HashSet::new();
     for item in items {
         let clip = clips.last().copied().unwrap_or(base_clip);
@@ -303,6 +305,57 @@ pub fn show(ui: &mut egui::Ui, shell: &mut Shell, view: &mut DomView, reveal: bo
                     );
             }
             Item::Field { .. } => fields.push((item, clip)),
+            Item::Select {
+                rect,
+                node,
+                options,
+                selected,
+                font,
+                disabled,
+            } => {
+                let r = to_screen(&rect);
+                let color = color32(font.color);
+                let label = Paragraph {
+                    runs: vec![crate::dom::layout::Run {
+                        text: options.get(selected).cloned().unwrap_or_default(),
+                        font,
+                        node,
+                    }],
+                    align: Align::Left,
+                    wrap: false,
+                    line_height: font.line,
+                    ellipsis: true,
+                };
+                let g = fonts.galley(&label, Some(r.width()));
+                painter
+                    .with_clip_rect(clip.intersect(r.expand2(egui::vec2(0.0, 4.0))))
+                    .galley(
+                        Pos2::new(r.left(), r.center().y - g.rect.height() / 2.0),
+                        g,
+                        color,
+                    );
+                // The arrow, in the padding the sheet leaves on the right.
+                let c = Pos2::new(r.right() + 16.0, r.center().y);
+                let s = font.size * 0.28;
+                painter.add(Shape::convex_polygon(
+                    vec![
+                        Pos2::new(c.x - s, c.y - s * 0.5),
+                        Pos2::new(c.x + s, c.y - s * 0.5),
+                        Pos2::new(c.x, c.y + s * 0.6),
+                    ],
+                    color,
+                    Stroke::NONE,
+                ));
+                selects.push((
+                    node,
+                    r.expand2(egui::vec2(10.0, 8.0))
+                        .with_max_x(r.right() + 32.0),
+                    options,
+                    selected,
+                    disabled,
+                    clip,
+                ));
+            }
             Item::Check {
                 rect,
                 checked,
@@ -326,26 +379,34 @@ pub fn show(ui: &mut egui::Ui, shell: &mut Shell, view: &mut DomView, reveal: bo
             }
             Item::Range {
                 rect,
+                node,
                 fraction,
+                min,
+                max,
+                step,
                 accent,
                 track,
+                disabled,
             } => {
                 let r = to_screen(&rect);
+                if !disabled {
+                    ranges.push((node, r, min, max, step, clip));
+                }
+                // The thumb stays inside the box: the track is what is left
+                // of it once half a thumb is taken off each end.
+                let thumb = thumb_radius(r);
                 let y = r.center().y;
-                let x = r.left() + r.width() * fraction;
+                let (left, right) = (r.left() + thumb, r.right() - thumb);
+                let x = left + (right - left) * fraction;
                 painter.line_segment(
-                    [Pos2::new(r.left(), y), Pos2::new(r.right(), y)],
+                    [Pos2::new(left, y), Pos2::new(right, y)],
                     Stroke::new(4.0, color32(track)),
                 );
                 painter.line_segment(
-                    [Pos2::new(r.left(), y), Pos2::new(x, y)],
+                    [Pos2::new(left, y), Pos2::new(x, y)],
                     Stroke::new(4.0, color32(accent)),
                 );
-                painter.circle_filled(
-                    Pos2::new(x, y),
-                    (r.height() * 0.45).max(6.0),
-                    color32(accent),
-                );
+                painter.circle_filled(Pos2::new(x, y), thumb, color32(accent));
             }
             Item::Progress {
                 rect,
@@ -417,6 +478,9 @@ pub fn show(ui: &mut egui::Ui, shell: &mut Shell, view: &mut DomView, reveal: bo
             font,
             multiline,
             password,
+            disabled,
+            readonly,
+            max_chars,
         } = item
         else {
             continue;
@@ -441,6 +505,8 @@ pub fn show(ui: &mut egui::Ui, shell: &mut Shell, view: &mut DomView, reveal: bo
             .text_color(format.color)
             .hint_text(placeholder)
             .password(password)
+            .interactive(!disabled && !readonly)
+            .char_limit(max_chars.unwrap_or(usize::MAX))
             .desired_width(r.width());
         let field = if multiline {
             egui::ScrollArea::vertical()
@@ -471,6 +537,55 @@ pub fn show(ui: &mut egui::Ui, shell: &mut Shell, view: &mut DomView, reveal: bo
         }
         if reveal && field.has_focus() {
             field.scroll_to_me(Some(egui::Align::Center));
+        }
+    }
+
+    // A select's options, offered when it is tapped.
+    for (node, r, options, selected, disabled, clip) in selects {
+        if disabled {
+            continue;
+        }
+        let area = r.intersect(clip);
+        let tap = ui.interact(
+            area,
+            egui::Id::new(("dom-select", node)),
+            egui::Sense::click(),
+        );
+        if tap.hovered() {
+            ctx.set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        let mut chosen = None;
+        egui::Popup::menu(&tap).width(area.width()).show(|ui| {
+            for (i, label) in options.iter().enumerate() {
+                if ui.selectable_label(i == selected, label).clicked() {
+                    chosen = Some(i);
+                }
+            }
+        });
+        if let Some(i) = chosen {
+            let _ = doc.choose(node, i);
+        }
+    }
+
+    // A range follows the finger along it, and says `change` when let go.
+    for (node, r, min, max, step, clip) in ranges {
+        let grip = ui.interact(
+            r.expand2(egui::vec2(8.0, 10.0)).intersect(clip),
+            egui::Id::new(("dom-range", node)),
+            egui::Sense::click_and_drag(),
+        );
+        let done = grip.drag_stopped() || grip.clicked();
+        if grip.dragged() || done {
+            if let Some(p) = grip.interact_pointer_pos() {
+                let thumb = thumb_radius(r);
+                let f =
+                    ((p.x - r.left() - thumb) / (r.width() - 2.0 * thumb).max(1.0)).clamp(0.0, 1.0);
+                let mut v = min + f * (max - min);
+                if step > 0.0 {
+                    v = min + ((v - min) / step).round() * step;
+                }
+                let _ = doc.slide(node, &crate::dom::css::number(v.clamp(min, max)), done);
+            }
         }
     }
 
@@ -566,6 +681,11 @@ pub fn show(ui: &mut egui::Ui, shell: &mut Shell, view: &mut DomView, reveal: bo
         }
     }
     doc.has_events() || doc.wants_navigation()
+}
+
+/// A range's thumb, for a box of `r`'s height.
+fn thumb_radius(r: egui::Rect) -> f32 {
+    (r.height() * 0.45).max(6.0).min(r.width() / 2.0)
 }
 
 /// The cursor an element's style asks for.

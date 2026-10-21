@@ -214,10 +214,17 @@ key for text fields, read by `ui-submitted` for the field drawn last.
   charge fails. Anything else a guest gets wrong — a stale number, a node put
   inside itself, children under text — is ignored.
 - **The user's side**: `click` (a checkbox flips, a radio is picked and its
-  group cleared, a link is followed, a field takes focus; nothing inside a
-  `disabled` element answers), `type_text`, `submit`. Each queues events with
-  `dispatch`, which delivers to the nearest listening ancestor and names both
-  the node hit (`target`) and the listener (`current`).
+  group cleared, a link is followed, a field or select takes focus, a
+  `label` acts for the control its `for` names or the one inside it, a
+  `button` in a `form` dispatches `submit` unless `type="button"`; nothing
+  inside a `disabled` element answers), `type_text` (a select takes the
+  option with that value), `submit` (Enter), `choose` (a select's option),
+  `slide` (a range, `change` when let go), `user_focus` / `user_blur`. Each
+  queues events with `dispatch`, which delivers to the nearest listening
+  ancestor and names both the node hit (`target`) and the listener
+  (`current`). A select's `options` are its `option` children (through
+  `optgroup`), `value` attribute or text; `selected` is the one its value
+  names, else the first marked `selected`.
 - `outline` — the tree as text, a node a line: what the headless runner
   prints after each frame and the suite reads. `outline_styled` adds what
   each element's rules set (`style::describe`).
@@ -634,8 +641,11 @@ nothing hovers) and the cursor, the pressed element for `:active` with
 wheel to the innermost scroll container that can still move (what it does
 not use reaches the page), a drag inside a scroll area to that area — so a
 phone scrolls by touch — and focus both ways (`user_focus`, `user_blur`,
-and a field the app focused takes the keyboard). It returns whether the app
-has events waiting, which asks for the next frame. The immediate-mode
+and a field the app focused takes the keyboard). A field honours
+`disabled`, `readonly` and `maxlength`. A `select` is drawn closed — its
+choice and an arrow — and offers its options in an egui menu when tapped; a
+range follows the finger and says `change` when let go. It returns whether
+the app has events waiting, which asks for the next frame. The immediate-mode
 widgets of the same frame are drawn after it (`ShellApp::page`).
 
 ### `host/src/webview.rs` — module 1 (feature `webview`)
@@ -824,7 +834,10 @@ listener on the list hears every item's checkbox and button. Not in
 ### `mini-apps/probe/` — a test fixture, not an app
 A fixed page, and a field (node 2) whose text becomes its stylesheet, so the
 suite tries any CSS against the same tree with `--type "1:2=…" --styles`. A
-second field (node 25) takes a selector and logs what `query-all` finds.
+second field (node 25) takes a selector and logs what `query-all` finds; the
+button (node 20) logs `bounds`. Below, a form (node 26) — labels, a field,
+a checkbox in a label, a select, a range, a submit button, a disabled field
+— logs every `input`, `change` and `submit` it hears.
 
 ### `mini-apps/rates/` — the first real app
 Exchange rates from the Central Bank of Uzbekistan (`cbu.uz`) with a

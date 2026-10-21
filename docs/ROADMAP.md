@@ -298,7 +298,10 @@ headless flags, `todo`. D2 done — the CSS parser, the cascade, `query-all`,
 `--styles`, the `probe` fixture. D3 done — taffy layout with `calc()`, the
 display list, hit-testing to the run, the egui painter with Noto Sans bold;
 seen in the window under Xvfb (typing, ticking, deleting, `:hover`, a
-gradient card in a grid, a scrolling list). 148 assertions.
+gradient card in a grid, a scrolling list). D4 on the desktop — `select`,
+range, `label`, form `submit`, `disabled`/`readonly`/`maxlength`, focus and
+pointer events; the phone is still to see it (touch scrolling, the keyboard
+over a field). 155 assertions.
 
 ### D1 — The tree
 

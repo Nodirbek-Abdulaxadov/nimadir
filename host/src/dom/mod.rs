@@ -576,6 +576,11 @@ impl Document {
         match self.nodes.get(&id).map(|n| &n.kind) {
             Some(Kind::Element(e)) if e.is_toggle() => e.checked.to_string(),
             Some(Kind::Element(e)) if e.is_field() => e.value.clone(),
+            Some(Kind::Element(e)) if e.is_select() => self
+                .options(id)
+                .get(self.selected(id))
+                .map(|(v, _)| v.clone())
+                .unwrap_or_default(),
             Some(_) => self.text_content(id),
             None => String::new(),
         }
@@ -720,6 +725,11 @@ impl Document {
         }
     }
 
+    /// Whether `id` is disabled, itself or by something around it.
+    pub fn disabled(&self, id: NodeId) -> bool {
+        self.live_element(id).is_none()
+    }
+
     /// The nearest element at or above `id`, or `None` for a node that is
     /// gone or inside something disabled.
     fn live_element(&self, id: NodeId) -> Option<NodeId> {
@@ -763,8 +773,30 @@ impl Document {
                 }
                 return;
             }
-            if e.is_field() {
+            if e.is_field() || e.is_select() {
                 self.focus(n);
+                return;
+            }
+            // A label acts for its control: the one its `for` names, or the
+            // one inside it.
+            if e.tag == "label" {
+                let control = match e.attr("for") {
+                    Some(target) => self.element_by_id(target),
+                    None => self.first_control(n),
+                };
+                if let Some(c) = control.filter(|&c| c != n) {
+                    let ce = self.nodes[&c]
+                        .element()
+                        .cloned()
+                        .expect("a control is an element");
+                    if ce.is_checkbox() {
+                        self.toggle(c, !ce.checked);
+                    } else if ce.is_radio() && !ce.checked {
+                        self.toggle(c, true);
+                    } else if ce.is_focusable() {
+                        self.focus(c);
+                    }
+                }
                 return;
             }
             if e.tag == "a" {
@@ -774,10 +806,136 @@ impl Document {
                 return;
             }
             if e.tag == "button" {
+                // In a form, a button submits it unless it says otherwise.
+                let submits = !e
+                    .attr("type")
+                    .is_some_and(|t| t.eq_ignore_ascii_case("button"));
+                if submits && self.ancestor_tagged(n, "form").is_some() {
+                    self.dispatch("submit", n, "", 0.0, 0.0);
+                }
                 return;
             }
             at = self.nodes.get(&n).and_then(|node| node.parent);
         }
+    }
+
+    /// The element whose `id` attribute is `target`, in the tree.
+    pub fn element_by_id(&self, target: &str) -> Option<NodeId> {
+        self.walk().into_iter().map(|(id, _)| id).find(|id| {
+            self.nodes[id]
+                .element()
+                .is_some_and(|e| e.attr("id") == Some(target))
+        })
+    }
+
+    /// The first control under `id`.
+    fn first_control(&self, id: NodeId) -> Option<NodeId> {
+        let mut stack: Vec<NodeId> = self.children(id).into_iter().rev().collect();
+        while let Some(n) = stack.pop() {
+            if self.nodes[&n].element().is_some_and(Element::is_focusable) {
+                return Some(n);
+            }
+            stack.extend(self.children(n).into_iter().rev());
+        }
+        None
+    }
+
+    /// The nearest element above `id` with this tag.
+    fn ancestor_tagged(&self, id: NodeId, tag: &str) -> Option<NodeId> {
+        let mut at = self.nodes.get(&id)?.parent;
+        while let Some(n) = at {
+            let node = self.nodes.get(&n)?;
+            if node.element().is_some_and(|e| e.tag == tag) {
+                return Some(n);
+            }
+            at = node.parent;
+        }
+        None
+    }
+
+    /// A `select`'s options as `(value, label)`: each `option` under it,
+    /// its `value` attribute or else its text.
+    pub fn options(&self, id: NodeId) -> Vec<(String, String)> {
+        let mut out = Vec::new();
+        let mut stack: Vec<NodeId> = self.children(id).into_iter().rev().collect();
+        while let Some(n) = stack.pop() {
+            match self.nodes[&n].element() {
+                Some(e) if e.tag == "option" => {
+                    let label = self.text_content(n).trim().to_string();
+                    let value = e
+                        .attr("value")
+                        .map_or_else(|| label.clone(), str::to_string);
+                    out.push((value, label));
+                }
+                Some(e) if e.tag == "optgroup" => stack.extend(self.children(n).into_iter().rev()),
+                _ => {}
+            }
+        }
+        out
+    }
+
+    /// Which option a `select` shows: the one its value names, else the
+    /// first marked `selected`, else the first.
+    pub fn selected(&self, id: NodeId) -> usize {
+        let Some(e) = self.nodes.get(&id).and_then(Node::element) else {
+            return 0;
+        };
+        let options = self.options(id);
+        if !e.value.is_empty() {
+            if let Some(i) = options.iter().position(|(v, _)| *v == e.value) {
+                return i;
+            }
+        }
+        let marked = self
+            .children(id)
+            .into_iter()
+            .filter(|c| self.nodes[c].element().is_some_and(|o| o.tag == "option"));
+        marked
+            .enumerate()
+            .find(|(_, c)| {
+                self.nodes[c]
+                    .element()
+                    .is_some_and(|o| o.attr("selected").is_some())
+            })
+            .map_or(0, |(i, _)| i)
+    }
+
+    /// The user picked option `index` of a `select`.
+    pub fn choose(&mut self, id: NodeId, index: usize) -> Result<(), Limit> {
+        let Some(value) = self.options(id).get(index).map(|(v, _)| v.clone()) else {
+            return Ok(());
+        };
+        if self.live_element(id) != Some(id) || self.value(id) == value {
+            return Ok(());
+        }
+        self.edit(id, |k| {
+            if let Some(e) = element_of(k) {
+                e.value = value.clone();
+            }
+        })?;
+        self.dispatch("input", id, &value, 0.0, 0.0);
+        self.dispatch("change", id, &value, 0.0, 0.0);
+        Ok(())
+    }
+
+    /// The user moved a range to `value`; `done` when they let go.
+    pub fn slide(&mut self, id: NodeId, value: &str, done: bool) -> Result<(), Limit> {
+        if self.live_element(id) != Some(id) {
+            return Ok(());
+        }
+        let moved = self.edit(id, |k| {
+            let e = element_of(k).expect("a range is an element");
+            let moved = e.value != value;
+            e.value = value.to_string();
+            moved
+        })?;
+        if moved == Some(true) {
+            self.dispatch("input", id, value, 0.0, 0.0);
+        }
+        if done {
+            self.dispatch("change", id, value, 0.0, 0.0);
+        }
+        Ok(())
     }
 
     /// A checkbox or radio set to `on` by the user, and told about it.
@@ -822,12 +980,15 @@ impl Document {
         let Some(id) = self.live_element(id) else {
             return Ok(());
         };
-        let is_field = self
-            .nodes
-            .get(&id)
-            .and_then(Node::element)
-            .is_some_and(Element::is_field);
-        if !is_field {
+        let Some(e) = self.nodes.get(&id).and_then(Node::element) else {
+            return Ok(());
+        };
+        if e.is_select() {
+            // A value typed into a select picks the option with it.
+            let at = self.options(id).iter().position(|(v, _)| v == text);
+            return at.map_or(Ok(()), |i| self.choose(id, i));
+        }
+        if !e.is_field() {
             return Ok(());
         }
         let changed = self.edit(id, |k| {
@@ -1097,7 +1258,7 @@ fn describe(e: &Element, focused: bool) -> String {
     if !attrs.is_empty() {
         out.push_str(&format!(" [{}]", attrs.join(" ")));
     }
-    if e.is_field() {
+    if e.is_field() || (e.is_select() && !e.value.is_empty()) {
         out.push_str(&format!(" value={:?}", e.value));
     }
     if e.is_toggle() {
@@ -1156,8 +1317,16 @@ impl Element {
         (self.tag == "input" && !self.is_toggle()) || self.tag == "textarea"
     }
 
+    pub fn is_select(&self) -> bool {
+        self.tag == "select"
+    }
+
     pub fn is_focusable(&self) -> bool {
-        self.is_field() || self.is_toggle() || self.tag == "button" || self.tag == "a"
+        self.is_field()
+            || self.is_toggle()
+            || self.is_select()
+            || self.tag == "button"
+            || self.tag == "a"
     }
 }
 

@@ -74,7 +74,11 @@ input, textarea {
   padding: 8px 10px; border: 1px solid var(--nimadir-border); border-radius: 8px;
   background: var(--nimadir-field); color: var(--nimadir-text); cursor: text;
 }
-input:focus, textarea:focus { border-color: var(--nimadir-accent); }
+input:focus, textarea:focus, select:focus { border-color: var(--nimadir-accent); }
+select {
+  padding: 8px 32px 8px 10px; border: 1px solid var(--nimadir-border); border-radius: 8px;
+  background: var(--nimadir-field); color: var(--nimadir-text); cursor: pointer;
+}
 input[type=checkbox], input[type=radio] {
   width: 18px; height: 18px; padding: 0; margin: 0 4px 0 0; cursor: pointer;
   border: 2px solid var(--nimadir-muted); border-radius: 4px;
@@ -449,7 +453,8 @@ pub fn default_display(tag: &str) -> Display {
         | "time" | "var" | "label" | "br" => Display::Inline,
         "button" | "input" | "textarea" | "select" | "img" | "progress" => Display::InlineBlock,
         "li" => Display::ListItem,
-        "head" | "script" | "style" | "template" | "title" | "meta" | "link" => Display::None,
+        "head" | "script" | "style" | "template" | "title" | "meta" | "link" | "option"
+        | "optgroup" => Display::None,
         _ => Display::Block,
     }
 }

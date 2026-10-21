@@ -63,6 +63,22 @@ pub enum Item {
         font: Font,
         multiline: bool,
         password: bool,
+        /// Not to be edited: `disabled`, or `readonly` — which still lets
+        /// the text be selected.
+        disabled: bool,
+        readonly: bool,
+        /// `maxlength`.
+        max_chars: Option<usize>,
+    },
+    /// A `select`, closed: the chosen option and an arrow; its options are
+    /// the renderer's to offer when it is tapped.
+    Select {
+        rect: Rect,
+        node: NodeId,
+        options: Vec<String>,
+        selected: usize,
+        font: Font,
+        disabled: bool,
     },
     /// A checkbox's tick or a radio's dot, inside its box.
     Check {
@@ -73,9 +89,15 @@ pub enum Item {
     },
     Range {
         rect: Rect,
+        node: NodeId,
         fraction: f32,
+        min: f32,
+        max: f32,
+        /// 0 for none.
+        step: f32,
         accent: Color,
         track: Color,
+        disabled: bool,
     },
     Progress {
         rect: Rect,
@@ -190,6 +212,17 @@ impl Item {
             Item::Field {
                 rect, node, value, ..
             } => format!("field #{node} {} {value:?}", at(rect)),
+            Item::Select {
+                rect,
+                node,
+                options,
+                selected,
+                ..
+            } => format!(
+                "select #{node} {} {:?}",
+                at(rect),
+                options.get(*selected).map_or("", String::as_str)
+            ),
             Item::Check {
                 rect,
                 checked,
@@ -396,9 +429,14 @@ fn control(
             };
             out.push(Item::Range {
                 rect: content,
+                node: id,
                 fraction,
+                min,
+                max,
+                step: num("step", 1.0).max(0.0),
                 accent: accent(s).faded(opacity),
                 track: s.color.faded(0.25 * opacity),
+                disabled: doc.disabled(id),
             });
         }
         "input" | "textarea" => out.push(Item::Field {
@@ -409,6 +447,21 @@ fn control(
             font: fade_font(s, opacity),
             multiline: e.tag == "textarea",
             password: e.input_type() == "password",
+            disabled: doc.disabled(id),
+            readonly: e.attr("readonly").is_some(),
+            max_chars: e.attr("maxlength").and_then(|m| m.trim().parse().ok()),
+        }),
+        "select" => out.push(Item::Select {
+            rect: content,
+            node: id,
+            options: doc
+                .options(id)
+                .into_iter()
+                .map(|(_, label)| label)
+                .collect(),
+            selected: doc.selected(id),
+            font: fade_font(s, opacity),
+            disabled: doc.disabled(id),
         }),
         "progress" => {
             let num = |k: &str| e.attr(k).and_then(|v| v.trim().parse::<f32>().ok());
@@ -433,7 +486,6 @@ fn control(
         }
         _ => {}
     }
-    let _ = doc;
 }
 
 /// The host's accent, as the element's variables have it.

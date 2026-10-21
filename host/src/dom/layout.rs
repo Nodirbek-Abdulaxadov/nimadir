@@ -531,7 +531,7 @@ impl Tree<'_> {
         _item: bool,
     ) -> usize {
         let e = doc.nodes[&id].element().expect("an element");
-        let replaced = replaced(e, s, images);
+        let replaced = replaced(doc, id, e, s, images);
         let mut ts = self.taffy_style(s);
         if let Replaced::Image { w, h } = replaced {
             if s.aspect_ratio.is_none() && w > 0.0 && h > 0.0 {
@@ -1076,9 +1076,28 @@ fn is_leaf_control(e: &super::Element) -> bool {
     )
 }
 
-fn replaced(e: &super::Element, s: &Style, images: &dyn Fn(u32) -> Option<(f32, f32)>) -> Replaced {
+fn replaced(
+    doc: &Document,
+    id: NodeId,
+    e: &super::Element,
+    s: &Style,
+    images: &dyn Fn(u32) -> Option<(f32, f32)>,
+) -> Replaced {
     let line = s.line_height.px(s.font_size);
     match e.tag.as_str() {
+        // As wide as its longest option, roughly; the arrow is in its padding.
+        "select" => Replaced::Field {
+            lines: 1.0,
+            line,
+            width: doc
+                .options(id)
+                .iter()
+                .map(|(_, label)| label.chars().count())
+                .max()
+                .unwrap_or(4) as f32
+                * s.font_size
+                * 0.55,
+        },
         "img" => match e
             .attr("src")
             .and_then(|v| v.trim().parse::<u32>().ok())

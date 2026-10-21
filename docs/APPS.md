@@ -112,9 +112,9 @@ system's light or dark theme, so an app that uses them does too. The headless
 runner prints the page, each element's computed style (`--styles`), its
 layout (`--boxes`) and what would be drawn (`--paint`), and clicks by node
 (`--click "1:7"`). The window lays it out — block, flex, grid, absolute
-positioning, `calc()` — and draws it natively, scroll containers and all.
-Forms of their own (`<select>`), transitions and transforms are still to
-come (`docs/ROADMAP.md`, *Road to 1.1*). `mini-apps/todo` is a whole app
+positioning, `calc()` — and draws it natively, scroll containers and
+forms included (`select`, `label`, range, `disabled`). Markup, transitions
+and transforms are still to come (`docs/ROADMAP.md`, *Road to 1.1*). `mini-apps/todo` is a whole app
 written this way.
 
 ## What an app may do, and how it asks

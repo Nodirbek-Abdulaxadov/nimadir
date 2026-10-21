@@ -36,6 +36,10 @@ The native DOM (ADR-4, `docs/ROADMAP.md` *Road to 1.1*).
   and `:focus` follow the pointer and the keyboard; a tap on a link inside a
   paragraph lands on the link. `bounds` answers.
 - Headless `--boxes` and `--paint` print the layout and what would be drawn.
+- **Forms**: `select` with `option`s (a menu when tapped), a range that
+  follows the finger, `label` acting for its control, a `button` in a `form`
+  submitting it, `disabled`, `readonly` and `maxlength`; `focus` and `blur`
+  events.
 - Headless `--styles` prints each element's computed style; `--dark`,
   `--touch` and `--viewport` set what the page is styled for.
 
