@@ -1,9 +1,11 @@
 # Beta checklist — 1.0.0-beta.1
 
 The exit criteria from `docs/ROADMAP.md`, against the tree on 2026-10-21.
-**Not tagged yet**: Pages must be switched on, and D2 decided. The rest was
-built and run on one Linux desktop, one Android 16 phone, and CI (Linux,
-macOS, Windows, Android); "unverified" means not run anywhere yet.
+**Tagged 2026-10-21**, ahead of three of the owner's steps below: until Pages
+is switched on, a fresh install has only its built-in store, and without D2
+the `.dmg` is unsigned. The rest was built and run on one Linux desktop, one
+Android 16 phone, and CI (Linux, macOS, Windows, Android); "unverified"
+means not run anywhere yet.
 
 | # | Criterion | Status |
 |---|---|---|
@@ -12,7 +14,7 @@ macOS, Windows, Android); "unverified" means not run anywhere yet.
 | 3 | **Real apps** — data kept, network declared, real layout, the user decides | **Met.** Storage (ADR-2), `fetch` (ADR-3) with grants, groups and widgets, images; `rates` uses all of it against the real cbu.uz. |
 | 4 | **Outside developers** | **Met for Rust and C#** (`nimadir new/build/run/check`, `docs/APPS.md`); the Python template builds only in CI, **unverified** here. |
 | 5 | **Stable contract** | **Met.** `nimadir:shell@1.0.0`, additive-only by minor versions; a newer app is refused with the functions it lacks named. |
-| 6 | **CI on every PR** | **Met** (2026-10-21, on pushes to `main`): fmt and clippy, the suite on Linux, macOS and Windows (120 passed each), the Android build, and the C#/Python job are green. The first run failed on macOS (bash 3.2; NativeAOT-LLVM has no macOS build) and on the webview build's dead code; all fixed. |
+| 6 | **CI on every PR** | **Met** (2026-10-21, on pushes to `main`): fmt and clippy, the suite on Linux, macOS and Windows (120 passed each), the Android build, and the C#/Python job are green. One run of the C#/Python job hung (below); its rerun passed. The first run failed on macOS (bash 3.2; NativeAOT-LLVM has no macOS build) and on the webview build's dead code; all fixed. |
 | 7 | **Bounded** | **Met.** Time, memory, output, nesting, image size, downloads, network; idle and background drawing; the security review's four fixes. |
 
 ## Known gaps carried into beta
@@ -33,9 +35,13 @@ macOS, Windows, Android); "unverified" means not run anywhere yet.
 - **An activity the system destroys while the process lives hangs**
   (developer option "Don't keep activities"): winit does not end its loop on
   `Destroy` (`ARCHITECTURE.md` §4.12).
+- **One CI hang, not understood** (2026-10-21): the C#/Python job's suite
+  ran into the job's 45-minute limit once, and no log was kept; the rerun on
+  the same commit passed in six minutes. The suite step now has a limit of
+  its own, so the next hang keeps its log and names the check.
 - See `docs/SECURITY-REVIEW.md` for accepted residual risks.
 
-## Before tagging — the owner's steps
+## The owner's steps
 
 1. ~~Push and let CI run~~ — done 2026-10-21; green on every job.
 2. **Switch on GitHub Pages** (Settings → Pages → Source: GitHub Actions), so
@@ -46,7 +52,8 @@ macOS, Windows, Android); "unverified" means not run anywhere yet.
 4. ~~Plug in the phone and run the smoke test~~ — done 2026-10-21 on an
    Android 16 phone; run it again on any other device you can.
 5. Decide **D2** (Apple signing). Without it the `.dmg` is unsigned.
-6. Then:
+6. ~~Tag~~ — `v1.0.0-beta.1`, 2026-10-21, ahead of 2, 3 and 5. The release
+   is a draft until published by hand:
 
 ```bash
 git tag -a v1.0.0-beta.1 -m "nimadir 1.0.0-beta.1"

@@ -61,7 +61,11 @@ jobs:
             mini-apps/store
             mini-apps/runaway
       - run: ./build-mini-apps.sh
+      # Its own limit, under the job's: a check that hangs then fails this step
+      # with the log kept, naming the last check that passed. Run into the
+      # job's limit instead, a hang left no log at all (2026-10-21).
       - run: ./run-tests.sh
+        timeout-minutes: 30
 
   # Desktop and Android are equal targets (ARCHITECTURE.md §5): every change has
   # to build for the phone too. Nothing runs here — that takes a device
@@ -116,7 +120,9 @@ jobs:
       - run: ./build-mini-apps.sh
       # Fail rather than quietly skip: this job exists to run them.
       - run: test -f mini-apps/counter-cs/counter-cs.component.wasm && test -f mini-apps/counter-py/counter-py.component.wasm
+      # Under the job's limit, as in `suite`.
       - run: ./run-tests.sh
+        timeout-minutes: 30
       # The templates `nimadir new` writes for the other two languages: made,
       # built and run, as a developer would.
       - name: C# and Python templates
