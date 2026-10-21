@@ -24,6 +24,7 @@ pub mod resolve;
 pub mod settings;
 pub mod shell;
 mod storage;
+pub mod tabs;
 pub mod text;
 pub mod ui;
 pub mod update;

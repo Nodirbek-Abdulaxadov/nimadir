@@ -383,8 +383,9 @@ fn install_fonts(ctx: &egui::Context) {
 /// are all different widths reads as a mistake, not as a layout.
 const TILE: egui::Vec2 = egui::vec2(196.0, 104.0);
 
-struct ShellApp {
-    shell: Shell,
+/// What the window keeps for one tab (ADR-5), parked with it when another
+/// is shown: the page's widget buffers, its images, where it was scrolled.
+struct TabUi {
     /// Buttons clicked during the previous egui frame, fed to the guest next.
     pending_clicks: HashSet<u32>,
     /// Text fields submitted during the previous frame, fed to the guest next.
@@ -394,22 +395,48 @@ struct ShellApp {
     /// Guest images uploaded to the GPU, by `Picture::id`. Kept while drawn;
     /// one not drawn in a frame is dropped, with the app it belonged to.
     textures: HashMap<u64, egui::TextureHandle>,
-    /// The images drawn in the current frame.
-    textures_used: HashSet<u64>,
     /// Live contents of the guest's text fields, by index. The host owns these
     /// buffers; the guest is told what is in them one frame later.
     field_values: HashMap<u32, String>,
-    /// Address bar contents.
-    address: String,
-    /// The address the bar was last synced to, so navigation can refresh it
-    /// without overwriting what the user is in the middle of typing.
-    synced_src: String,
     /// The app the page's scroll position belongs to; another app starts at
     /// the top.
     scrolled_for: String,
     /// Whether the page was taller than its area at the end of the last
     /// frame: what egui's scroll area reads, a frame late, to take a drag.
     page_overflows: bool,
+    /// Keys the page's scroll area, so each tab keeps where it was scrolled.
+    id: u64,
+}
+
+impl Default for TabUi {
+    fn default() -> Self {
+        static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+        TabUi {
+            pending_clicks: HashSet::new(),
+            pending_submits: HashSet::new(),
+            dom: crate::gui_dom::DomView::default(),
+            textures: HashMap::new(),
+            field_values: HashMap::new(),
+            scrolled_for: String::new(),
+            page_overflows: false,
+            id: NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed),
+        }
+    }
+}
+
+struct ShellApp {
+    shell: Shell,
+    /// The shown tab's window state; the parked tabs' are in `tabs`.
+    tab: TabUi,
+    /// The tabs not shown (ADR-5).
+    tabs: crate::tabs::Tabs<TabUi>,
+    /// The images drawn in the current frame.
+    textures_used: HashSet<u64>,
+    /// Address bar contents.
+    address: String,
+    /// The address the bar was last synced to, so navigation can refresh it
+    /// without overwriting what the user is in the middle of typing.
+    synced_src: String,
     /// Last title pushed to the OS window, so we only send it on change.
     last_title: String,
     /// The live webview, when a page is open. `None` at every other moment —
@@ -460,16 +487,11 @@ impl ShellApp {
     fn new(shell: Shell) -> Self {
         ShellApp {
             shell,
-            pending_clicks: HashSet::new(),
-            pending_submits: HashSet::new(),
-            dom: crate::gui_dom::DomView::default(),
-            textures: HashMap::new(),
+            tab: TabUi::default(),
+            tabs: crate::tabs::Tabs::default(),
             textures_used: HashSet::new(),
-            field_values: HashMap::new(),
             address: String::new(),
             synced_src: String::new(),
-            scrolled_for: String::new(),
-            page_overflows: false,
             last_title: String::new(),
             #[cfg(feature = "webview")]
             web: None,
@@ -609,9 +631,9 @@ impl ShellApp {
     /// not close itself because a mouse button was pressed.
     fn go_back(&mut self, ctx: &egui::Context) {
         // Input aimed at the page being left goes nowhere.
-        self.pending_clicks.clear();
-        self.pending_submits.clear();
-        self.field_values.clear();
+        self.tab.pending_clicks.clear();
+        self.tab.pending_submits.clear();
+        self.tab.field_values.clear();
         let nowhere = !self.shell.back();
         // To the background, not closed: see `android::to_background`.
         #[cfg(target_os = "android")]
@@ -683,6 +705,8 @@ impl eframe::App for ShellApp {
         // Has anything we asked for arrived? Cheap, and does nothing when
         // nothing is in flight.
         self.shell.poll();
+        // A registry that reached the shown tab reaches the parked ones.
+        self.tabs.share_registry(&self.shell);
 
         // winit reports no system theme on Android, so egui would always use
         // the fallback; the activity's configuration says which it should be,
@@ -708,6 +732,27 @@ impl eframe::App for ShellApp {
         if ui.ctx().input(|i| i.key_pressed(egui::Key::BrowserBack)) {
             self.go_back(ui.ctx());
         }
+        // A browser's keys for tabs, taken before any field can have them.
+        let (open, close, prev, next) = ui.ctx().input_mut(|i| {
+            use egui::{Key, Modifiers};
+            (
+                i.consume_key(Modifiers::COMMAND, Key::T),
+                i.consume_key(Modifiers::COMMAND, Key::W),
+                i.consume_key(Modifiers::COMMAND | Modifiers::SHIFT, Key::Tab),
+                i.consume_key(Modifiers::COMMAND, Key::Tab),
+            )
+        });
+        if open {
+            self.open_tab();
+        }
+        if close {
+            self.close_tab(self.tabs.shown());
+        }
+        if prev || next {
+            self.tabs
+                .cycle(&mut self.shell, &mut self.tab, if prev { -1 } else { 1 });
+            self.after_tab_change();
+        }
 
         self.sync_window_title(ui);
 
@@ -715,7 +760,8 @@ impl eframe::App for ShellApp {
         ui.scope_builder(egui::UiBuilder::new().max_rect(safe), |ui| {
             // A separator under nothing is just a line across the top of the
             // page, so the start page — which draws no chrome — gets none.
-            let drew = self.chrome(ui);
+            let strip = self.tab_strip(ui);
+            let drew = self.chrome(ui) || strip;
             let loading = self.loading_bar(ui);
             if drew || loading {
                 ui.separator();
@@ -738,12 +784,12 @@ impl eframe::App for ShellApp {
                     let here = self.shell.location().map(|(_, src)| src.to_string());
                     let here = here.unwrap_or_default();
                     let mut area = egui::ScrollArea::vertical()
-                        .id_salt("page")
+                        .id_salt(("page", self.tab.id))
                         .scroll_source(scroll_source())
                         .auto_shrink([false, false]);
-                    if here != self.scrolled_for {
+                    if here != self.tab.scrolled_for {
                         area = area.vertical_scroll_offset(0.0);
-                        self.scrolled_for = here;
+                        self.tab.scrolled_for = here;
                     }
                     let out = area.show(ui, |ui| self.page(ui));
                     // egui lets a drag scroll the page only once a frame has
@@ -751,8 +797,8 @@ impl eframe::App for ShellApp {
                     // when something happens: without one more frame, the
                     // first swipe on a page just opened did not scroll it.
                     let overflows = out.content_size.y > out.inner_rect.height();
-                    if overflows != self.page_overflows {
-                        self.page_overflows = overflows;
+                    if overflows != self.tab.page_overflows {
+                        self.tab.page_overflows = overflows;
                         ui.ctx().request_repaint();
                     }
                 }
@@ -952,6 +998,8 @@ impl ShellApp {
 
         let mut go_back = false;
         let mut go_forward = false;
+        let mut new_tab = false;
+        let one_tab = self.tabs.len() == 1;
         let mut go_home = false;
         let mut reload = false;
         let mut nav: Option<Nav> = None;
@@ -977,6 +1025,15 @@ impl ShellApp {
                 }
                 if ui.button(t(lang, Text::Reload)).clicked() {
                     reload = true;
+                }
+                // With one tab there is no strip to hold `+`.
+                if one_tab
+                    && ui
+                        .button("+")
+                        .on_hover_text(t(lang, Text::NewTab))
+                        .clicked()
+                {
+                    new_tab = true;
                 }
             }
             // On a phone the buttons leave too little for an address anyone
@@ -1054,24 +1111,27 @@ impl ShellApp {
         if go_back {
             self.go_back(ui.ctx());
         }
+        if new_tab {
+            self.open_tab();
+        }
         if go_forward {
             // Input aimed at the page being left goes nowhere.
-            self.pending_clicks.clear();
-            self.pending_submits.clear();
-            self.field_values.clear();
+            self.tab.pending_clicks.clear();
+            self.tab.pending_submits.clear();
+            self.tab.field_values.clear();
             self.shell.forward();
         }
         if reload {
-            self.pending_clicks.clear();
-            self.pending_submits.clear();
-            self.field_values.clear();
+            self.tab.pending_clicks.clear();
+            self.tab.pending_submits.clear();
+            self.tab.field_values.clear();
             self.shell.reload();
         }
         if go_home {
             // Drop any input aimed at the app we just left.
-            self.pending_clicks.clear();
-            self.pending_submits.clear();
-            self.field_values.clear();
+            self.tab.pending_clicks.clear();
+            self.tab.pending_submits.clear();
+            self.tab.field_values.clear();
             self.shell.go_home();
         }
         if let Some(n) = nav {
@@ -1129,9 +1189,9 @@ impl ShellApp {
 
     /// Perform a navigation requested by the chrome or a home-screen link.
     fn navigate(&mut self, nav: Nav) {
-        self.pending_clicks.clear();
-        self.pending_submits.clear();
-        self.field_values.clear();
+        self.tab.pending_clicks.clear();
+        self.tab.pending_submits.clear();
+        self.tab.field_values.clear();
         let (src, title) = match nav {
             Nav::Listed { src, title } => (src, title),
             // Typed text only becomes an address here, so the address bar and
@@ -1295,14 +1355,99 @@ impl ShellApp {
     #[cfg(not(feature = "webview"))]
     fn close_web(&mut self) {}
 
+    /// The tabs (ADR-5), once there is more than one: each its title, to
+    /// show it, and × to close it; and `+` for another. A strip that
+    /// scrolls sideways, so a phone fits as many as a desktop.
+    fn tab_strip(&mut self, ui: &mut egui::Ui) -> bool {
+        if self.tabs.len() < 2 {
+            return false;
+        }
+        let lang = self.lang;
+        let labels = self.tabs.labels(&self.shell);
+        let mut show = None;
+        let mut close = None;
+        let mut open = false;
+        egui::ScrollArea::horizontal()
+            .id_salt("tabs")
+            .scroll_source(scroll_source())
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    for (i, l) in labels.iter().enumerate() {
+                        let title = if l.title.is_empty() {
+                            t(lang, Text::Home).to_string()
+                        } else {
+                            l.title.clone()
+                        };
+                        // A tab is a title, not a paragraph: a long one is cut.
+                        let mut short: String = title.chars().take(18).collect();
+                        if short.chars().count() < title.chars().count() {
+                            short.push('…');
+                        }
+                        if l.loading {
+                            short.push_str(" ·");
+                        }
+                        if ui.selectable_label(l.shown, short).clicked() {
+                            show = Some(i);
+                        }
+                        if ui
+                            .small_button("×")
+                            .on_hover_text(t(lang, Text::CloseTab))
+                            .clicked()
+                        {
+                            close = Some(i);
+                        }
+                    }
+                    if self.tabs.len() < crate::tabs::MAX_TABS
+                        && ui
+                            .button("+")
+                            .on_hover_text(t(lang, Text::NewTab))
+                            .clicked()
+                    {
+                        open = true;
+                    }
+                });
+            });
+        if let Some(i) = close {
+            self.close_tab(i);
+        } else if let Some(i) = show {
+            self.tabs.show(&mut self.shell, &mut self.tab, i);
+            self.after_tab_change();
+        } else if open {
+            self.open_tab();
+        }
+        true
+    }
+
+    /// A new tab on the start page, shown.
+    fn open_tab(&mut self) {
+        if self.tabs.open(&mut self.shell, &mut self.tab) {
+            self.after_tab_change();
+        }
+    }
+
+    /// Close a tab, destroying its page; the last goes to the start page.
+    fn close_tab(&mut self, at: usize) {
+        self.tabs.close(&mut self.shell, &mut self.tab, at);
+        self.after_tab_change();
+    }
+
+    /// Another tab is shown: the page area is another page's now.
+    fn after_tab_change(&mut self) {
+        // A parked web page keeps its address only: its webview goes.
+        self.close_web();
+        // The bar follows the tab shown.
+        self.synced_src.clear();
+        self.redraw = true;
+    }
+
     /// The page area: purely whatever the guest described this frame.
     fn page(&mut self, ui: &mut egui::Ui) {
         self.textures_used.clear();
-        let fields_before = self.field_values.clone();
+        let fields_before = self.tab.field_values.clone();
         let input = FrameInput {
-            clicked: std::mem::take(&mut self.pending_clicks),
-            edits: self.field_values.clone(),
-            submitted: std::mem::take(&mut self.pending_submits),
+            clicked: std::mem::take(&mut self.tab.pending_clicks),
+            edits: self.tab.field_values.clone(),
+            submitted: std::mem::take(&mut self.tab.pending_submits),
         };
 
         let cmds = match self.shell.frame(input) {
@@ -1316,32 +1461,32 @@ impl ShellApp {
         // A guest that asked to open another app has already been replaced by
         // it. Its widget state belongs to an instance that no longer exists.
         if self.shell.took_navigation() {
-            self.pending_clicks.clear();
-            self.pending_submits.clear();
-            self.field_values.clear();
-            self.dom.clear();
+            self.tab.pending_clicks.clear();
+            self.tab.pending_submits.clear();
+            self.tab.field_values.clear();
+            self.tab.dom.clear();
             return;
         }
 
         // The app's element tree (ADR-4), when it has built one; its
         // immediate-mode widgets follow it.
         if self.shell.document().is_some_and(|d| !d.is_empty())
-            && crate::gui_dom::show(ui, &mut self.shell, &mut self.dom, self.reveal_focus)
+            && crate::gui_dom::show(ui, &mut self.shell, &mut self.tab.dom, self.reveal_focus)
         {
             self.redraw = true;
         }
         self.draw_run(ui, &cmds);
         let used = &self.textures_used;
-        self.textures.retain(|id, _| used.contains(id));
+        self.tab.textures.retain(|id, _| used.contains(id));
 
         for l in self.shell.take_logs() {
             eprintln!("[wasm log] {l}");
         }
 
         // The guest hears about these next frame, so there has to be one.
-        if !self.pending_clicks.is_empty()
-            || !self.pending_submits.is_empty()
-            || self.field_values != fields_before
+        if !self.tab.pending_clicks.is_empty()
+            || !self.tab.pending_submits.is_empty()
+            || self.tab.field_values != fields_before
         {
             self.redraw = true;
         }
@@ -1412,7 +1557,7 @@ impl ShellApp {
             }
             UiCmd::Button { index, text } => {
                 if ui.button(text).clicked() {
-                    self.pending_clicks.insert(*index);
+                    self.tab.pending_clicks.insert(*index);
                 }
             }
             // A run of one still goes through the grid, so a lone tile is a
@@ -1464,10 +1609,10 @@ impl ShellApp {
                     }
                 });
                 if edited {
-                    self.field_values.insert(*index, value);
+                    self.tab.field_values.insert(*index, value);
                 }
                 if submitted {
-                    self.pending_submits.insert(*index);
+                    self.tab.pending_submits.insert(*index);
                 }
                 ui.add_space(10.0);
             }
@@ -1491,10 +1636,10 @@ impl ShellApp {
                         .margin(field_margin(ui)),
                 );
                 if resp.changed() {
-                    self.field_values.insert(*index, value);
+                    self.tab.field_values.insert(*index, value);
                 }
                 if submitted_by(ui, &resp) {
-                    self.pending_submits.insert(*index);
+                    self.tab.pending_submits.insert(*index);
                 }
                 if self.reveal_focus && resp.has_focus() {
                     resp.scroll_to_me(Some(egui::Align::Center));
@@ -1516,7 +1661,7 @@ impl ShellApp {
                     ui.checkbox(&mut on, text)
                 });
                 if resp.inner.clicked() {
-                    self.pending_clicks.insert(*index);
+                    self.tab.pending_clicks.insert(*index);
                 }
             }
             // A row of options rather than a dropdown: a popup is fiddly under
@@ -1544,7 +1689,7 @@ impl ShellApp {
                     .inner
                 };
                 if let Some(i) = picked {
-                    self.field_values.insert(*index, i.to_string());
+                    self.tab.field_values.insert(*index, i.to_string());
                 }
             }
             UiCmd::Separator => {
@@ -1556,7 +1701,7 @@ impl ShellApp {
             // Uploaded once and drawn by handle; at its own size where there
             // is room, scaled down where there is not, never up.
             UiCmd::Image(picture) => {
-                let texture = self.textures.entry(picture.id).or_insert_with(|| {
+                let texture = self.tab.textures.entry(picture.id).or_insert_with(|| {
                     ui.ctx().load_texture(
                         format!("guest-image-{}", picture.id),
                         egui::ColorImage::from_rgba_unmultiplied(
@@ -1601,7 +1746,7 @@ impl ShellApp {
                         continue;
                     };
                     if tile(ui, title, subtitle) {
-                        self.pending_clicks.insert(*index);
+                        self.tab.pending_clicks.insert(*index);
                     }
                 }
             });

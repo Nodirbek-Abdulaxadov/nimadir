@@ -31,7 +31,7 @@ use host::ui::{FrameInput, UiCmd};
 
 const USAGE: &str = "usage: nimadir-shell [<address> | <listed-app-name>] \
 [--list] [--headless] [--frames N] [--script \"frame:btn,...\"] \
-[--input \"frame:field=text\"] [--submit \"frame:field,...\"] [--back \"frame,...\"] [--forward \"frame,...\"] [--reload \"frame,...\"] [--confirm] \
+[--input \"frame:field=text\"] [--submit \"frame:field,...\"] [--back \"frame,...\"] [--forward \"frame,...\"] [--new-tab \"frame,...\"] [--tab \"frame:n,...\"] [--close-tab \"frame:n,...\"] [--reload \"frame,...\"] [--confirm] \
 [--click \"frame:node,...\"] [--type \"frame:node=text\"] [--enter \"frame:node,...\"] \
 [--styles] [--boxes] [--paint] [--a11y] [--dark] [--touch] [--viewport WxH] \
 [--registry <path-or-url>] [--timing] [--version]\n\
@@ -51,6 +51,11 @@ fn main() -> Result<()> {
     let mut inputs: Vec<String> = Vec::new();
     let mut backs = String::new();
     let mut forwards = String::new();
+    // Tabs (ADR-5): a new one at a frame, and which to show or close at a
+    // frame, numbered from 1 as the strip prints them.
+    let mut new_tabs = String::new();
+    let mut tab_shows = String::new();
+    let mut tab_closes = String::new();
     let mut reloads = String::new();
     let mut submits = String::new();
     // The element tree's equivalents (ADR-4), by node number rather than
@@ -152,6 +157,18 @@ fn main() -> Result<()> {
             "--forward" => {
                 i += 1;
                 forwards = args.get(i).cloned().unwrap_or_default();
+            }
+            "--new-tab" => {
+                i += 1;
+                new_tabs = args.get(i).cloned().unwrap_or_default();
+            }
+            "--tab" => {
+                i += 1;
+                tab_shows = args.get(i).cloned().unwrap_or_default();
+            }
+            "--close-tab" => {
+                i += 1;
+                tab_closes = args.get(i).cloned().unwrap_or_default();
             }
             // Repeatable, the lists joined: two of them should not mean
             // the second only.
@@ -280,6 +297,9 @@ fn main() -> Result<()> {
                 submits: &submits,
                 backs: &backs,
                 forwards: &forwards,
+                new_tabs: &new_tabs,
+                tab_shows: &tab_shows,
+                tab_closes: &tab_closes,
                 reloads: &reloads,
                 dom_clicks: &dom_clicks,
                 dom_typed: &dom_typed,
@@ -348,6 +368,9 @@ struct Harness<'a> {
     submits: &'a str,
     backs: &'a str,
     forwards: &'a str,
+    new_tabs: &'a str,
+    tab_shows: &'a str,
+    tab_closes: &'a str,
     reloads: &'a str,
     dom_clicks: &'a str,
     dom_typed: &'a [String],
@@ -371,6 +394,9 @@ fn run_headless(mut shell: Shell, h: &Harness) -> Result<()> {
         submits,
         backs,
         forwards,
+        new_tabs,
+        tab_shows,
+        tab_closes,
         reloads,
         dom_clicks,
         dom_typed,
@@ -416,6 +442,22 @@ fn run_headless(mut shell: Shell, h: &Harness) -> Result<()> {
         .split(',')
         .filter_map(|f| f.trim().parse().ok())
         .collect();
+    let new_tabs: HashSet<usize> = new_tabs
+        .split(',')
+        .filter_map(|f| f.trim().parse().ok())
+        .collect();
+    // "frame:n" pairs, n counted from 1.
+    let pairs = |s: &str| -> Vec<(usize, usize)> {
+        s.split(',')
+            .filter_map(|p| {
+                let (f, n) = p.split_once(':')?;
+                Some((f.trim().parse().ok()?, n.trim().parse().ok()?))
+            })
+            .collect()
+    };
+    let tab_shows = pairs(tab_shows);
+    let tab_closes = pairs(tab_closes);
+    let mut tabs: host::tabs::Tabs<HashMap<u32, String>> = host::tabs::Tabs::default();
 
     // Text fields keep their contents between frames, the way the window
     // backend's live buffers do; `--input` sets a value at a frame and it
@@ -425,6 +467,43 @@ fn run_headless(mut shell: Shell, h: &Harness) -> Result<()> {
     println!("\n=== headless run: {frames} frames ===");
 
     for frame in 0..frames {
+        // Tabs first: what is typed and clicked this frame goes to the tab
+        // shown after them.
+        let mut tabbed = false;
+        if new_tabs.contains(&frame) {
+            if tabs.open(&mut shell, &mut edits) {
+                shell.wait();
+            } else {
+                println!("\n[tabs] {} already: no more", host::tabs::MAX_TABS);
+            }
+            tabbed = true;
+        }
+        for &(_, n) in tab_shows.iter().filter(|(f, _)| *f == frame) {
+            tabs.show(&mut shell, &mut edits, n.saturating_sub(1));
+            shell.wait();
+            tabbed = true;
+        }
+        for &(_, n) in tab_closes.iter().filter(|(f, _)| *f == frame) {
+            tabs.close(&mut shell, &mut edits, n.saturating_sub(1));
+            shell.wait();
+            tabbed = true;
+        }
+        if tabbed {
+            let strip: Vec<String> = tabs
+                .labels(&shell)
+                .iter()
+                .enumerate()
+                .map(|(i, l)| {
+                    let title = if l.title.is_empty() {
+                        "start"
+                    } else {
+                        &l.title
+                    };
+                    format!("{}{} {title}", if l.shown { "*" } else { "" }, i + 1)
+                })
+                .collect();
+            println!("\n[tabs] {}", strip.join(" | "));
+        }
         if reloads.contains(&frame) {
             edits.clear();
             shell.reload();

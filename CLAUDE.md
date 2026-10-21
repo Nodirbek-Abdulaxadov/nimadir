@@ -131,7 +131,8 @@ Settings from the command line: `--kept`, `--clear <publisher>/<name>`,
 Headless flags: `--frames N`, `--script "frame:tap,…"` (inject taps: buttons, tiles,
 checkboxes share one index space), `--submit "frame:field,…"` (Enter on a field),
 `--input "frame:field=text"` (repeatable; set a value: text, or a choice's option
-number), `--back "frame,…"`, `--forward "frame,…"`
+number), `--back "frame,…"`, `--forward "frame,…"`, `--new-tab "frame,…"`,
+`--tab "frame:n"`, `--close-tab "frame:n"` (tabs, ADR-5, numbered from 1)
 (press Back before those frames), `--reload "frame,…"`, `--confirm` (say yes when an app asks to open an
 unlisted address), `--timing` (how long the guest's frames took),
 `--registry <path-or-url>`. For an app on the element tree (ADR-4):

@@ -17,7 +17,7 @@ use std::path::Path;
 use serde::Deserialize;
 
 /// One entry on the home screen.
-#[derive(Clone, Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct AppEntry {
     pub name: String,
     /// File path or http(s) URL of the `.wasm`.

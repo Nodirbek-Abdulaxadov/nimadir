@@ -570,11 +570,34 @@ is used.
   anything else passes through unchanged. **Both the CLI and the address bar go
   through this**, so `counter` means the same thing in either place.
 
+### `host/src/tabs.rs` — tabs (ADR-5)
+- `Tabs<U>` — the parked tabs, each a `Shell` and the front end's state for
+  it (`U`), with a hole where the shown one is: the shown tab's `Shell` is
+  the caller's own, so everything that drives "the shell" drives the shown
+  tab unchanged, and `open`, `show`, `cycle` and `close` swap one in. A
+  parked app is never called. `close` destroys; the last tab is never
+  closed but sent to the start page afresh.
+- `budget` — parked apps' guest memory (`MiniApp::memory_bytes`, from the
+  limiter) past `PARKED_MEMORY` discards the one shown least recently:
+  `Shell::discard` drops the page and keeps its title and address, and
+  `Shell::reopen` opens it afresh when it is shown. `NIMADIR_PARKED_MEMORY`
+  lowers the limit for the suite.
+- `share_registry` — a refresh that reached the shown tab reaches the
+  parked ones (`Shell::share_registry`).
+- At most `MAX_TABS`; headless `--new-tab`, `--tab`, `--close-tab`, and a
+  `[tabs]` line after each.
+
 ### `host/src/gui.rs` — the egui backend (feature `gui`)
 Splits the window into two zones, and keeping them apart is the security story:
 
-- **Chrome** — `chrome` draws the Home button, the address bar, the title and
-  the status line; `home` draws the registry links. Host UI. The guest cannot
+- **Chrome** — `tab_strip` draws the tabs once there are two (a title to show
+  each, × to close it, `+`), sideways-scrolling so a phone fits them;
+  `chrome` draws the Home button, `+` while there is one tab, the address
+  bar, the title and the status line; `home` draws the registry links. Host
+  UI. A tab's window state — its widget buffers, images, where its page
+  was scrolled (`TabUi`, whose `id` keys the page's scroll area) — is
+  parked with it; showing another closes the webview. Ctrl+T, Ctrl+W and
+  Ctrl+(Shift+)Tab are taken before any field can have them. The guest cannot
   draw it, reach it, or know it exists. The address bar lives in the chrome
   rather than on the home screen because it is the entry point for both modules
   — you must be able to retype an address from inside an app.

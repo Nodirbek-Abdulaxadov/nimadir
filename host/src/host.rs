@@ -122,6 +122,9 @@ pub fn start_epoch_ticker(engine: &Engine) {
 #[derive(Default)]
 struct GuestLimits {
     memory_exceeded: bool,
+    /// The guest's linear memory, as last grown: what a parked tab holds
+    /// (ADR-5).
+    memory: usize,
 }
 
 impl ResourceLimiter for GuestLimits {
@@ -139,7 +142,11 @@ impl ResourceLimiter for GuestLimits {
             self.memory_exceeded = true;
             wasmtime::bail!("guest memory would exceed {MAX_GUEST_MEMORY} bytes");
         }
-        Ok(maximum.is_none_or(|max| desired <= max))
+        let ok = maximum.is_none_or(|max| desired <= max);
+        if ok {
+            self.memory = self.memory.max(desired);
+        }
+        Ok(ok)
     }
 
     fn table_growing(
@@ -812,6 +819,11 @@ impl MiniApp {
     ///
     /// `standing` is what the shell decided about the app from its manifest
     /// and signature: where its storage is kept, what network it declared.
+    /// The guest's linear memory, in bytes: what keeping it parked costs.
+    pub fn memory_bytes(&self) -> usize {
+        self.store.data().limits.memory
+    }
+
     pub fn load(
         engine: &Engine,
         wasm: &[u8],

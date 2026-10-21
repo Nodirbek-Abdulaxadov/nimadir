@@ -324,6 +324,48 @@ impl Shell {
         self.registry_rx.is_some()
     }
 
+    /// A new tab's shell (ADR-5): the same engine and registry, no page yet.
+    pub fn new_tab(&self) -> Shell {
+        Shell::new(self.engine.clone(), self.apps.clone())
+    }
+
+    /// The registry `other` has, if it is not this one's already: a refresh
+    /// that reached the shown tab reaches the parked ones too.
+    pub fn share_registry(&mut self, other: &Shell) {
+        if self.apps != other.apps {
+            self.install_registry(other.apps.clone());
+        }
+    }
+
+    /// Guest memory the page holds, in bytes; none for anything but an app.
+    pub fn memory_bytes(&self) -> usize {
+        match &self.view {
+            View::App { app, .. } => app.memory_bytes(),
+            _ => 0,
+        }
+    }
+
+    /// Drop the page, keeping only where it was (ADR-5: a parked tab
+    /// discarded under memory pressure). Back and Forward are kept.
+    pub fn discard(&mut self) -> Option<(String, String)> {
+        let (title, src) = self
+            .location()
+            .map(|(t, s)| (t.to_string(), s.to_string()))?;
+        self.view = View::Home;
+        self.pending = None;
+        self.asking = None;
+        Some((title, src))
+    }
+
+    /// Open afresh what `discard` dropped, remembering nothing new.
+    pub fn reopen(&mut self, title: &str, src: &str) {
+        if title == STORE_APP {
+            self.go_start();
+        } else {
+            self.start_stepped(src, title, Origin::Reload, Step::Same);
+        }
+    }
+
     fn install_registry(&mut self, mut apps: Vec<AppEntry>) {
         crate::registry::ensure_start_page(&mut apps);
         crate::diag::line(&format!("registry refreshed: {} entries", apps.len()));

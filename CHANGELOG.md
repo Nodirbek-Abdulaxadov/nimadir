@@ -18,6 +18,12 @@ beta is `docs/ROADMAP.md`.
   the registry gives them; the published registry carries each manifest's
   version.
 - `todo` is listed in the registry.
+- **Tabs** (ADR-5): a strip once there are two, `+` for a new one on the
+  start page, × to close, Ctrl+T, Ctrl+W and Ctrl+Tab on the desktop. A tab
+  not shown is parked: its app kept but never called, its webview closed.
+  At most eight; parked apps together keep at most 512 MiB, past which the
+  one shown least recently is discarded and opens afresh. Headless
+  `--new-tab`, `--tab`, `--close-tab`.
 - A screen reader can read a page on the tree (S9-4): each element has a
   role and a name, from its tag, `role`, `aria-label`, `aria-labelledby`,
   `alt`, its `<label>` or its text, with values, checked states and ranges;

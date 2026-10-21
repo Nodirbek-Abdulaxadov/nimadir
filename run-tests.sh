@@ -337,6 +337,21 @@ check "somewhere new forgets forward, as in a browser" "[forward] nothing to go 
   $HOST store --click "1:17" --back 3 --click "4:24" --forward 6 --frames 7
 
 echo
+echo "==> tabs (ADR-5)"
+check "a new tab opens on the start page, and the strip says so" "[tabs] 1 counter | *2 start" \
+  $HOST counter --new-tab 1 --frames 2
+check "a parked app is frozen, not destroyed: back to it, it still counts" '"Count: 2"' \
+  bash -c "$HOST counter --script 1:0,2:0 --new-tab 3 --tab 5:1 --frames 7 | sed -n '/\[tabs\] \*1/,\$p'"
+check "past the parked tabs' memory, the least recent is discarded and opens afresh" '"Count: 0"' \
+  bash -c "NIMADIR_PARKED_MEMORY=1 $HOST counter --script 1:0,2:0 --new-tab 3 --tab 5:1 --frames 7 | sed -n '/\[tabs\] \*1/,\$p'"
+check "closing a tab that is not shown keeps the one that is" "[tabs] 1 counter | *2 start" \
+  $HOST store --click 1:17 --new-tab 3,4 --close-tab 5:2 --frames 6
+check "closing the shown tab shows its neighbour" "[tabs] *1 counter" \
+  $HOST counter --new-tab 1 --close-tab 2:2 --frames 3
+check "no more than eight" "[tabs] 8 already: no more" \
+  $HOST counter --new-tab 1,2,3,4,5,6,7,8 --frames 9
+
+echo
 echo "==> 1.2: the clock, and what the registry says of an app"
 PROBE_APP=mini-apps/probe/probe.component.wasm
 check "the time zone, by its IANA name" 'probe: time zone "Asia/Tashkent"' \
