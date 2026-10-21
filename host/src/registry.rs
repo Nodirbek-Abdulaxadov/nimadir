@@ -306,7 +306,8 @@ pub fn normalize(input: &str) -> &str {
 /// Both the CLI and the address bar go through here, so typing `counter` means
 /// the same thing in either place. In order:
 ///
-///   1. a registry name    -> that entry's source (the "bookmark" case)
+///   1. a registry name    -> that entry's source (the "bookmark" case);
+///      a listed source   -> itself, titled by the entry's name
 ///   2. already a URL      -> untouched
 ///   3. an existing file   -> untouched
 ///   4. host-shaped        -> `https://` in front of it
@@ -318,7 +319,9 @@ pub fn normalize(input: &str) -> &str {
 pub fn resolve(input: &str, apps: &[AppEntry]) -> (String, String) {
     let cleaned = normalize(input);
 
-    if let Some(e) = apps.iter().find(|e| e.name == cleaned) {
+    // By name, or by where it lives — the store opens apps by their source,
+    // and a listed app is titled by its name either way, not by a path.
+    if let Some(e) = apps.iter().find(|e| e.name == cleaned || e.src == cleaned) {
         return (e.src.clone(), e.name.clone());
     }
     if looks_like_host(cleaned) {

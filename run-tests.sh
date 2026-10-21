@@ -312,7 +312,11 @@ check "back from an app the store opened returns to the store" "[back] now at st
   $HOST store --input "1:0=hell" --script "2:0" --back 4 --frames 6
 check "back from an app opened directly goes to the start page" "[back] now at store" \
   $HOST counter --back 1 --frames 2
-# On a phone this is what closes the app.
+# The store opens apps by their source; the title is still the app's name,
+# not a path (on a phone, one deep in private storage).
+check "an app the store opened is titled by its name" "[back] now at hello" \
+  $HOST store --script "1:1,3:1" --back 5 --frames 6
+# On a phone this is what sends the app to the background.
 check "back from the start page has nowhere to go" "[back] nothing to go back to" \
   $HOST store --back 1 --frames 2
 check "reload starts the app afresh" '"Count: 0"' \
