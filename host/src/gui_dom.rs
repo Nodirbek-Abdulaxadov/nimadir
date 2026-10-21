@@ -17,6 +17,7 @@ use egui::epaint::{CornerRadius, Mesh, RectShape, Shape, Stroke, StrokeKind, Tes
 use egui::text::{LayoutJob, TextFormat};
 use egui::{Color32, FontFamily, FontId, Pos2};
 
+use crate::dom::a11y::{Accessible, Role};
 use crate::dom::css::Env;
 use crate::dom::layout::{Align, Font, Fonts, Paragraph, Rect};
 use crate::dom::paint::Item;
@@ -243,6 +244,8 @@ pub fn show(ui: &mut egui::Ui, shell: &mut Shell, view: &mut DomView, reveal: bo
     let mut selects = Vec::new();
     let mut ranges = Vec::new();
     let mut used = HashSet::new();
+    let mut fields_drawn = HashSet::new();
+    let mut ranges_drawn = HashSet::new();
     for item in items {
         let clip = clips.last().copied().unwrap_or(base_clip);
         let painter = ui.painter().with_clip_rect(clip);
@@ -332,7 +335,10 @@ pub fn show(ui: &mut egui::Ui, shell: &mut Shell, view: &mut DomView, reveal: bo
                         Color32::WHITE.gamma_multiply(opacity),
                     );
             }
-            Item::Field { .. } => fields.push((item, clip)),
+            Item::Field { node, .. } => {
+                fields_drawn.insert(node);
+                fields.push((item, clip));
+            }
             Item::Select {
                 rect,
                 node,
@@ -419,6 +425,7 @@ pub fn show(ui: &mut egui::Ui, shell: &mut Shell, view: &mut DomView, reveal: bo
                 let r = to_screen(&rect);
                 if !disabled {
                     ranges.push((node, r, min, max, step, clip));
+                    ranges_drawn.insert(node);
                 }
                 // The thumb stays inside the box: the track is what is left
                 // of it once half a thumb is taken off each end.
@@ -497,6 +504,17 @@ pub fn show(ui: &mut egui::Ui, shell: &mut Shell, view: &mut DomView, reveal: bo
         want_focus = doc.focused;
         view.focus_seen = doc.focused;
     }
+    // Controls that are egui widgets of their own: a screen reader is told
+    // about them through those, not through a second node. Told before any
+    // of them is made, so the reader's tree is in the page's order, not in
+    // the order egui made its widgets (S9-4).
+    let widgets: HashSet<NodeId> = &(&fields_drawn | &ranges_drawn)
+        | &selects
+            .iter()
+            .filter(|s| !s.4)
+            .map(|s| s.0)
+            .collect::<HashSet<NodeId>>();
+    let told = tell_reader(ui, doc, resp.id, &to_screen, &widgets);
     for (item, clip) in fields {
         let Item::Field {
             rect,
@@ -731,7 +749,194 @@ pub fn show(ui: &mut egui::Ui, shell: &mut Shell, view: &mut DomView, reveal: bo
             }
         }
     }
+    // egui's widgets said what they are when made; what the page says of
+    // them is said last, so it stands.
+    told.finish(&ctx, resp.id);
     doc.has_events() || doc.wants_navigation()
+}
+
+/// The page as a screen reader has it (S9-4), handed to egui's accesskit
+/// tree, and what the reader asks of it done. Only while one is listening:
+/// egui keeps no tree otherwise, and this costs nothing. Fields, selects
+/// and ranges are egui widgets and are described on those, and again once
+/// egui has made them (`Told::finish`); everything else is a node of its
+/// own over where it is drawn.
+fn tell_reader(
+    ui: &mut egui::Ui,
+    doc: &mut crate::dom::Document,
+    page: egui::Id,
+    to_screen: &dyn Fn(&Rect) -> egui::Rect,
+    widgets: &HashSet<NodeId>,
+) -> Told {
+    use egui::accesskit::{Action, Role as Ak};
+    let ctx = ui.ctx().clone();
+    if ctx
+        .accesskit_node_builder(page, |n| n.set_role(Ak::Document))
+        .is_none()
+    {
+        return Told::default();
+    }
+    let mut told = Told::default();
+    let mut asked: Vec<(Accessible, Action)> = Vec::new();
+    for a in doc.accessible() {
+        let widget = widgets.contains(&a.node);
+        let id = match a.role {
+            Role::TextBox | Role::SearchBox | Role::Password if widget => {
+                egui::Id::new(("dom-field", a.node))
+            }
+            Role::ComboBox if widget => egui::Id::new(("dom-select", a.node)),
+            Role::Slider if widget => egui::Id::new(("dom-range", a.node)),
+            _ => egui::Id::new(("dom-a11y", a.node)),
+        };
+        // Made now, before egui makes any of the widgets.
+        let bounds = to_screen(&a.rect);
+        ctx.accesskit_node_builder(id, |n| {
+            describe(n, &a, widget);
+            n.set_bounds(egui::accesskit::Rect {
+                x0: bounds.min.x.into(),
+                y0: bounds.min.y.into(),
+                x1: bounds.max.x.into(),
+                y1: bounds.max.y.into(),
+            });
+        });
+        told.order.push(id);
+        for action in [Action::Click, Action::Increment, Action::Decrement] {
+            // A select's or a field's own click is egui's to answer.
+            let ours = !widget || action != Action::Click;
+            if ours && ui.input(|i| i.has_accesskit_action_request(id, action)) {
+                asked.push((a.clone(), action));
+            }
+        }
+        if widget {
+            told.widgets.push((id, a));
+        }
+    }
+    // Done after the tree is told, as a tap would be: the page changes next.
+    for (a, action) in asked {
+        match action {
+            Action::Click => doc.click(a.node, a.rect.w / 2.0, a.rect.h / 2.0),
+            Action::Increment | Action::Decrement => {
+                let step = doc
+                    .get_attribute(a.node, "step")
+                    .and_then(|s| s.trim().parse::<f64>().ok())
+                    .filter(|s| *s > 0.0)
+                    .unwrap_or(1.0);
+                if let Some((lo, hi, now)) = a.range {
+                    let next = if action == Action::Increment {
+                        now + step
+                    } else {
+                        now - step
+                    };
+                    let _ = doc.slide(a.node, &next.clamp(lo, hi).to_string(), true);
+                }
+            }
+            _ => {}
+        }
+        ctx.request_repaint();
+    }
+    told
+}
+
+/// What `tell_reader` made, to be finished once egui has made its widgets.
+#[derive(Default)]
+struct Told {
+    /// Every node, in the page's order.
+    order: Vec<egui::Id>,
+    /// Those that are egui widgets, to describe again after egui did.
+    widgets: Vec<(egui::Id, Accessible)>,
+}
+
+impl Told {
+    /// Say last what the page says of egui's widgets, so it stands; and put
+    /// every node under the page's, in the page's order. Made before their
+    /// widgets, they went to the tree's root — after everything else in the
+    /// window, so a reader came to the fields last.
+    fn finish(self, ctx: &egui::Context, page: egui::Id) {
+        if self.order.is_empty() {
+            return;
+        }
+        for (id, a) in &self.widgets {
+            ctx.accesskit_node_builder(*id, |n| describe(n, a, true));
+        }
+        let ours: HashSet<egui::accesskit::NodeId> =
+            self.order.iter().map(|id| id.accesskit_id()).collect();
+        ctx.accesskit_node_builder(egui::accesskit_root_id(), |root| {
+            let kept: Vec<_> = root
+                .children()
+                .iter()
+                .filter(|c| !ours.contains(c))
+                .copied()
+                .collect();
+            root.set_children(kept);
+        });
+        ctx.accesskit_node_builder(page, |p| {
+            for id in &self.order {
+                p.push_child(id.accesskit_id());
+            }
+        });
+    }
+}
+
+/// One element as accesskit has it: its role, its name, its state, and
+/// what a reader may do with it.
+fn describe(n: &mut egui::accesskit::Node, a: &Accessible, widget: bool) {
+    use egui::accesskit::{Action, Role as Ak, Toggled};
+    let role = match a.role {
+        Role::Heading(_) => Ak::Heading,
+        Role::Link => Ak::Link,
+        Role::Button => Ak::Button,
+        Role::TextBox => Ak::TextInput,
+        Role::SearchBox => Ak::SearchInput,
+        Role::Password => Ak::PasswordInput,
+        Role::CheckBox => Ak::CheckBox,
+        Role::Radio => Ak::RadioButton,
+        Role::Slider => Ak::Slider,
+        Role::ComboBox => Ak::ComboBox,
+        Role::Image => Ak::Image,
+        Role::List => Ak::List,
+        Role::ListItem => Ak::ListItem,
+        Role::ProgressBar => Ak::ProgressIndicator,
+        Role::Navigation => Ak::Navigation,
+        Role::Main => Ak::Main,
+        Role::Text => Ak::Label,
+    };
+    // A textarea keeps the multi-line role egui gives it.
+    if !(a.role == Role::TextBox && n.role() == Ak::MultilineTextInput) {
+        n.set_role(role);
+    }
+    // Text is read from its value, as accesskit has it; anything else is
+    // named by its label.
+    if a.role == Role::Text {
+        n.set_value(a.name.clone());
+    } else if !a.name.is_empty() {
+        n.set_label(a.name.clone());
+    }
+    // A widget's value is its own, kept current by egui.
+    if let (Some(v), false) = (&a.value, widget) {
+        n.set_value(v.clone());
+    }
+    if let Some(c) = a.checked {
+        n.set_toggled(if c { Toggled::True } else { Toggled::False });
+    }
+    if let Role::Heading(level) = a.role {
+        n.set_level(level as usize);
+    }
+    if let Some((lo, hi, now)) = a.range {
+        n.set_min_numeric_value(lo);
+        n.set_max_numeric_value(hi);
+        n.set_numeric_value(now);
+    }
+    if a.disabled {
+        n.set_disabled();
+    } else if matches!(
+        a.role,
+        Role::Link | Role::Button | Role::CheckBox | Role::Radio
+    ) {
+        n.add_action(Action::Click);
+    } else if a.role == Role::Slider {
+        n.add_action(Action::Increment);
+        n.add_action(Action::Decrement);
+    }
 }
 
 /// A range's thumb, for a box of `r`'s height.

@@ -87,7 +87,7 @@ impl Guest for Store {
              <h1 class=\"wordmark\">nimadir</h1>\
              <input type=\"search\" id=\"q\" placeholder=\"Search apps, or type an address\">\
              <p class=\"count\"></p>\
-             <a class=\"tile open\" id=\"open\" hidden><span class=\"badge\">&gt;</span>\
+             <a class=\"tile open\" id=\"open\" hidden><span class=\"badge\" aria-hidden=\"true\">&gt;</span>\
              <span class=\"name\">Open address</span><span class=\"about\"></span></a>\
              <div class=\"grid\"></div>\
              <p class=\"empty\" hidden></p>\
@@ -145,7 +145,7 @@ impl Page {
                 .next()
                 .map_or('?', |c| c.to_ascii_uppercase());
             markup.push_str(&format!(
-                "<a class=\"tile\" href=\"{}\"><span class=\"badge\" style=\"background: {}\">{}</span>\
+                "<a class=\"tile\" href=\"{}\"><span class=\"badge\" aria-hidden=\"true\" style=\"background: {}\">{}</span>\
                  <span class=\"name\">{}</span><span class=\"about\">{}</span></a>",
                 escape(&a.source),
                 badge(&a.name),

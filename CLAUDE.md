@@ -140,7 +140,7 @@ unlisted address), `--timing` (how long the guest's frames took),
 page as `[page] N nodes` and an outline (`#9 ul.list {click change}`).
 `--styles` adds each element's computed style (`#2 div.app | display: flex;
 gap: 16px`), `--boxes` its layout (`@16,74 300x39`, stand-in fonts, so the
-same everywhere), `--paint` the display list; `--dark`, `--touch`,
+same everywhere), `--paint` the display list, `--a11y` what a screen reader is told; `--dark`, `--touch`,
 `--viewport 360x640` set what the page is shown on. `mini-apps/probe` takes
 any stylesheet typed into node 2 (type it at frame 0 to see no frame without
 it).

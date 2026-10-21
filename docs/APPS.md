@@ -196,6 +196,21 @@ number from `image-load`, its `alt` kept), `a`. `disabled`, `readonly`,
 `maxlength`, `placeholder`, `checked`, `value`, `min`/`max`/`step` mean what
 they mean in HTML.
 
+### For someone who cannot see it
+
+A screen reader is told what each element is and what it is called, the way
+a browser tells one: the role from the tag (or `role`), the name from
+`aria-label`, `aria-labelledby`, an image's `alt`, a control's `<label>`, or
+the text of a link, button or heading. So give an image `alt` (`alt=""` for
+one that is decoration), a field a `<label>`, an icon-only button an
+`aria-label`, and hide what is only decoration with `aria-hidden="true"`.
+`--a11y` prints what a reader would get:
+
+```
+[a11y] #5 searchbox "Search apps, or type an address" = ""
+[a11y] #17 link "counter A counter; the count lives inside the guest."
+```
+
 ### Limits
 
 A page holds at most 65 536 nodes, 32 MiB of text, attributes and styles,
@@ -214,7 +229,8 @@ nimadir-shell app.wasm --paint        # what the window would draw
 ```
 
 `--styles` adds each element's computed style, `--boxes` its layout (with
-stand-in fonts, so the same on every machine), `--paint` the display list.
+stand-in fonts, so the same on every machine), `--paint` the display list,
+`--a11y` what a screen reader is told.
 
 An app may still draw `ui-*` widgets too: they follow the tree.
 

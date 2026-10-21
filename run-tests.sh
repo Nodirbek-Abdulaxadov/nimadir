@@ -444,6 +444,36 @@ check "bounds() answers from the last layout" 'bounds Some(Rect { x: 0.0, y: 82.
   $HOST $PROBE --click "1:20" --frames 2 --viewport 400x700
 
 echo
+echo "==> accessibility (S9-4)"
+# What a screen reader is told: a role and a name for each element, from its
+# tag, role, aria-*, alt and text — --a11y prints it, a line an element.
+check "a heading has its level" '[a11y] #3 heading 1 "nimadir"' \
+  $HOST store --frames 1 --a11y
+check "a field is named by its placeholder when nothing else names it" '[a11y] #5 searchbox "Search apps, or type an address" = ""' \
+  $HOST store --frames 1 --a11y
+check "a link is named by its text, aria-hidden left out, blocks apart" '[a11y] #17 link "counter A counter; the count lives inside the guest."' \
+  $HOST store --frames 1 --a11y
+check "a control is named by its label" '[a11y] #178 textbox "Name" = ""' \
+  $HOST mini-apps/showcase/showcase.component.wasm --click "1:31" --frames 2 --a11y
+check "a radio says whether it is chosen" '[a11y] #203 radio "Blue" (checked)' \
+  $HOST mini-apps/showcase/showcase.component.wasm --click "1:31" --frames 2 --a11y
+check "a range says its bounds and value" '[a11y] #196 slider "Text size: 15px" = "15" [12..24: 15]' \
+  $HOST mini-apps/showcase/showcase.component.wasm --click "1:31" --frames 2 --a11y
+check "an image is named by its alt" '[a11y] #232 image "Avatar"' \
+  $HOST mini-apps/showcase/showcase.component.wasm --click "1:31" --frames 2 --a11y
+ARIA='<img src=1 alt=""><p aria-hidden="true">secret</p><button aria-label="Close dialog">x</button><div role="checkbox" aria-checked="true">Wifi</div><h2 id=t>Prices</h2><input aria-labelledby="t"><input type=password placeholder="Password" value="hunter2">'
+check "aria-label names over the text" '[a11y] #49 button "Close dialog"' \
+  $HOST $PROBE --frames 1 --a11y --type "0:45=$ARIA"
+check "aria-labelledby names by another element's text" '[a11y] #55 textbox "Prices" = ""' \
+  $HOST $PROBE --frames 1 --a11y --type "0:45=$ARIA"
+check "a role makes an element a control, named by its text" '[a11y] #51 checkbox "Wifi" (checked)' \
+  $HOST $PROBE --frames 1 --a11y --type "0:45=$ARIA"
+check "a password's value is never read out" $'[a11y] #56 password "Password"\n' \
+  $HOST $PROBE --frames 1 --a11y --type "0:45=$ARIA"
+check_absent "aria-hidden and an empty alt leave an element out" '"secret"' \
+  bash -c "$HOST $PROBE --frames 1 --a11y --type '0:45=$ARIA' | grep '\[a11y\]' | grep -v ' #45 '"
+
+echo
 echo "==> forms (ADR-4)"
 # The probe's form logs what it hears: `form <kind> #<target> <value>`.
 check "a label acts for the control its for= names" '#29 input#name value="" (focused)' \

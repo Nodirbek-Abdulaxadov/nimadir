@@ -7,6 +7,15 @@ beta is `docs/ROADMAP.md`.
 
 ## [Unreleased]
 
+### Added
+- A screen reader can read a page on the tree (S9-4): each element has a
+  role and a name, from its tag, `role`, `aria-label`, `aria-labelledby`,
+  `alt`, its `<label>` or its text, with values, checked states and ranges;
+  `aria-hidden` and `alt=""` leave an element out. The window hands them to
+  accesskit in reading order, and a reader can press, pick and slide.
+  Headless `--a11y` prints it.
+- The store's cards hide their initial badge from a screen reader.
+
 ## [1.1.0-beta.1] — 2026-10-21
 
 The native DOM (ADR-4, `docs/ROADMAP.md` *Road to 1.1*): an app can describe

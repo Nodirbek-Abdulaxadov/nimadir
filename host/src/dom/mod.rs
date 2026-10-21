@@ -17,6 +17,7 @@ use std::collections::{HashMap, VecDeque};
 use std::hash::{BuildHasherDefault, Hasher};
 use std::sync::Arc;
 
+pub mod a11y;
 pub mod css;
 pub mod layout;
 pub mod markup;
@@ -1247,6 +1248,14 @@ impl Document {
     /// The last layout, whatever it was for.
     pub fn last_layout(&self) -> Option<&layout::Layout> {
         self.laid_out.as_ref().map(|l| &l.layout)
+    }
+
+    /// The last layout as a screen reader has it (S9-4).
+    pub fn accessible(&self) -> Vec<a11y::Accessible> {
+        match &self.laid_out {
+            Some(l) => a11y::tree(self, &l.layout),
+            None => Vec::new(),
+        }
     }
 
     /// The last layout as things to draw.

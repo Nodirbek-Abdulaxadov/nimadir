@@ -33,7 +33,7 @@ const USAGE: &str = "usage: nimadir-shell [<address> | <listed-app-name>] \
 [--list] [--headless] [--frames N] [--script \"frame:btn,...\"] \
 [--input \"frame:field=text\"] [--submit \"frame:field,...\"] [--back \"frame,...\"] [--reload \"frame,...\"] [--confirm] \
 [--click \"frame:node,...\"] [--type \"frame:node=text\"] [--enter \"frame:node,...\"] \
-[--styles] [--boxes] [--paint] [--dark] [--touch] [--viewport WxH] \
+[--styles] [--boxes] [--paint] [--a11y] [--dark] [--touch] [--viewport WxH] \
 [--registry <path-or-url>] [--timing] [--version]\n\
        nimadir-shell --kept | --clear <publisher>/<name> | --clear-cache | --check-update\n\
 an address is a .wasm component (path or URL) or a web page URL";
@@ -63,6 +63,7 @@ fn main() -> Result<()> {
     let mut styles = false;
     let mut boxes = false;
     let mut paint = false;
+    let mut a11y = false;
     let mut confirm = false;
     let mut timing = false;
     let mut registry_src: Option<String> = None;
@@ -165,6 +166,7 @@ fn main() -> Result<()> {
             "--styles" => styles = true,
             "--boxes" => boxes = true,
             "--paint" => paint = true,
+            "--a11y" => a11y = true,
             "--dark" => env.dark = true,
             "--touch" => env.hover = false,
             "--viewport" => {
@@ -280,6 +282,7 @@ fn main() -> Result<()> {
                 styles,
                 boxes,
                 paint,
+                a11y,
                 confirm,
                 timing,
             };
@@ -346,6 +349,8 @@ struct Harness<'a> {
     styles: bool,
     boxes: bool,
     paint: bool,
+    /// Print the page as a screen reader has it.
+    a11y: bool,
     confirm: bool,
     /// Print how long the guest's frames took, after the run.
     timing: bool,
@@ -366,6 +371,7 @@ fn run_headless(mut shell: Shell, h: &Harness) -> Result<()> {
         styles,
         boxes,
         paint,
+        a11y,
         confirm,
         timing,
     } = *h;
@@ -511,6 +517,12 @@ fn run_headless(mut shell: Shell, h: &Harness) -> Result<()> {
             if paint {
                 for item in doc.display_list() {
                     println!("   [paint] {}", item.describe());
+                }
+            }
+            // What a screen reader would be told, in reading order.
+            if a11y {
+                for a in doc.accessible() {
+                    println!("   [a11y] {}", a.describe());
                 }
             }
         }

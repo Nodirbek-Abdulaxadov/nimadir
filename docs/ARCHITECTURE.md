@@ -263,6 +263,16 @@ key for text fields, read by `ui-submitted` for the field drawn last.
   alone; `paint` reads text colours from the current styles for that reason.
 - Every map keyed by node is a `NodeMap`: node numbers come from the host in
   order, so a multiply (`NodeHasher`) is hash enough.
+- `accessible` (`a11y.rs`, S9-4) — the last layout as a screen reader has
+  it, in document order: an `Accessible` per element that means something
+  (`Role`, from `role` when it names one it knows, else the tag) and per
+  paragraph of text not taken up as a block's name. The name, as the web
+  computes it, cut down: `aria-label`, `aria-labelledby`, then `alt`, a
+  control's `<label>` (by `for`, or around it), the text of a link, button,
+  heading, list item or role-made checkbox (`spoken`: a space between what
+  is laid out apart), then `title` and `placeholder`. Values, checked
+  states, ranges and `disabled` go with it; a password's value never does.
+  `aria-hidden="true"`, `display: none` and `alt=""` leave an element out.
 
 **CSS** (D2), in four files, none of which knows a renderer:
 - `css.rs` — a tokenizer and a forgiving parser: rules, selector lists
@@ -685,6 +695,16 @@ choice and an arrow — and offers its options in an egui menu when tapped; a
 range follows the finger and says `change` when let go. It returns whether
 the app has events waiting, which asks for the next frame. The immediate-mode
 widgets of the same frame are drawn after it (`ShellApp::page`).
+
+A screen reader (S9-4) gets `Document::accessible` through egui's accesskit
+tree — `tell_reader`, a no-op unless one is listening. Fields, selects and
+ranges are described on their egui widgets; everything else is a node of its
+own (`("dom-a11y", node)`, its bounds where it is drawn). All of them are
+made before egui makes any of the widgets, then put under the page's node
+(role `Document`) in document order (`Told::finish`): made where egui puts
+them, the fields came after everything else in the window. A reader's
+Click, Increment and Decrement on a node become `Document::click` and
+`slide`. Checked through AT-SPI on a private bus (`docs/ROADMAP.md`, S9-4).
 
 ### `host/src/webview.rs` — module 1 (feature `webview`)
 The only file in the repo where HTML, CSS and JavaScript exist, quarantined on
