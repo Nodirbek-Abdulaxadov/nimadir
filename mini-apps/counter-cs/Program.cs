@@ -11,7 +11,7 @@
 //   - imports: call the host via `IHostApiImports` (Log/UiLabel/UiButton/NowMillis)
 
 using MiniAppWorld;
-using static MiniAppWorld.wit.Imports.nimadir.shell.v1_0_0.IHostApiImports;
+using static MiniAppWorld.wit.Imports.nimadir.shell.v1_1_0.IHostApiImports;
 
 /// Implements the world's exports. The generated `[UnmanagedCallersOnly]` glue
 /// (init/update wasm exports) forwards to these static methods.

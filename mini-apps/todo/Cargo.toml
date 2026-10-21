@@ -1,0 +1,17 @@
+[package]
+name = "todo"
+version = "0.1.0"
+edition = "2021"
+description = "Sample WASM mini-app: a to-do list built on the element tree (ADR-4)"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+wit-bindgen = "0.60.0"
+
+[profile.release]
+opt-level = "s"
+panic = "abort"
+lto = true
+strip = true

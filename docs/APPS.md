@@ -1,8 +1,8 @@
 # Writing a nimadir app
 
 A nimadir app — a *mini-app* — is a WebAssembly component. The shell loads it,
-runs it in a sandbox, and draws the UI it describes, natively: no HTML, no CSS,
-no JavaScript. It can be written in Rust, C# or Python, and it reaches nothing
+runs it in a sandbox, and draws the UI it describes, natively: no browser and
+no JavaScript behind it. It can be written in Rust, C# or Python, and it reaches nothing
 outside its sandbox except what one file grants it: `wit/world.wit`.
 
 This guide is for writing apps. How the shell itself is built is in
@@ -77,6 +77,39 @@ shows time passing asks for its next frame: `request-frame(1000)`.
 | `image-load` then `ui-image` | A PNG or JPEG, handed over once, drawn by number |
 
 `wit/world.wit` documents each one; that file is the reference.
+
+### Or: a page of elements (`1.1`, being built)
+
+Since `nimadir:shell@1.1.0` an app can instead build a **tree of elements** —
+what a web page is made of, held and drawn by the shell (ADR-4). It builds the
+page once and edits only what changes; what the user does arrives as events.
+
+```rust
+use nimadir::shell::dom;
+
+fn init() {
+    dom::add_stylesheet(".card { padding: 12px; border-radius: 8px; }");
+    let card = dom::create_element("div");
+    dom::set_attribute(card, "class", "card");
+    let button = dom::create_element("button");
+    dom::set_text(button, "Add");
+    dom::append_child(card, button);
+    dom::append_child(dom::root(), card);
+    dom::listen(button, "click");
+}
+
+fn update() {
+    for e in dom::events() {          // "click", "input", "submit", …
+        if e.kind == "click" { /* … */ }
+    }
+}
+```
+
+The tree, its events and its limits work today, and the headless runner
+prints the page and clicks by node (`--click "1:7"`). The stylesheet is kept
+but not yet applied, and the window does not draw the tree yet: CSS, layout
+and painting arrive in the next steps (`docs/ROADMAP.md`, *Road to 1.1*).
+`mini-apps/todo` is a whole app written this way.
 
 ## What an app may do, and how it asks
 

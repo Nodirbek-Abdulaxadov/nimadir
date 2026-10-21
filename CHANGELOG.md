@@ -5,6 +5,25 @@ Notable changes, newest first. The format follows
 [Semantic Versioning](https://semver.org/). The road from here to the first
 beta is `docs/ROADMAP.md`.
 
+## [Unreleased] — toward 1.1
+
+The native DOM (ADR-4, `docs/ROADMAP.md` *Road to 1.1*).
+
+### Added
+- **`interface dom`** in the WIT, now `nimadir:shell@1.1.0`: a retained
+  element tree an app builds and edits — elements, text, attributes, classes,
+  inline style, stylesheets, listeners, and events read with `events()`.
+  Apps built against `1.0` link and run unchanged.
+- The tree is bounded as a whole document — 65 536 nodes, 32 MiB, 256 levels
+  — and an app that goes past a limit is stopped with it named.
+- Headless: `--click`, `--type`, `--enter` act on the tree by node number,
+  and each frame prints the page as an outline.
+- `mini-apps/todo`, a to-do list on the tree.
+
+### Changed
+- Invariant 6 reads "no web *engine*": an app may describe its page in markup
+  and CSS, which the host parses and draws itself.
+
 ## [1.0.0-beta.1] — 2026-10-21
 
 What it was held to, and what it ships without: `docs/BETA-CHECKLIST.md`.

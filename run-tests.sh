@@ -298,7 +298,9 @@ rm -rf "$PINS"
 
 echo
 echo "==> the shell's own record"
-check "--version names the host and the WIT it implements" "(WIT nimadir:shell@1.0.0)" \
+# Read off the WIT, so the next minor version does not turn this red.
+WIT_PACKAGE=$(sed -n 's/^package \(.*\);/\1/p' wit/world.wit)
+check "--version names the host and the WIT it implements" "(WIT $WIT_PACKAGE)" \
   $HOST --version
 check "navigations are logged in the data directory" "bytes of wasm from mini-apps/runaway/runaway.component.wasm" \
   bash -c "$HOST mini-apps/runaway/runaway.component.wasm --frames 1 >/dev/null && cat \"\$NIMADIR_HOME/data/nimadir.log\""
@@ -353,6 +355,22 @@ check "an image is handed over once and drawn by number" "image : 48x48" \
   $HOST gallery --frames 1
 check "an image that claims to be huge is refused from its header" "the most is 4096 on a side" \
   $HOST mini-apps/runaway/runaway.component.wasm --script "1:5" --frames 2
+
+echo
+echo "==> the element tree (ADR-4)"
+# Built once in init, edited by events: the page outlives the frame.
+TODO=mini-apps/todo/todo.component.wasm
+check "an app builds a page as a tree of elements" '#9 ul.list {click change}' \
+  $HOST $TODO --frames 1
+check "typing and Enter reach the app as events, and it adds a node" '"Buy milk"' \
+  $HOST $TODO --type "1:6=Buy milk" --enter "1:6" --frames 2
+check "a click on a checkbox flips it and reaches its list's listener" 'li.item.done' \
+  $HOST $TODO --click "1:12" --frames 2
+check "a click on a button's text is a click on the button" '"1 thing left"' \
+  $HOST $TODO --click "1:16" --frames 2
+# Released with what is under it: the item's six nodes, 23 down to 17.
+check "a released node goes with everything under it" '[page] 17 nodes' \
+  $HOST $TODO --click "1:16" --frames 2
 
 echo
 echo "==> rates, the first real app"
@@ -450,6 +468,13 @@ check_fails "a guest that floods the host with UI is stopped" "in one frame and 
   $HOST $RUNAWAY --script "1:2" --frames 3
 check "and a guest that behaves is untouched by either" "Eat memory" \
   $HOST $RUNAWAY --frames 3
+# The element tree outlives the frame, so it is bounded as a whole.
+check_fails "a guest that builds nodes without end is stopped" "more than 65536 nodes" \
+  $HOST $RUNAWAY --script "1:6" --frames 3
+check_fails "a guest that nests its page too deep is stopped" "more than 256 levels deep" \
+  $HOST $RUNAWAY --script "1:7" --frames 3
+check_fails "a guest that fills its page with text is stopped" "more than 32 MiB of text" \
+  $HOST $RUNAWAY --script "1:8" --frames 3
 # Every host function, 40 calls a frame for 300 frames, with the worst inputs
 # the fixture can think of. The guest logs NULs, which bash would warn about.
 check "the host answers every function's worst inputs without falling over" "fuzz frame 299, still here" \

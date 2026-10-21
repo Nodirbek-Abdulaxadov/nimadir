@@ -126,7 +126,10 @@ checkboxes share one index space), `--submit "frame:field,…"` (Enter on a fiel
 number), `--back "frame,…"`
 (press Back before those frames), `--reload "frame,…"`, `--confirm` (say yes when an app asks to open an
 unlisted address), `--timing` (how long the guest's frames took),
-`--registry <path-or-url>`.
+`--registry <path-or-url>`. For an app on the element tree (ADR-4):
+`--click "frame:node,…"`, `--type "frame:node=text"`, `--enter "frame:node,…"`
+— by **node number**, which a node keeps between frames; the run prints the
+page as `[page] N nodes` and an outline (`#9 ul.list {click change}`).
 
 Frames count from 0 (default 8). Widget indices are handed out per frame in call
 order, and each counter is shared by two widgets: `ui-button` + `ui-tile` for
@@ -173,11 +176,16 @@ awkward inputs, 300 frames deep. All stay out of `apps.json`.
 apps built against the old one keep working. Then run
 `tools/sync-fixture-wit.py` (the `future` fixture is the WIT one minor on; the
 suite checks), and update the C# namespace, which carries the version
-(`nimadir.shell.v1_0_0` in `mini-apps/counter-cs/Program.cs` and
+(`nimadir.shell.v1_1_0` in `mini-apps/counter-cs/Program.cs` and
 `tools/nimadir/src/templates.rs`).
 
 ## Architecture in brief
 
+- **Two interfaces since `1.1.0`**: `host-api` (immediate mode, `ui-*`, and
+  the capabilities) and `dom` (ADR-4: a retained element tree the host keeps,
+  styles with CSS, lays out and draws). `host/src/dom/` holds the tree,
+  bounded as a whole document; `impl DomHost for HostState` is its WIT side.
+  The road from here is `docs/ROADMAP.md`, *Road to 1.1* (D1–D6).
 - **`wit/world.wit` is the entire contract**, and the only place it is defined:
   `wit-bindgen` generates the guest side, `wasmtime::component::bindgen!` the host
   side, from the same file. Changing it changes both sides at once.
@@ -226,7 +234,8 @@ loads it, and `list-apps` filters it out.
 The WIT is additive-only; chrome (address bar, Home) is host-only and never
 reachable by guest code; **headless with no system GUI libraries stays the default
 feature set** — every new system dependency goes behind a feature flag; no web
-stack on the guest side of the boundary; and **desktop and Android are equal
+*engine* on the guest side of the boundary (markup and CSS are parsed and drawn
+by the host itself); and **desktop and Android are equal
 targets** — a feature lands when it works on both, and nothing may rely on what
 only a desktop has (hover, a physical keyboard) outside a feature flag. Full list:
 `docs/ARCHITECTURE.md` §5.

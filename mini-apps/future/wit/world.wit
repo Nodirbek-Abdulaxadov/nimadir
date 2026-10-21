@@ -1,7 +1,7 @@
 // A copy of wit/world.wit one minor version on, with one function added —
 // standing in for a contract newer than the host's. Test fixture only;
 // regenerate with tools/sync-fixture-wit.py.
-package nimadir:shell@1.1.0;
+package nimadir:shell@1.2.0;
 
 /// The complete host <-> mini-app contract, defined ONCE and shared by both
 /// sides. `wit-bindgen` generates the guest bindings from this file; wasmtime's
@@ -163,12 +163,150 @@ interface host-api {
     locale: func() -> string;
 }
 
-/// A mini-app. It may import (call) everything in `host-api` — that interface IS
-/// its capability set, the only thing it can reach outside its own sandbox — and
-/// it must export `init` (one-time setup) and `update` (called once per frame to
-/// describe its immediate-mode UI).
+/// A native element tree, styled with CSS (ADR-4) — what HTML and CSS can say,
+/// held and drawn by the host, with no web engine anywhere.
+///
+/// The app builds a tree under `root()` and edits only what changes; the host
+/// keeps it between frames, styles it with the stylesheets the app adds (and a
+/// built-in one that follows the system's light or dark theme), lays it out —
+/// block, flex, grid — and draws it. Immediate-mode widgets (`host-api`'s
+/// `ui-*`) drawn in the same frame follow the tree.
+///
+/// Names are strings — tags, attributes, CSS properties, event kinds — so a
+/// name added later is ignored by an older host, or drawn as a `div`, rather
+/// than failing to link. A node number that is not a node is ignored: a guest
+/// is untrusted, and a stale number is a bug in it, not worth a trap. Going
+/// past the document's limits — 65 536 nodes, 32 MiB of text, attributes and
+/// styles, 256 levels deep — stops the app, as overspending a frame does.
+interface dom {
+    /// An element or a run of text. Numbers start at 1 and are not reused
+    /// while the app runs; 0 is never a node.
+    type node = u32;
+
+    /// A box on the page, in logical pixels from the page's top-left corner.
+    record rect {
+        x: f32,
+        y: f32,
+        width: f32,
+        height: f32,
+    }
+
+    /// Something the user did, delivered to a node that listens for it.
+    record event {
+        /// "click", "input", "change", "submit", "focus", "blur",
+        /// "pointerdown", "pointerup".
+        kind: string,
+        /// The node it happened on: the deepest one under the finger, or the
+        /// control.
+        target: node,
+        /// The node it is delivered to: `target`, or its nearest ancestor
+        /// that listens for `kind`.
+        current: node,
+        /// For `input` and `change`, the control's new value: a field's text,
+        /// "true" or "false" for a checkbox or radio, a number for a range.
+        /// Empty otherwise.
+        value: string,
+        /// For `click` and pointer events, where, relative to `current`'s
+        /// box. 0 otherwise.
+        x: f32,
+        y: f32,
+    }
+
+    /// The page: a `body` element the host made, always there. Everything
+    /// the app shows goes under it; an app that leaves it empty shows only
+    /// its `ui-*` widgets, as before.
+    root: func() -> node;
+
+    /// A new element, not yet in the tree. `tag` is an HTML name — `div`,
+    /// `span`, `p`, `h1`…`h6`, `button`, `input`, `img`, `a`, `ul`, `li`, … —
+    /// and one this host does not know is a `div`.
+    create-element: func(tag: string) -> node;
+
+    /// A new run of text, not yet in the tree.
+    create-text: func(text: string) -> node;
+
+    /// Put `child` last under `parent`, moving it from wherever it was.
+    /// Ignored if it would put a node inside itself, or under a text node.
+    append-child: func(parent: node, child: node);
+
+    /// Put `child` under `parent` just before `before`, which must already
+    /// be one of `parent`'s children; otherwise as `append-child`.
+    insert-before: func(parent: node, child: node, before: node);
+
+    /// Take a node out of the tree, keeping it — and what is under it — to
+    /// be put back later.
+    remove: func(child: node);
+
+    /// Take a node out of the tree and forget it, and everything under it.
+    /// Their numbers mean nothing afterwards.
+    release: func(item: node);
+
+    /// A text node's text; for an element, its children replaced by this
+    /// text alone (`textContent`).
+    set-text: func(item: node, text: string);
+
+    /// Set an attribute: `id`, `class`, `style` (inline CSS, all of it),
+    /// `value`, `placeholder`, `type`, `checked`, `disabled`, `href`, `src`
+    /// (an `image-load` number), `alt`, `min`, `max`, `step`, … Setting
+    /// `value` or `checked` sets what the control shows, whatever the user
+    /// had made it.
+    set-attribute: func(item: node, name: string, value: string);
+    remove-attribute: func(item: node, name: string);
+    get-attribute: func(item: node, name: string) -> option<string>;
+
+    /// Add the class `name` when `on`, take it away otherwise.
+    toggle-class: func(item: node, name: string, on: bool);
+
+    /// One inline CSS property — `set-style(n, "padding", "8px 12px")`. An
+    /// empty value removes it.
+    set-style: func(item: node, property: string, value: string);
+
+    /// Replace an element's children with what an HTML-like snippet
+    /// describes: `<div class="card"><h2>Title</h2><p>Text</p></div>`.
+    /// Elements, attributes, text and entities; no scripts. Fails, changing
+    /// nothing, on markup it cannot read, saying where.
+    set-markup: func(item: node, markup: string) -> result<_, string>;
+
+    /// The nodes under `scope` (itself excluded) that match a CSS selector,
+    /// in document order. An unreadable selector matches nothing.
+    query-all: func(scope: node, selector: string) -> list<node>;
+
+    parent: func(item: node) -> option<node>;
+    children: func(item: node) -> list<node>;
+
+    /// A control's value as the user left it — a field's text, "true" or
+    /// "false" for a checkbox — and any other node's text.
+    value: func(item: node) -> string;
+
+    /// Give a control the keyboard. Ignored for anything else.
+    focus: func(item: node);
+
+    /// Where a node was in the last layout; `none` before there was one, or
+    /// for a node not in the tree.
+    bounds: func(item: node) -> option<rect>;
+
+    /// Add a stylesheet; later ones win over earlier ones, as on the web.
+    /// What cannot be read is skipped, rule by rule, and logged.
+    add-stylesheet: func(css: string) -> u32;
+    remove-stylesheet: func(sheet: u32);
+
+    /// Ask for events of `kind` on `item` and what is under it.
+    listen: func(item: node, kind: string);
+    unlisten: func(item: node, kind: string);
+
+    /// What happened since the last call, oldest first. An app reads it in
+    /// `update`, which the shell calls whenever there is something in it.
+    events: func() -> list<event>;
+}
+
+/// A mini-app. It may import (call) everything in `host-api` and `dom` — those
+/// interfaces ARE its capability set, the only things it can reach outside its
+/// own sandbox — and it must export `init` (one-time setup) and `update`
+/// (called once per frame: to describe its immediate-mode UI, and to answer
+/// its tree's events).
 world mini-app {
     import host-api;
+    import dom;
 
     export init: func();
     export update: func();

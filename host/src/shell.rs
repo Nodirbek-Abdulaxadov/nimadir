@@ -603,6 +603,21 @@ impl Shell {
         Ok(Vec::new())
     }
 
+    /// The open app's element tree (ADR-4), if an app is open.
+    pub fn document(&self) -> Option<&crate::dom::Document> {
+        match &self.view {
+            View::App { app, .. } => Some(app.document()),
+            _ => None,
+        }
+    }
+
+    pub fn document_mut(&mut self) -> Option<&mut crate::dom::Document> {
+        match &mut self.view {
+            View::App { app, .. } => Some(app.document_mut()),
+            _ => None,
+        }
+    }
+
     /// An app's request to open an address the registry does not list, until
     /// the user answers it.
     pub fn asking(&self) -> Option<&Ask> {

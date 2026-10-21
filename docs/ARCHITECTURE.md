@@ -151,7 +151,15 @@ guest side from it, `wasmtime::component::bindgen!` the host side.
   `ui-progress`, `ui-submitted`, `image-load`, `ui-image`, `fetch`,
   `fetch-poll`, `locale`, plus the `app-entry`, `http-request` and
   `http-response` records.
-- `world mini-app` — imports `host-api`, exports `init` and `update`.
+- `interface dom` (ADR-4, `1.1.0`) — the **element tree**: `root`,
+  `create-element`, `create-text`, `append-child`, `insert-before`, `remove`,
+  `release`, `set-text`, `set-attribute` / `remove-attribute` /
+  `get-attribute`, `toggle-class`, `set-style`, `set-markup`, `query-all`,
+  `parent`, `children`, `value`, `focus`, `bounds`, `add-stylesheet` /
+  `remove-stylesheet`, `listen` / `unlisten`, `events`, plus the `rect` and
+  `event` records. Nodes are `u32`s. `set-markup`, `query-all` and `bounds`
+  answer nothing yet: they arrive with D5 and D3 (`docs/ROADMAP.md`).
+- `world mini-app` — imports `host-api` and `dom`, exports `init` and `update`.
 
 The last two are what let the start page be an app instead of host code: a guest
 can reach neither disk nor network, so `list-apps` hands it the registry, and it
@@ -189,6 +197,29 @@ tile, checkbox) share one counter, *values* (text field, search field,
 choice) another; a choice's value travels as the option's number in
 `FrameInput::edits`. `submitted` carries Enter / a phone keyboard's action
 key for text fields, read by `ui-submitted` for the field drawn last.
+
+### `host/src/dom/` — the element tree (ADR-4)
+- `struct Document` — the tree an app builds through `interface dom`, kept in
+  `HostState::dom` for the life of the app: nodes in a `HashMap<NodeId, Node>`
+  (numbers from 1, never reused — `ROOT` is the `body`), the app's
+  stylesheets as text, the event queue, the focused control and a link the
+  user followed (`take_pending_open`, drained with `open-app`'s). Every change
+  bumps `generation`, so a renderer can tell what it computed is stale.
+- **Bounds, for the document as a whole** — it outlives the frame:
+  `MAX_NODES` (65 536), `MAX_BYTES` (32 MiB, each node also costing
+  `NODE_COST`), `MAX_DEPTH` (256), `MAX_EVENTS` (1024, oldest dropped). Going
+  past one is a `Limit`; `HostState::doc` remembers it and traps, and
+  `explain` says which (`Limit::sentence`). Edits go through `edit`, which
+  charges the node's growth before keeping it and puts the node back if the
+  charge fails. Anything else a guest gets wrong — a stale number, a node put
+  inside itself, children under text — is ignored.
+- **The user's side**: `click` (a checkbox flips, a radio is picked and its
+  group cleared, a link is followed, a field takes focus; nothing inside a
+  `disabled` element answers), `type_text`, `submit`. Each queues events with
+  `dispatch`, which delivers to the nearest listening ancestor and names both
+  the node hit (`target`) and the listener (`current`).
+- `outline` — the tree as text, a node a line: what the headless runner
+  prints after each frame and the suite reads.
 
 ### `host/src/host.rs` — the sandbox boundary
 - `mod bindings` — `bindgen!` on `../wit`, kept in a submodule so the
@@ -565,6 +596,12 @@ in `/usr/bin` on Linux, which an installed shell must not shadow.
 - `run_headless` — runs N frames, injects the scripted clicks, prints
   every `UiCmd` and guest log line, `[nav] …` after a guest navigation that
   landed and `[nav failed] …` after one that did not.
+- The element tree's flags name **nodes**, not widget indices, since a node
+  keeps its number between frames: `--click "frame:node,…"`,
+  `--type "frame:node=text"`, `--enter "frame:node,…"`, each repeatable. They
+  act on the document before the frame, so the guest finds them in
+  `events()`; the frame then prints `[tap] #n` / `[type] …` / `[enter] …`
+  and, when the page has anything on it, `[page] N nodes` and `outline`.
 
 `run_headless` is the project's test suite. There is no `#[test]` anywhere; the
 `--script` flag *is* how the boundary is verified, and it needs no display.
@@ -670,6 +707,8 @@ touching the shell.
 ### `mini-apps/runaway/` — a test fixture, not an app
 Three buttons: one that never returns from `update`, one that grows its memory
 until stopped, one that sends the same 1 MiB label until the output cap stops it.
+Buttons 6 to 8 do the same to the element tree's limits: nodes without end, a
+page 300 levels deep, megabytes of text.
 `run-tests.sh` clicks each and checks the guest is stopped with the limit named.
 Deliberately **not** in `apps.json` — nothing about it belongs on a start page —
 and opened by path. Built by `build-mini-apps.sh` like the others.
@@ -687,6 +726,12 @@ against its own server and walk every path of ADR-3. `fuzz` calls every
 empty, long and multi-byte strings, NaN, garbage for an image, nonsense for a
 URL, request numbers nobody issued — from a fixed seed, so any failure
 replays. The suite runs it 300 frames and wants it still drawing at the end.
+
+### `mini-apps/todo/` — the element tree's sample
+A to-do list built the way a web page is: `init` builds the page once and
+adds a stylesheet; `update` reads `events()` and edits only what changes. One
+listener on the list hears every item's checkbox and button. Not in
+`apps.json` until the tree is drawn (D3).
 
 ### `mini-apps/rates/` — the first real app
 Exchange rates from the Central Bank of Uzbekistan (`cbu.uz`) with a
@@ -1034,8 +1079,10 @@ winit to end its loop on `Destroy`, or a process exit there.
    Every new system dependency goes behind a feature flag.
 5. **Renderer stays behind `UiCmd`.** A backend swap should touch `gui.rs` and
    nothing else.
-6. **No web stack in the mini-app path.** HTML/CSS/JS has no place on the guest
-   side of the boundary.
+6. **No web engine in the mini-app path.** No JavaScript, no browser, no
+   webview behind an app. Since ADR-4 an app may describe its page in markup
+   and CSS, but those are text the host parses into its own tree and draws
+   itself; the guest never reaches a web stack.
 7. **A guest's time and memory are bounded.** Every call into a guest runs under
    an epoch deadline and the store's limiter (§4.10). A new entry point into the
    guest must set a deadline before it calls in; with epochs on, a store without

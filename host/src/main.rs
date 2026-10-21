@@ -32,6 +32,7 @@ use host::ui::{FrameInput, UiCmd};
 const USAGE: &str = "usage: nimadir-shell [<address> | <listed-app-name>] \
 [--list] [--headless] [--frames N] [--script \"frame:btn,...\"] \
 [--input \"frame:field=text\"] [--submit \"frame:field,...\"] [--back \"frame,...\"] [--reload \"frame,...\"] [--confirm] \
+[--click \"frame:node,...\"] [--type \"frame:node=text\"] [--enter \"frame:node,...\"] \
 [--registry <path-or-url>] [--timing] [--version]\n\
        nimadir-shell --kept | --clear <publisher>/<name> | --clear-cache | --check-update\n\
 an address is a .wasm component (path or URL) or a web page URL";
@@ -50,6 +51,11 @@ fn main() -> Result<()> {
     let mut backs = String::new();
     let mut reloads = String::new();
     let mut submits = String::new();
+    // The element tree's equivalents (ADR-4), by node number rather than
+    // widget index: a node keeps its number from frame to frame.
+    let mut dom_clicks = String::new();
+    let mut dom_typed: Vec<String> = Vec::new();
+    let mut dom_enters = String::new();
     let mut confirm = false;
     let mut timing = false;
     let mut registry_src: Option<String> = None;
@@ -133,6 +139,26 @@ fn main() -> Result<()> {
             "--back" => {
                 i += 1;
                 backs = args.get(i).cloned().unwrap_or_default();
+            }
+            // Repeatable, the lists joined: two of them should not mean
+            // the second only.
+            "--click" => {
+                i += 1;
+                dom_clicks.push(',');
+                dom_clicks.push_str(args.get(i).map_or("", String::as_str));
+            }
+            "--type" => {
+                i += 1;
+                if let Some(v) = args.get(i) {
+                    dom_typed.push(v.clone());
+                }
+            }
+            // Repeatable, the lists joined: two of them should not mean
+            // the second only.
+            "--enter" => {
+                i += 1;
+                dom_enters.push(',');
+                dom_enters.push_str(args.get(i).map_or("", String::as_str));
             }
             "--registry" => {
                 i += 1;
@@ -228,6 +254,9 @@ fn main() -> Result<()> {
                 submits: &submits,
                 backs: &backs,
                 reloads: &reloads,
+                dom_clicks: &dom_clicks,
+                dom_typed: &dom_typed,
+                dom_enters: &dom_enters,
                 confirm,
                 timing,
             };
@@ -287,6 +316,9 @@ struct Harness<'a> {
     submits: &'a str,
     backs: &'a str,
     reloads: &'a str,
+    dom_clicks: &'a str,
+    dom_typed: &'a [String],
+    dom_enters: &'a str,
     confirm: bool,
     /// Print how long the guest's frames took, after the run.
     timing: bool,
@@ -300,6 +332,9 @@ fn run_headless(mut shell: Shell, h: &Harness) -> Result<()> {
         submits,
         backs,
         reloads,
+        dom_clicks,
+        dom_typed,
+        dom_enters,
         confirm,
         timing,
     } = *h;
@@ -314,6 +349,11 @@ fn run_headless(mut shell: Shell, h: &Harness) -> Result<()> {
     // Same shape as a click script: `"2:0"` => at frame 2, field 0 was submitted.
     let submits = parse_script(submits);
     let typed: Vec<(usize, u32, String)> = inputs.iter().filter_map(|s| parse_input(s)).collect();
+    // The same shapes, naming nodes of the element tree.
+    let dom_clicks = parse_script(dom_clicks);
+    let dom_enters = parse_script(dom_enters);
+    let dom_typed: Vec<(usize, u32, String)> =
+        dom_typed.iter().filter_map(|s| parse_input(s)).collect();
     // `"4,6"` => press Back before frames 4 and 6 — the system Back key on a
     // phone, the Back button in the window's chrome.
     let reloads: HashSet<usize> = reloads
@@ -358,6 +398,40 @@ fn run_headless(mut shell: Shell, h: &Harness) -> Result<()> {
             edits.insert(*field, value.clone());
         }
 
+        // What the user does to the tree happens before the frame, so the
+        // guest finds it in `events()` when it runs.
+        let mut acted = Vec::new();
+        if let Some(doc) = shell.document_mut() {
+            let mut nodes: Vec<u32> = dom_clicks
+                .get(&frame)
+                .into_iter()
+                .flatten()
+                .copied()
+                .collect();
+            nodes.sort_unstable();
+            for node in nodes {
+                doc.click(node, 0.0, 0.0);
+                acted.push(format!("[tap] #{node}"));
+            }
+            for (_, node, text) in dom_typed.iter().filter(|(f, _, _)| *f == frame) {
+                // Past the document's limits the text is simply not taken,
+                // as a full field would refuse a key.
+                let _ = doc.type_text(*node, text);
+                acted.push(format!("[type] #{node} = {text:?}"));
+            }
+            let mut nodes: Vec<u32> = dom_enters
+                .get(&frame)
+                .into_iter()
+                .flatten()
+                .copied()
+                .collect();
+            nodes.sort_unstable();
+            for node in nodes {
+                doc.submit(node);
+                acted.push(format!("[enter] #{node}"));
+            }
+        }
+
         let clicks = script.get(&frame).cloned().unwrap_or_default();
         // To tell a navigation that failed during this frame from an error
         // that was already showing before it.
@@ -377,6 +451,16 @@ fn run_headless(mut shell: Shell, h: &Harness) -> Result<()> {
         let mut injected: Vec<u32> = clicks.into_iter().collect();
         injected.sort_unstable();
         println!("\n--- frame {frame}  (clicks fed to guest: {injected:?}) ---");
+        for a in &acted {
+            println!("   {a}");
+        }
+        // The page, when the app has built one: the tree, a node a line.
+        if let Some(doc) = shell.document().filter(|d| !d.is_empty()) {
+            println!("   [page] {} nodes", doc.len());
+            for line in doc.outline() {
+                println!("   {line}");
+            }
+        }
 
         // Groups indent what is inside them, two spaces a level.
         let mut depth = 0usize;

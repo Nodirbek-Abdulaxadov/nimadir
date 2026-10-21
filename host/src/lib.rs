@@ -6,6 +6,7 @@
 #[cfg(all(feature = "gui", target_os = "android"))]
 mod android;
 pub mod diag;
+pub mod dom;
 #[cfg(feature = "gui")]
 pub mod gui;
 pub mod host;

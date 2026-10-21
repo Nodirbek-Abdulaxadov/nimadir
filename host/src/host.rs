@@ -19,6 +19,7 @@ use wasmtime::{Engine, ResourceLimiter, Store, Trap};
 use wasmtime_wasi::p2::pipe::MemoryOutputPipe;
 use wasmtime_wasi::{WasiCtx, WasiCtxBuilder, WasiCtxView, WasiView};
 
+use crate::dom::{self, Document};
 use crate::images::Images;
 use crate::net::{self, Net};
 use crate::registry::AppEntry;
@@ -38,6 +39,7 @@ mod bindings {
     });
 }
 
+use bindings::nimadir::shell::dom::{Event as WitEvent, Host as DomHost, Rect};
 use bindings::nimadir::shell::host_api::{
     AppEntry as WitAppEntry, Host, HttpRequest, HttpResponse,
 };
@@ -212,6 +214,11 @@ pub struct HostState {
     images: Images,
     /// Its requests, and what the user allowed (ADR-3).
     net: Net,
+    /// Its element tree (ADR-4), kept between frames.
+    pub dom: Document,
+    /// Which of the document's limits it went past, if it did — so it is
+    /// told apart from a crash, like `limits` and `sent`.
+    dom_exceeded: Option<dom::Limit>,
 }
 
 /// What the shell decided about an app before starting it, from what it said
@@ -252,6 +259,8 @@ impl HostState {
             storage: Storage::open(standing.keep_as.as_deref()),
             images: Images::default(),
             net: Net::new(&standing.network, standing.identity.as_deref()),
+            dom: Document::new(),
+            dom_exceeded: None,
         }
     }
 
@@ -290,6 +299,17 @@ impl HostState {
             wasmtime::bail!("guest sent more than one frame's worth of output");
         }
         Ok(())
+    }
+}
+
+impl HostState {
+    /// A document call's answer, or a trap if it went past the document's
+    /// limits — remembered, so `explain` can say which.
+    fn doc<T>(&mut self, r: Result<T, dom::Limit>) -> wasmtime::Result<T> {
+        r.map_err(|limit| {
+            self.dom_exceeded = Some(limit);
+            wasmtime::format_err!("{}", limit.sentence())
+        })
     }
 }
 
@@ -605,6 +625,139 @@ impl Host for HostState {
     }
 }
 
+/// The element tree (ADR-4). Every edit is checked against the document's
+/// limits rather than the frame's: the tree outlives the frame, so it is the
+/// tree that has to be bounded. A number that is not a node is ignored.
+impl DomHost for HostState {
+    fn root(&mut self) -> wasmtime::Result<u32> {
+        Ok(dom::ROOT)
+    }
+
+    fn create_element(&mut self, tag: String) -> wasmtime::Result<u32> {
+        let r = self.dom.create_element(&tag);
+        self.doc(r)
+    }
+
+    fn create_text(&mut self, text: String) -> wasmtime::Result<u32> {
+        let r = self.dom.create_text(&text);
+        self.doc(r)
+    }
+
+    fn append_child(&mut self, parent: u32, child: u32) -> wasmtime::Result<()> {
+        let r = self.dom.append_child(parent, child);
+        self.doc(r)
+    }
+
+    fn insert_before(&mut self, parent: u32, child: u32, before: u32) -> wasmtime::Result<()> {
+        let r = self.dom.insert_before(parent, child, Some(before));
+        self.doc(r)
+    }
+
+    fn remove(&mut self, child: u32) -> wasmtime::Result<()> {
+        self.dom.remove(child);
+        Ok(())
+    }
+
+    fn release(&mut self, item: u32) -> wasmtime::Result<()> {
+        self.dom.release(item);
+        Ok(())
+    }
+
+    fn set_text(&mut self, item: u32, text: String) -> wasmtime::Result<()> {
+        let r = self.dom.set_text(item, &text);
+        self.doc(r)
+    }
+
+    fn set_attribute(&mut self, item: u32, name: String, value: String) -> wasmtime::Result<()> {
+        let r = self.dom.set_attribute(item, &name, &value);
+        self.doc(r)
+    }
+
+    fn remove_attribute(&mut self, item: u32, name: String) -> wasmtime::Result<()> {
+        let r = self.dom.remove_attribute(item, &name);
+        self.doc(r)
+    }
+
+    fn get_attribute(&mut self, item: u32, name: String) -> wasmtime::Result<Option<String>> {
+        Ok(self.dom.get_attribute(item, &name))
+    }
+
+    fn toggle_class(&mut self, item: u32, name: String, on: bool) -> wasmtime::Result<()> {
+        let r = self.dom.toggle_class(item, &name, on);
+        self.doc(r)
+    }
+
+    fn set_style(&mut self, item: u32, property: String, value: String) -> wasmtime::Result<()> {
+        let r = self.dom.set_style(item, &property, &value);
+        self.doc(r)
+    }
+
+    fn set_markup(&mut self, _item: u32, _markup: String) -> wasmtime::Result<Result<(), String>> {
+        Ok(Err("set-markup is not in this build yet".into()))
+    }
+
+    fn query_all(&mut self, _scope: u32, _selector: String) -> wasmtime::Result<Vec<u32>> {
+        Ok(Vec::new())
+    }
+
+    fn parent(&mut self, item: u32) -> wasmtime::Result<Option<u32>> {
+        Ok(self.dom.parent(item))
+    }
+
+    fn children(&mut self, item: u32) -> wasmtime::Result<Vec<u32>> {
+        Ok(self.dom.children(item))
+    }
+
+    fn value(&mut self, item: u32) -> wasmtime::Result<String> {
+        Ok(self.dom.value(item))
+    }
+
+    fn focus(&mut self, item: u32) -> wasmtime::Result<()> {
+        self.dom.focus(item);
+        Ok(())
+    }
+
+    fn bounds(&mut self, _item: u32) -> wasmtime::Result<Option<Rect>> {
+        Ok(None)
+    }
+
+    fn add_stylesheet(&mut self, css: String) -> wasmtime::Result<u32> {
+        let r = self.dom.add_stylesheet(&css);
+        self.doc(r)
+    }
+
+    fn remove_stylesheet(&mut self, sheet: u32) -> wasmtime::Result<()> {
+        self.dom.remove_stylesheet(sheet);
+        Ok(())
+    }
+
+    fn listen(&mut self, item: u32, kind: String) -> wasmtime::Result<()> {
+        let r = self.dom.listen(item, &kind);
+        self.doc(r)
+    }
+
+    fn unlisten(&mut self, item: u32, kind: String) -> wasmtime::Result<()> {
+        let r = self.dom.unlisten(item, &kind);
+        self.doc(r)
+    }
+
+    fn events(&mut self) -> wasmtime::Result<Vec<WitEvent>> {
+        Ok(self
+            .dom
+            .take_events()
+            .into_iter()
+            .map(|e| WitEvent {
+                kind: e.kind,
+                target: e.target,
+                current: e.current,
+                value: e.value,
+                x: e.x,
+                y: e.y,
+            })
+            .collect())
+    }
+}
+
 /// A loaded, instantiated mini-app component plus its per-frame entry point.
 /// Same public surface as the old core-module version.
 pub struct MiniApp {
@@ -718,7 +871,19 @@ impl MiniApp {
     /// after `frame`, when the guest is no longer on the stack and dropping it
     /// is legal.
     pub fn take_pending_open(&mut self) -> Option<String> {
-        self.store.data_mut().pending_open.take()
+        let st = self.store.data_mut();
+        st.pending_open
+            .take()
+            .or_else(|| st.dom.take_pending_open())
+    }
+
+    /// The app's element tree, for a renderer to draw and the user to act on.
+    pub fn document(&self) -> &Document {
+        &self.store.data().dom
+    }
+
+    pub fn document_mut(&mut self) -> &mut Document {
+        &mut self.store.data_mut().dom
     }
 
     /// Replace the registry `list-apps` answers with — a fresher one arrived
@@ -775,7 +940,8 @@ fn newer_than_us(engine: &Engine, component: &Component) -> Option<String> {
         // Another interface, or another major version, is nothing this host
         // has. Within a major version wasmtime links across minor ones
         // (semver), so there the functions themselves decide.
-        if interface != "host-api" || major(theirs) != major(version) {
+        let known = provided.iter().any(|(i, _)| *i == interface);
+        if !known || major(theirs) != major(version) {
             missing.push(format!("`{import}`"));
             continue;
         }
@@ -784,7 +950,7 @@ fn newer_than_us(engine: &Engine, component: &Component) -> Option<String> {
             // and a type is not something a host provides or lacks.
             for (function, export) in instance.exports(engine) {
                 if matches!(export.ty, ComponentItem::ComponentFunc(_))
-                    && !provided.contains(&function)
+                    && !provided.contains(&(interface, function))
                 {
                     missing.push(format!("`{function}`"));
                 }
@@ -794,15 +960,30 @@ fn newer_than_us(engine: &Engine, component: &Component) -> Option<String> {
     (!missing.is_empty()).then(|| missing.join(", "))
 }
 
-/// The functions `interface host-api` declares, read from the same WIT file
-/// `bindgen!` compiled — so this list cannot drift from what is implemented.
-fn provided_functions() -> Vec<&'static str> {
-    include_str!("../../wit/world.wit")
-        .lines()
-        .map(str::trim)
-        .filter(|l| !l.starts_with("export ") && !l.starts_with("//"))
-        .filter_map(|l| l.split_once(": func(").map(|(name, _)| name))
-        .collect()
+/// The functions each interface declares, as `(interface, function)`, read
+/// from the same WIT file `bindgen!` compiled — so this list cannot drift from
+/// what is implemented.
+fn provided_functions() -> Vec<(&'static str, &'static str)> {
+    let mut out = Vec::new();
+    let mut interface = None;
+    for line in include_str!("../../wit/world.wit").lines() {
+        if let Some(name) = line.strip_prefix("interface ") {
+            interface = name.split_whitespace().next();
+            continue;
+        }
+        if line.starts_with('}') {
+            interface = None;
+            continue;
+        }
+        let line = line.trim();
+        if line.starts_with("//") {
+            continue;
+        }
+        if let (Some(i), Some((name, _))) = (interface, line.split_once(": func(")) {
+            out.push((i, name));
+        }
+    }
+    out
 }
 
 /// Turn a guest failure into something worth putting in front of a person.
@@ -816,6 +997,9 @@ fn explain(e: wasmtime::Error, store: &Store<HostState>, doing: &str, ticks: u64
             "it tried to use more than {} MiB of memory and was stopped",
             MAX_GUEST_MEMORY >> 20
         );
+    }
+    if let Some(limit) = store.data().dom_exceeded {
+        return anyhow!("it {} and was stopped", limit.sentence());
     }
     if store.data().sent.exceeded {
         return anyhow!(

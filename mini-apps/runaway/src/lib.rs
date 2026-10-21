@@ -4,6 +4,9 @@
 //! hold. `run-tests.sh` clicks each button and checks that the host stops the
 //! guest and says which limit it hit.
 //!
+//! The element tree (ADR-4) outlives a frame, so it has limits of its own,
+//! for the whole document: buttons 6 to 8 go past each.
+//!
 //! It is deliberately left out of `apps.json`: nothing about it belongs on a
 //! start page. Open it by path.
 
@@ -14,6 +17,7 @@ wit_bindgen::generate!({
 
 use std::hint::black_box;
 
+use nimadir::shell::dom;
 use nimadir::shell::host_api::{image_load, log, storage_set, ui_begin, ui_button, ui_label};
 
 struct Runaway;
@@ -81,6 +85,31 @@ impl Guest for Runaway {
             match image_load(HUGE_PNG) {
                 Ok(_) => log("runaway: the huge image loaded"),
                 Err(why) => log(&format!("runaway: image refused: {why}")),
+            }
+        }
+        // Button 6: elements without end, none of them in the tree. Detached
+        // nodes are still the host's to hold.
+        if ui_button("Build without end") {
+            loop {
+                black_box(dom::create_element("div"));
+            }
+        }
+        // Button 7: a page nested 300 levels deep. Styling and layout walk
+        // the tree recursively, so its depth is the host's to bound.
+        if ui_button("Nest the page deeply") {
+            let mut at = dom::root();
+            for _ in 0..300 {
+                let n = dom::create_element("div");
+                dom::append_child(at, n);
+                at = n;
+            }
+        }
+        // Button 8: a megabyte of text, again and again — far fewer nodes
+        // than the cap, far more bytes.
+        if ui_button("Fill the page") {
+            let big = "x".repeat(1 << 20);
+            loop {
+                black_box(dom::create_text(&big));
             }
         }
     }
