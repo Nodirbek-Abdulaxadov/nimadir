@@ -1267,9 +1267,12 @@ winit to end its loop on `Destroy`, or a process exit there.
    host, and `newer_than_us` names whatever functions it uses that the host
    lacks.
 2. **Chrome is host-only.** Navigation must never be reachable by guest code.
-3. **Leaving an app destroys it.** Nothing of it stays in host memory. What it
-   kept under its identity is on disk, held by the host and given back only to
-   that identity (ADR-2); nothing else may outlive the `Store`.
+3. **Leaving an app destroys it** — navigating its tab elsewhere, or closing
+   the tab. Nothing of it stays in host memory. What it kept under its
+   identity is on disk, held by the host and given back only to that identity
+   (ADR-2); nothing else may outlive the `Store`. Showing another tab is not
+   leaving: the app is parked, frozen — never called while hidden — and
+   parked apps together are bounded (ADR-5).
 4. **Headless is the default feature set.** The host must keep building and
    running with no system GUI libraries; that is what makes it verifiable in CI.
    Every new system dependency goes behind a feature flag.
