@@ -1,14 +1,13 @@
 # Beta checklist — 1.0.0-beta.1
 
 The exit criteria from `docs/ROADMAP.md`, against the tree on 2026-10-21.
-**Not tagged yet**: Pages must be switched on, and the Windows and macOS
-installers have yet to be built. The rest was built and run on one Linux
-desktop, one Android 16 phone, and CI (Linux, macOS, Windows, Android);
-"unverified" means not run anywhere yet.
+**Not tagged yet**: Pages must be switched on, and D2 decided. The rest was
+built and run on one Linux desktop, one Android 16 phone, and CI (Linux,
+macOS, Windows, Android); "unverified" means not run anywhere yet.
 
 | # | Criterion | Status |
 |---|---|---|
-| 1 | **Installable** — Windows, macOS, Linux, Android, outside a checkout | **Partly.** `.deb` built and checked: it installs a shell that opens on its built-in store from an empty directory. AppImage fails in linuxdeploy on this machine. On Windows and macOS the shell builds and the whole headless suite passes in CI (120 assertions); their installers (NSIS, .dmg) are configured and in the release workflow, **unbuilt** — a hand-started release run builds them without releasing. Android APK and AAB build (API 36) and **run on an Android 16 phone** (2026-10-21): the smoke test passes, and the store, storage, a network grant against the real cbu.uz, typing and settings were driven by hand. That run found twelve bugs, all fixed. |
+| 1 | **Installable** — Windows, macOS, Linux, Android, outside a checkout | **Partly.** `.deb` built and checked: it installs a shell that opens on its built-in store from an empty directory. On Windows and macOS the shell builds and the whole headless suite passes in CI (120 assertions). **Every installer builds in CI** (a hand-started release run, 2026-10-21): `.deb`, AppImage (it fails only in linuxdeploy on the dev machine), NSIS `-setup.exe`, `.dmg` (aarch64, unsigned), APK and AAB; the CI-built `.deb`'s shell runs from an empty directory. The Windows and macOS installers have **not been installed or run** on a real machine. Android APK and AAB build (API 36) and **run on an Android 16 phone** (2026-10-21): the smoke test passes, and the store, storage, a network grant against the real cbu.uz, typing and settings were driven by hand. That run found twelve bugs, all fixed. |
 | 2 | **Trusted downloads** — remote components checked against a hash from a registry over HTTPS | **Met.** HTTPS only (loopback excepted); SHA-256 pins; publisher pins; signatures. The hosted registry's workflow is written; **Pages is not switched on**, so it serves nothing yet. |
 | 3 | **Real apps** — data kept, network declared, real layout, the user decides | **Met.** Storage (ADR-2), `fetch` (ADR-3) with grants, groups and widgets, images; `rates` uses all of it against the real cbu.uz. |
 | 4 | **Outside developers** | **Met for Rust and C#** (`nimadir new/build/run/check`, `docs/APPS.md`); the Python template builds only in CI, **unverified** here. |
