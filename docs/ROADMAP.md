@@ -379,6 +379,17 @@ The worst of that is on the phone: a keyboard that cannot type Uzbek.
 | S9-5 | **The tree on a phone at speed** (S5-7): a store of 500 cards, scrolled on the device, frame times measured; fixed where they miss | M |
 | S9-6 | **Debts:** Forward (S3-5); an app's version and publisher on its card (S4-1); the time zone (S6-3); `todo` in the registry | M |
 
+**Progress (2026-10-21).** S9-1: versions at 1.1.0-beta.1, the changelog
+closed, CI green on `ff0a56e`; the tag waits on the owner. S9-3 done: the
+`.deb`, Windows installer and `.dmg` carry the webview (the `.deb`'s shell
+opened example.com from an empty directory); the AppImage does not. S9-4
+done: `--a11y`, and the tree read through AT-SPI in reading order, a
+reader's click checking a radio. S9-6 done: `nimadir:shell@1.2.0`
+(`time-zone`, `utc-offset`, `app-info`), Forward, version and signer on a
+card, `todo` listed. S9-5: off-screen paint skipped; the phone's frame times
+still to measure. S9-2 is written — GameActivity, winit patched in
+`vendor/winit` — on a branch until it has run on the phone.
+
 ## Sprint 10 — Tabs, and the web on a phone
 
 **Goal:** more than one app open at a time, and a web page on Android as on
@@ -391,6 +402,13 @@ the desktop.
 | S10-3 | **ADR-6, the web on Android:** the platform's `WebView`, through a small Java helper now that the app has code (S9-2) | S |
 | S10-4 | **The Android webview:** over the page area, Back within the page, destroyed on leaving it, as on the desktop | L |
 | S10-5 | Docs and the device run; `1.2.0-beta.1` on the owner's say | S |
+
+**Progress (2026-10-21).** S10-1 done: ADR-5, invariant 3 restated. S10-2
+done on the desktop: `tabs::Tabs`, the strip, Ctrl+T/W/Tab, parked apps
+frozen and discarded past 512 MiB, headless `--new-tab`/`--tab`/
+`--close-tab` (197 assertions); the phone still to see it. S10-3 and S10-4
+are written — ADR-6, `WebPane.java`, `android_web.rs` — beside S9-2, waiting
+on the device.
 
 ## After beta — not in this plan
 
