@@ -31,6 +31,8 @@ nimadir-manifest = { path = "../crates/manifest" }
 # The webview (module 1). Only `wry` — NOT Tauri: Tauri brings its own
 # application framework, which would fight the host loop nimadir already owns.
 wry = { version = "0.56", optional = true }
+# The element tree's layout (ADR-4): block, flex, grid, floats. Pure Rust,
+# so the headless default keeps building anywhere.
 taffy = "0.15"
 
 # The window (`gui`). Default features on the desktop. On Android: no X11 or
