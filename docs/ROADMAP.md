@@ -386,8 +386,10 @@ opened example.com from an empty directory); the AppImage does not. S9-4
 done: `--a11y`, and the tree read through AT-SPI in reading order, a
 reader's click checking a radio. S9-6 done: `nimadir:shell@1.2.0`
 (`time-zone`, `utc-offset`, `app-info`), Forward, version and signer on a
-card, `todo` listed. S9-5: off-screen paint skipped; the phone's frame times
-still to measure. S9-2 done (2026-10-22, on the phone): GameActivity, winit
+card, `todo` listed. S9-5 done: off-screen paint skipped; on the phone
+(2026-10-22, 120 Hz) a store of 500 cards scrolled from the top to card 466
+at 119.4–120.1 frames a second, every frame within 8.7 ms but the first of a
+scroll (14 ms), measured from SurfaceFlinger — nothing to fix. S9-2 done (2026-10-22, on the phone): GameActivity, winit
 patched in `vendor/winit` — predictions, Cyrillic, emoji, the ✓ key as Enter;
 findings in `docs/spikes/android.md`.
 
@@ -411,6 +413,8 @@ frozen and discarded past 512 MiB, headless `--new-tab`/`--tab`/
 switches and closes, its × a full touch target. S10-3 and S10-4 done on the
 phone: ADR-6, `WebPane.java`, `android_web.rs` — the page over the page area,
 links, typing, Back within it, destroyed on leaving it or a tab switch.
+S10-5: the docs and the device run done (`docs/spikes/android.md`);
+`1.2.0-beta.1` waits on the owner's say.
 
 ## After beta — not in this plan
 

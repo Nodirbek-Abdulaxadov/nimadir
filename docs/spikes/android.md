@@ -152,3 +152,18 @@ S9-2 and the WebView (ADR-6), on the same Android 16 phone:
   draws nothing while a page is shown.
 - The phone had no network again: pages came from the computer over
   `adb reverse tcp:8765 tcp:8765` to `http://localhost:8765/`.
+
+## The tree at speed (S9-5, 2026-10-22)
+
+A registry of 500 cards in the app's `files/config/apps.json`, the store
+opened on it (displayed in 337 ms), then flung from the top to card 466 with
+`adb shell input swipe` — about twelve seconds of scrolling. SurfaceFlinger's
+per-second counts for the shell's surface: 119.4–120.1 frames a second on the
+120 Hz panel; the longest frame 14 ms, the first of a scroll, every other one
+within 8.7 ms (`dumpsys SurfaceFlinger --latency` over the last 128: median
+8.3, none over 16.7). Skipping what is off screen (S9-5's first half) is
+enough on this phone; a slower one is still to try.
+
+The thin bar on the right edge of every screenshot, at 524–871 px, is not
+the page's scroll bar: it is MIUI's sidebar handle (`DockAssistantView`,
+`com.miui.securitycenter`), over every app, with NativeActivity too.
