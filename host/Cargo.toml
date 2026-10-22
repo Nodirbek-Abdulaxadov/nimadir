@@ -41,16 +41,16 @@ wry = { version = "0.56", optional = true }
 taffy = "0.15"
 
 # The window (`gui`). Default features on the desktop. On Android: no X11 or
-# Wayland, and no `accesskit`, which eframe refuses to combine with
-# NativeActivity — see docs/spikes/android.md.
+# Wayland, and GameActivity (S9-2), whose input connection is what lets the
+# soft keyboard type more than ASCII — with the patched winit in vendor/.
 [target.'cfg(not(target_os = "android"))'.dependencies]
 eframe = { version = "0.35", optional = true }
 
 [target.'cfg(target_os = "android")'.dependencies]
-eframe = { version = "0.35", optional = true, default-features = false, features = ["wgpu", "default_fonts", "android-native-activity"] }
+eframe = { version = "0.35", optional = true, default-features = false, features = ["wgpu", "default_fonts", "android-game-activity"] }
 # Only to name `AndroidApp`, which eframe takes but does not re-export. The
 # version eframe already uses.
-winit = { version = "0.30", optional = true, features = ["android-native-activity"] }
+winit = { version = "0.30", optional = true, features = ["android-game-activity"] }
 # To read the window insets (`android.rs`), which winit does not report.
 jni = { version = "0.21", optional = true }
 

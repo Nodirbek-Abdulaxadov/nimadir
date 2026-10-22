@@ -5,6 +5,8 @@
 
 #[cfg(all(feature = "gui", target_os = "android"))]
 mod android;
+#[cfg(all(feature = "gui", target_os = "android"))]
+mod android_web;
 pub mod diag;
 pub mod dom;
 #[cfg(feature = "gui")]
@@ -31,11 +33,11 @@ pub mod update;
 #[cfg(feature = "webview")]
 mod webview;
 
-// Desktop-only for beta (ROADMAP S3-8): wry on Android needs a Java activity of
-// its own, and this app is a NativeActivity with no Java at all. A web page on
-// Android is routed as everywhere else and says it cannot be shown.
+// wry on Android needs tao and a Kotlin activity of its own; a web page on
+// Android is the platform's WebView instead, through `android_web` (ADR-6),
+// in every Android build — the feature is the desktop's.
 #[cfg(all(feature = "webview", target_os = "android"))]
-compile_error!("the `webview` feature is desktop-only: build Android without it");
+compile_error!("the `webview` feature is the desktop's: Android has android_web");
 
 use anyhow::Result;
 

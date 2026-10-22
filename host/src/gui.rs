@@ -466,6 +466,10 @@ struct ShellApp {
     /// Whether the on-screen keyboard was up last frame.
     #[cfg(target_os = "android")]
     keyboard_up: bool,
+    /// The platform's WebView over the page area, while a web page is shown
+    /// (ADR-6). Dropping it destroys the WebView.
+    #[cfg(target_os = "android")]
+    android_web: Option<crate::android_web::AndroidWeb>,
     /// The keyboard has just come up: the focused field scrolls into what is
     /// left of the page. Only ever set on Android.
     reveal_focus: bool,
@@ -507,6 +511,8 @@ impl ShellApp {
             night: None,
             #[cfg(target_os = "android")]
             keyboard_up: false,
+            #[cfg(target_os = "android")]
+            android_web: None,
             reveal_focus: false,
             redraw: false,
             settings_seen: None,
@@ -630,6 +636,18 @@ impl ShellApp {
     /// Android app does on Back from its first screen. A desktop window does
     /// not close itself because a mouse button was pressed.
     fn go_back(&mut self, ctx: &egui::Context) {
+        // A web page goes back within itself first, as on any phone.
+        #[cfg(target_os = "android")]
+        if let Some(web) = self
+            .android_web
+            .as_ref()
+            .filter(|_| self.shell.is_web_page())
+        {
+            if web.can_go_back() {
+                web.go_back();
+                return;
+            }
+        }
         // Input aimed at the page being left goes nowhere.
         self.tab.pending_clicks.clear();
         self.tab.pending_submits.clear();
@@ -1285,13 +1303,36 @@ impl ShellApp {
         #[cfg(not(feature = "webview"))]
         let _ = frame;
 
+        // The platform's WebView over the page area (ADR-6).
+        #[cfg(target_os = "android")]
+        if let Some(app) = self.activity.clone() {
+            let rect = ui.available_rect_before_wrap();
+            let ppp = ui.ctx().pixels_per_point();
+            let bounds = crate::android_web::Bounds {
+                x: (rect.min.x * ppp).round() as i32,
+                y: (rect.min.y * ppp).round() as i32,
+                w: (rect.width() * ppp).round() as i32,
+                h: (rect.height() * ppp).round() as i32,
+            };
+            let web = self
+                .android_web
+                .get_or_insert_with(|| crate::android_web::AndroidWeb::new(app));
+            match web.update(&url, bounds) {
+                Ok(()) => return,
+                Err(e) => {
+                    ui.add_space(8.0);
+                    ui.colored_label(egui::Color32::RED, format!("no webview: {e}"));
+                }
+            }
+        }
+
         ui.add_space(8.0);
         ui.strong(t(self.lang, Text::WebPage));
         ui.add_space(4.0);
         ui.label(url.as_str());
         ui.add_space(10.0);
         ui.weak(t(self.lang, Text::WebPageRouted));
-        // A desktop can be rebuilt with a webview; a phone cannot have one yet.
+        // A desktop can be rebuilt with a webview; a phone's failed to start.
         #[cfg(not(feature = "webview"))]
         {
             ui.add_space(6.0);
@@ -1353,7 +1394,13 @@ impl ShellApp {
     }
 
     #[cfg(not(feature = "webview"))]
-    fn close_web(&mut self) {}
+    fn close_web(&mut self) {
+        // Dropped, the WebView is destroyed with the page in it.
+        #[cfg(target_os = "android")]
+        {
+            self.android_web = None;
+        }
+    }
 
     /// The tabs (ADR-5), once there is more than one: each its title, to
     /// show it, and × to close it; and `+` for another. A strip that
@@ -1389,8 +1436,16 @@ impl ShellApp {
                         if ui.selectable_label(l.shown, short).clicked() {
                             show = Some(i);
                         }
+                        // A finger needs the whole 48-point target; a mouse
+                        // can hit a small one.
+                        let close_button = egui::Button::new("×");
+                        let close_button = if cfg!(target_os = "android") {
+                            close_button
+                        } else {
+                            close_button.small()
+                        };
                         if ui
-                            .small_button("×")
+                            .add(close_button)
                             .on_hover_text(t(lang, Text::CloseTab))
                             .clicked()
                         {

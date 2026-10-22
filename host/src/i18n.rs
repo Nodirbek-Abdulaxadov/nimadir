@@ -180,11 +180,11 @@ pub fn t(lang: Lang, text: Text) -> &'static str {
         #[cfg(not(feature = "webview"))]
         (WebPageRebuild, En) => "Rebuild with `--features webview` to render it here.",
         #[cfg(not(feature = "webview"))]
-        (WebPageNotHere, Uz) => "Bu qurilmada veb-sahifalar hali koʻrsatilmaydi.",
+        (WebPageNotHere, Uz) => "Bu qurilmaning WebView'i sahifani koʻrsata olmadi.",
         #[cfg(not(feature = "webview"))]
-        (WebPageNotHere, Ru) => "На этом устройстве веб-страницы пока не показываются.",
+        (WebPageNotHere, Ru) => "WebView этого устройства не смог показать страницу.",
         #[cfg(not(feature = "webview"))]
-        (WebPageNotHere, En) => "Web pages cannot be shown on this device yet.",
+        (WebPageNotHere, En) => "This device's WebView could not show the page.",
         (Updates, Uz) => "Yangilanishlar",
         (Updates, Ru) => "Обновления",
         (Updates, En) => "Updates",

@@ -90,3 +90,15 @@ android {
         }
     }
 }
+
+dependencies {
+    // The activity the native library runs behind (S9-2): GameActivity's
+    // input connection gives the soft keyboard's text, which NativeActivity
+    // cannot. The version android-activity 0.6 is written against; its C
+    // glue is android-activity's own, so no prefab.
+    implementation("androidx.games:games-activity:4.4.0")
+    implementation("androidx.appcompat:appcompat:1.7.1")
+    // Those pull two Kotlin standard libraries, 1.8's and the split jdk7/jdk8
+    // ones of 1.6, which hold the same classes; the BOM makes them one.
+    implementation(platform("org.jetbrains.kotlin:kotlin-bom:1.8.22"))
+}

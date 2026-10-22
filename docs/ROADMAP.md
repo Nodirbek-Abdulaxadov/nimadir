@@ -387,8 +387,9 @@ done: `--a11y`, and the tree read through AT-SPI in reading order, a
 reader's click checking a radio. S9-6 done: `nimadir:shell@1.2.0`
 (`time-zone`, `utc-offset`, `app-info`), Forward, version and signer on a
 card, `todo` listed. S9-5: off-screen paint skipped; the phone's frame times
-still to measure. S9-2 is written — GameActivity, winit patched in
-`vendor/winit` — on a branch until it has run on the phone.
+still to measure. S9-2 done (2026-10-22, on the phone): GameActivity, winit
+patched in `vendor/winit` — predictions, Cyrillic, emoji, the ✓ key as Enter;
+findings in `docs/spikes/android.md`.
 
 ## Sprint 10 — Tabs, and the web on a phone
 
@@ -406,9 +407,10 @@ the desktop.
 **Progress (2026-10-21).** S10-1 done: ADR-5, invariant 3 restated. S10-2
 done on the desktop: `tabs::Tabs`, the strip, Ctrl+T/W/Tab, parked apps
 frozen and discarded past 512 MiB, headless `--new-tab`/`--tab`/
-`--close-tab` (197 assertions); the phone still to see it. S10-3 and S10-4
-are written — ADR-6, `WebPane.java`, `android_web.rs` — beside S9-2, waiting
-on the device.
+`--close-tab` (197 assertions); on the phone (2026-10-22) the strip opens,
+switches and closes, its × a full touch target. S10-3 and S10-4 done on the
+phone: ADR-6, `WebPane.java`, `android_web.rs` — the page over the page area,
+links, typing, Back within it, destroyed on leaving it or a tab switch.
 
 ## After beta — not in this plan
 

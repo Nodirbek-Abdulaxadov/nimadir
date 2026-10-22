@@ -33,6 +33,14 @@ beta is `docs/ROADMAP.md`.
   accesskit in reading order, and a reader can press, pick and slide.
   Headless `--a11y` prints it.
 - The store's cards hide their initial badge from a screen reader.
+- **Typing on a phone's own keyboard** (S9-2): predictions and suggestions,
+  Cyrillic, `oʻ` and `gʻ`, emoji; the keyboard's ✓ is Enter. The Android app
+  now runs behind GameActivity, with winit patched to hand on the keyboard's
+  text (`vendor/winit`).
+- **Web pages on Android** (ADR-6): the platform's WebView over the page area,
+  Back within the page first, closed when the page is left or another tab is
+  shown — as on the desktop.
+- On a phone, a tab's close button is a full touch target.
 
 ## [1.1.0-beta.1] — 2026-10-21
 

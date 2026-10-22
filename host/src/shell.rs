@@ -607,12 +607,13 @@ impl Shell {
                     title,
                     url: src.clone(),
                 };
-                // Honest in both builds: without the webview feature there is
-                // nothing to render the page with, and saying so beats a status
-                // line that claims success over a blank area.
-                #[cfg(feature = "webview")]
+                // Honest in every build: without the webview feature, or the
+                // phone's own WebView (ADR-6), there is nothing to render the
+                // page with, and saying so beats a status line that claims
+                // success over a blank area.
+                #[cfg(any(feature = "webview", all(feature = "gui", target_os = "android")))]
                 let status = format!("web page: {src}");
-                #[cfg(not(feature = "webview"))]
+                #[cfg(not(any(feature = "webview", all(feature = "gui", target_os = "android"))))]
                 let status =
                     format!("{src} is a web page — build with --features webview to render it");
                 Ok(status)

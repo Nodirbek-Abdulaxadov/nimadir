@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The whole app is one native library behind the platform's NativeActivity:
-     android:hasCode="false", because there is no Java or Kotlin to run. -->
+<!-- The whole app is one native library behind GameActivity, a Jetpack class
+     whose input connection carries the soft keyboard's text to it (S9-2) —
+     NativeActivity's has only key events, so nothing but ASCII arrived. -->
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <!-- For remote components and registries, exactly as on the desktop. -->
@@ -9,14 +10,15 @@
     <!-- enableOnBackInvokedCallback="false": targeting API 36, Android 16
          stops sending the Back key to the app and handles Back itself — it
          finished the activity from any page, and the shell's own Back
-         (page to page, then to the background) never ran. Predictive back
-         needs an OnBackInvokedCallback, which is Java, and there is none
-         here; until then this opts out. -->
+         (page to page, then to the background) never ran. With it off, Back
+         reaches GameActivity as a key, which hands it to the native side. -->
+    <!-- usesCleartextTraffic: the WebView refuses http:// pages without it,
+         and the shell opens them on the desktop, as every browser does. -->
     <application
-        android:hasCode="false"
         android:enableOnBackInvokedCallback="false"
+        android:usesCleartextTraffic="true"
         android:label="nimadir"
-        android:theme="@android:style/Theme.DeviceDefault.Light.NoActionBar">
+        android:theme="@style/Theme.AppCompat.DayNight.NoActionBar">
 
         <!-- configChanges: every change there is, since the shell handles
              them all itself (it redraws, and reads the theme from the
@@ -26,10 +28,11 @@
              onDestroy waits on it forever — switching the system to dark
              mode hung the app. -->
         <activity
-            android:name="android.app.NativeActivity"
+            android:name="com.google.androidgamesdk.GameActivity"
             android:configChanges="mcc|mnc|locale|touchscreen|keyboard|keyboardHidden|navigation|screenLayout|fontScale|uiMode|orientation|density|screenSize|smallestScreenSize|layoutDirection|colorMode|grammaticalGender|fontWeightAdjustment"
             android:exported="true"
-            android:launchMode="singleTask">
+            android:launchMode="singleTask"
+            android:windowSoftInputMode="adjustNothing">
 
             <meta-data
                 android:name="android.app.lib_name"

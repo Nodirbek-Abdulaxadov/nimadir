@@ -416,7 +416,8 @@ Decides what an address *is*, before the shell tries to go there.
 - `require_tls` — plain `http://` is refused unless the host is loopback, for
   components and registries alike, and before any request is made. Android's
   cleartext block does not cover Rust's sockets, so this is the only guard
-  there.
+  there. (The manifest lifts that block for the WebView, which follows a
+  page's own `http://` links as a desktop webview does.)
 - `classify_pinned` — `classify` for an address the registry pins: the
   SHA-256 is checked before anything is compiled, and a pinned *remote*
   component is kept in `<cache>/components/<sha256>.wasm`, read back (and
@@ -811,10 +812,22 @@ Nothing is bundled any more: the store is the host's `builtin:store`, and
 apps come from the registry. A workspace member left out of
 `default-members`, so a plain `cargo build` is unchanged.
 
-Packaged by the Gradle project beside it (`settings.gradle.kts`, `app/`),
-which holds no code: the activity is the platform's `NativeActivity`
-(`android:hasCode="false"`, and `android.builtInKotlin=false` so AGP 9 does
-not add 2.5 MB of Kotlin nothing loads). `build.sh` runs `cargo ndk` into
+Packaged by the Gradle project beside it (`settings.gradle.kts`, `app/`).
+The activity is Jetpack's `GameActivity` (S9-2, `games-activity` 4.4.0, the
+version android-activity 0.6 is written against, with its C glue
+android-activity's own — no prefab): its input connection gives the soft
+keyboard's text, which `NativeActivity` cannot. winit 0.30 drops that text
+(`TextEvent`), so the workspace patches winit (`vendor/winit`): each new text
+is compared with the last — committed text deleted becomes Backspace,
+committed text added `Ime::Commit`, the word being composed `Ime::Preedit` —
+and the keyboard's action key (`TextAction`) Enter. The keyboard's own text is
+cleared only when a field is left or another taken (egui's `set_ime_allowed`)
+and after Enter, never while typing: GameTextInput restarts the keyboard on
+every text set, which lost its predictions and any key typed before the reset
+landed. The one Java class of the
+app's own is `WebPane` (ADR-6). `android.builtInKotlin=false` still keeps AGP 9
+from adding Kotlin nothing loads; the Kotlin BOM makes the two standard
+libraries the AndroidX dependencies pull one. `build.sh` runs `cargo ndk` into
 `app/src/main/jniLibs`, then Gradle for a debug APK and a release AAB, the
 release signed from `NIMADIR_KEYSTORE` when set. Gradle strips the library
 (48 → 30 MB) using the NDK `build.sh` found. It replaced the spike's
@@ -831,7 +844,12 @@ the background and open again in the same process, a dark-mode switch and
 back, no panic.
 
 On Android eframe is built without X11, Wayland and `accesskit`
-(`host/Cargo.toml`), and `webview` is a compile error (desktop-only for beta).
+(`host/Cargo.toml`), and the `webview` feature is a compile error: a web page
+is the platform's `WebView` instead (`android_web.rs`, ADR-6) — `WebPane.show`
+over the page area, in physical pixels; `hide` when the page is left or
+another tab shown; Back within the page first (`canGoBack`). The class comes
+through the activity's class loader, since a thread the native side attached
+sees only the system's.
 Findings from the device: `docs/spikes/android.md`.
 
 ### `run-tests.sh` — the suite

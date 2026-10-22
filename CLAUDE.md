@@ -43,9 +43,12 @@ aarch64-linux-android` and `cargo install cargo-ndk`; build the mini-apps first
 ./tools/android-smoke.sh      # on a device: starts, idles cold, Back exits, no panic
 ```
 
-The app is a NativeActivity with `android:hasCode="false"` — no Java or Kotlin.
-Don't move it to GameActivity without first solving IME text: winit 0.30 drops
-the text events GameActivity sends, which would break typing entirely.
+The app runs behind GameActivity (S9-2), whose input connection carries the
+soft keyboard's text — NativeActivity's gives key events only, so nothing but
+ASCII could be typed. winit 0.30 drops GameActivity's text events, so the
+workspace patches it (`vendor/winit`, `[patch.crates-io]`; the change is
+described in `vendor/winit/NIMADIR.md`). The only Java of the app's own is
+`dev.nimadir.shell.WebPane` (ADR-6): the platform's WebView for a web page.
 
 **On Android the event loop must never end while the process lives**: winit
 makes one per process, and the process outlives the activity. So Back on the

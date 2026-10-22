@@ -8,4 +8,10 @@ default-members = ["host", "tools/componentize", "tools/nimadir", "crates/manife
 # components; they import host functions that only exist at runtime, so they must
 # NOT be built for the native host target. They are standalone crates, excluded
 # from the workspace and built separately (see build-mini-apps.sh).
-exclude = ["mini-apps/counter", "mini-apps/hello", "mini-apps/store", "mini-apps/runaway", "mini-apps/future", "mini-apps/gallery", "mini-apps/fetcher", "mini-apps/rates", "mini-apps/fuzz", "mini-apps/todo", "mini-apps/probe", "mini-apps/showcase"]
+exclude = ["vendor/winit", "mini-apps/counter", "mini-apps/hello", "mini-apps/store", "mini-apps/runaway", "mini-apps/future", "mini-apps/gallery", "mini-apps/fetcher", "mini-apps/rates", "mini-apps/fuzz", "mini-apps/todo", "mini-apps/probe", "mini-apps/showcase"]
+
+# winit 0.30 with one change, for Android: the soft keyboard's text, which it
+# drops, handed on as IME events (vendor/winit/NIMADIR.md). Upstream has no
+# 0.30 release with it, and eframe 0.35 needs 0.30.
+[patch.crates-io]
+winit = { path = "vendor/winit" }

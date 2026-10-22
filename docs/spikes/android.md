@@ -125,3 +125,30 @@ handled — a winit upgrade or a patch — which is now what `S3-4` is.
 Keep Android in beta (D1). Order Sprint 3 as: the Gradle/GameActivity build
 (it decides the input path and accessibility), then insets and Back (they make
 the app usable), then idle and background drawing, then the cache directory.
+
+## Device run of GameActivity (2026-10-22)
+
+S9-2 and the WebView (ADR-6), on the same Android 16 phone:
+
+- **Typing works**, on Gboard: predictions, picking a suggestion, Backspace
+  inside and past a word, Cyrillic with Russian predictions, an emoji followed
+  by a word being composed (UTF-16 spans), Enter from the ✓ key, a second field
+  not inheriting the first one's word.
+- **Setting the keyboard's text restarts it.** GameTextInput's `setState`
+  ends in `InputMethodManager.restartInput`, and the native side posts it to
+  the UI thread. The first patch set the text back to the composing word after
+  every change: Gboard restarted on every key, so it never showed a
+  prediction, and keys `adb shell input text` sent in a burst were lost in the
+  gap before the reset landed (14 of 26 letters). The patch now compares each
+  text with the last and clears the keyboard only when a field changes hands.
+- **The ✓ key is not a key event** but `performEditorAction`, which
+  android-activity reports as `TextAction` and winit drops; it is Enter now.
+- **The WebView** sits over the page area, below the tab strip when there is
+  one; scrolls, follows links, types (its own input connection); Back goes back
+  in the page, then leaves it; leaving or showing another tab destroys it, and
+  showing the tab again makes it afresh. It refused `http://` until the
+  manifest allowed cleartext. With a page whose script ticks twice a second,
+  the app used 5.7 % of a core; with a still page, 0.8 % — the shell itself
+  draws nothing while a page is shown.
+- The phone had no network again: pages came from the computer over
+  `adb reverse tcp:8765 tcp:8765` to `http://localhost:8765/`.

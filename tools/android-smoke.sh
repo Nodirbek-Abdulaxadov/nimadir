@@ -13,7 +13,7 @@ cd "$(dirname "$0")/.."
 ADB="${ANDROID_HOME:?set ANDROID_HOME}/platform-tools/adb"
 APK=android/app/build/outputs/apk/debug/app-debug.apk
 PKG=dev.nimadir.shell
-ACTIVITY=$PKG/android.app.NativeActivity
+ACTIVITY=$PKG/com.google.androidgamesdk.GameActivity
 FAIL=0
 
 say()  { printf '  %-6s %s\n' "$1" "$2"; }
